@@ -55,6 +55,10 @@ void MulticoreJitCodeStorage::Init()
     m_nStored   = 0;
     m_nReturned = 0;
     m_crstCodeMap.Init(CrstMulticoreJitHash);
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	m_nOptimizedStored = 0;
+	m_methodsToOptimize.Init();
+#endif
 }
 
 
@@ -92,15 +96,35 @@ void MulticoreJitCodeStorage::StoreMethodCode(MethodDesc * pMD, PCODE pCode)
 
         PCODE code = NULL;
 
-        if (! m_nativeCodeMap.Lookup(pMD, & code))
-        {
-            m_nativeCodeMap.Add(pMD, pCode);
 
+		if (!m_nativeCodeMap.Lookup(pMD, &code))
+		{
+			m_nativeCodeMap.Add(pMD, pCode);
             m_nStored ++;
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+			m_optimizeNativeCodeMap.Remove(pMD);
+#endif
         }
     }
 }
 
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+MethodDesc* MulticoreJitCodeStorage::GetNextOptimizeMethod()
+{
+	STANDARD_VM_CONTRACT;
+
+	CrstHolder holder(&m_crstCodeMap);
+	SListElem<MethodDesc*>* pElem = m_methodsToOptimize.RemoveHead();
+	if (pElem != NULL)
+	{
+		MethodDesc* pMD = *pElem;
+		delete pElem;
+		return pMD;
+	}
+	return NULL;
+}
+#endif
 
 // Query from MakeJitWorker: Lookup stored JITted methods
 PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
@@ -109,18 +133,30 @@ PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
 
     PCODE code = NULL;
 
+#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
     if (m_nStored > m_nReturned) // Quick check before taking lock
     {
+#endif
         CrstHolder holder(& m_crstCodeMap);
     
         if (m_nativeCodeMap.Lookup(pMethod, & code))
         {
-            m_nReturned ++;
+		    m_nReturned++;
 
-            // Remove it to keep storage small (hopefully flat)
-            m_nativeCodeMap.Remove(pMethod);
+			// Remove it to keep storage small (hopefully flat)
+			m_nativeCodeMap.Remove(pMethod);
         }
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+		else if(g_pConfig->JitProgressiveOptimization() && !m_optimizeNativeCodeMap.Lookup(pMethod, &code))
+		{
+			m_nOptimizedStored++;
+			m_optimizeNativeCodeMap.Add(pMethod, NULL);
+			m_methodsToOptimize.InsertTail(new SListElem<MethodDesc*>(pMethod));
+		}
+#endif
+#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
     }
+#endif
 
 #ifdef MULTICOREJIT_LOGGING
     if (Logging2On(LF2_MULTICOREJIT, LL_INFO1000))
@@ -555,9 +591,19 @@ bool MulticoreJitProfilePlayer::CompileMethodDesc(Module * pModule, MethodDesc *
         ThreadStateNCStackHolder holder(-1, Thread::TSNC_CallingManagedCodeDisabled);
 #endif
 
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+		PCODE pOldCode = pMD->GetNativeCode();
+#endif
         // MakeJitWorker calls back to MulticoreJitCodeStorage::StoreMethodCode under MethodDesc lock
-        pMD->MakeJitWorker(& header, CORJIT_FLG_MCJIT_BACKGROUND, 0);
-
+        PCODE pCode = pMD->MakeJitWorker(& header, CORJIT_FLG_MCJIT_BACKGROUND, 0);
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+		Precode* pPrecode = pMD->GetPrecode();
+		pPrecode->Reset();
+		if (pOldCode != NULL && pCode != pOldCode)
+		{
+			//*(BYTE*)pOldCode = 0xcc;
+		}
+#endif
         return true;
     }
 
@@ -1360,6 +1406,28 @@ HRESULT MulticoreJitProfilePlayer::PlayProfile()
     return hr;
 }
 
+//#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+void MulticoreJitProfilePlayer::OptimizeMethods()
+{
+	STANDARD_VM_CONTRACT;
+
+	MulticoreJitCodeStorage & curStorage = GetAppDomain()->GetMulticoreJitManager().GetMulticoreJitCodeStorage();
+	while (true)
+	{
+		MethodDesc* pMD = NULL;
+		while (pMD == NULL)
+		{
+			pMD = curStorage.GetNextOptimizeMethod();
+			if (pMD == NULL)
+			{
+				ClrSleepEx(1, FALSE);
+			}
+		}
+
+		CompileMethodDesc(pMD->GetModule(), pMD);
+	}
+}
+//#endif
 
 HRESULT MulticoreJitProfilePlayer::JITThreadProc(Thread * pThread)
 {
@@ -1382,6 +1450,9 @@ HRESULT MulticoreJitProfilePlayer::JITThreadProc(Thread * pThread)
             GCX_PREEMP();
 
             m_stats.m_hr = PlayProfile();
+//#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+			OptimizeMethods();
+//#endif
         }
         END_DOMAIN_TRANSITION;
     }
@@ -1459,7 +1530,15 @@ HRESULT MulticoreJitProfilePlayer::ProcessProfile(const wchar_t * pFileName)
 {
     STANDARD_VM_CONTRACT;
 
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	HRESULT hr = S_OK;
+	if (pFileName != NULL)
+	{
+		hr = ReadCheckFile(pFileName);
+	}
+#else
     HRESULT hr = ReadCheckFile(pFileName);
+#endif
 
     if (SUCCEEDED(hr))
     {

@@ -1187,32 +1187,32 @@ WORD MethodDesc::InterlockedUpdateFlags3(WORD wMask, BOOL fSet)
 // This function returns null if the method has no native code.
 PCODE MethodDesc::GetNativeCode()
 {
-    WRAPPER_NO_CONTRACT;
-    SUPPORTS_DAC;
+	WRAPPER_NO_CONTRACT;
+	SUPPORTS_DAC;
 
-    g_IBCLogger.LogMethodDescAccess(this);
+	g_IBCLogger.LogMethodDescAccess(this);
 
-    if (HasNativeCodeSlot())
-    {
-        // When profiler is enabled, profiler may ask to rejit a code even though we
-        // we have ngen code for this MethodDesc.  (See MethodDesc::DoPrestub).
-        // This means that NativeCodeSlot::GetValueMaybeNullAtPtr(GetAddrOfNativeCodeSlot())
-        // is not stable. It can turn from non-zero to zero.
-        PCODE pCode = PCODE(NativeCodeSlot::GetValueMaybeNullAtPtr(GetAddrOfNativeCodeSlot()) & ~FIXUP_LIST_MASK);
+	if (HasNativeCodeSlot())
+	{
+		// When profiler is enabled, profiler may ask to rejit a code even though we
+		// we have ngen code for this MethodDesc.  (See MethodDesc::DoPrestub).
+		// This means that NativeCodeSlot::GetValueMaybeNullAtPtr(GetAddrOfNativeCodeSlot())
+		// is not stable. It can turn from non-zero to zero.
+		PCODE pCode = PCODE(NativeCodeSlot::GetValueMaybeNullAtPtr(GetAddrOfNativeCodeSlot()) & ~FIXUP_LIST_MASK);
 #ifdef _TARGET_ARM_
-        if (pCode != NULL)
-            pCode |= THUMB_CODE;
+		if (pCode != NULL)
+			pCode |= THUMB_CODE;
 #endif
-        return pCode;
-    }
+		return pCode;
+	}
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
 #ifndef DACCESS_COMPILE // TODO: Need a solution that will work under DACCESS
-    PCODE pEntryPoint = GetMethodEntryPoint();
-    if (Interpreter::InterpretationStubToMethodInfo(pEntryPoint) == this)
-    {
-        return pEntryPoint;
-    }
+	PCODE pEntryPoint = GetMethodEntryPoint();
+	if (Interpreter::InterpretationStubToMethodInfo(pEntryPoint) == this)
+	{
+		return pEntryPoint;
+	}
 #endif
 #endif
 
@@ -2353,8 +2353,10 @@ PCODE MethodDesc::TryGetMultiCallableAddrOfCode(CORINFO_ACCESS_FLAGS accessFlags
     }
     else
     {
+#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
         if (IsPointingToNativeCode())
             return GetNativeCode();
+#endif
     }
 
     if (HasStableEntryPoint())
@@ -2493,7 +2495,7 @@ BOOL MethodDesc::IsPointingToPrestub()
     return GetPrecode()->IsPointingToPrestub();
 }
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
 //*******************************************************************************
 BOOL MethodDesc::IsReallyPointingToPrestub()
 {
@@ -5029,7 +5031,7 @@ Precode* MethodDesc::GetOrCreatePrecode()
 
 //*******************************************************************************
 BOOL MethodDesc::SetNativeCodeInterlocked(PCODE addr, PCODE pExpected /*=NULL*/
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
                                           , BOOL fStable
 #endif
                                           )
@@ -5058,7 +5060,7 @@ BOOL MethodDesc::SetNativeCodeInterlocked(PCODE addr, PCODE pExpected /*=NULL*/
         value.SetValueMaybeNull(pSlot, addr | (*dac_cast<PTR_TADDR>(pSlot) & FIXUP_LIST_MASK));
         expected.SetValueMaybeNull(pSlot, pExpected | (*dac_cast<PTR_TADDR>(pSlot) & FIXUP_LIST_MASK));
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
         BOOL fRet = FALSE;
 
         fRet = FastInterlockCompareExchangePointer(
@@ -5082,7 +5084,11 @@ BOOL MethodDesc::SetNativeCodeInterlocked(PCODE addr, PCODE pExpected /*=NULL*/
 #endif // FEATURE_INTERPRETER
     }
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
+	if (pExpected == NULL)
+	{
+		pExpected = GetTemporaryEntryPoint();
+	}
     PCODE pFound = FastInterlockCompareExchangePointer(GetAddrOfSlot(), addr, pExpected);
     if (fStable)
     {
@@ -5116,7 +5122,7 @@ BOOL MethodDesc::SetStableEntryPointInterlocked(PCODE addr)
     return fResult;
 }
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
 BOOL MethodDesc::SetEntryPointInterlocked(PCODE addr)
 {
     CONTRACTL {
@@ -5134,7 +5140,7 @@ BOOL MethodDesc::SetEntryPointInterlocked(PCODE addr)
     return fResult;
 }
 
-#endif // FEATURE_INTERPRETER
+#endif
 
 //*******************************************************************************
 void NDirectMethodDesc::InterlockedSetNDirectFlags(WORD wFlags)

@@ -304,6 +304,10 @@ private:
     DomainAssembly * LoadAssembly(SString & assemblyName);
 #endif
 
+//#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	void OptimizeMethods();
+//#endif
+
 public:
 
     MulticoreJitProfilePlayer(AppDomain * pDomain, ICLRPrivBinder * pBinderContext, LONG nSession, bool fAppxMode);

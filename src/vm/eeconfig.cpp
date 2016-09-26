@@ -261,6 +261,7 @@ HRESULT EEConfig::Init()
     fJitAlignLoops = false;
     fAddRejitNops = false;
     fJitMinOpts = false;
+	fJitProgressiveOptimization = false;
     fPInvokeRestoreEsp = (DWORD)-1;
 
     fLegacyNullReferenceExceptionPolicy = false;
@@ -1126,6 +1127,7 @@ HRESULT EEConfig::sync()
     fJitFramed = (GetConfigDWORD_DontUse_(CLRConfig::UNSUPPORTED_JitFramed, fJitFramed) != 0);
     fJitAlignLoops = (GetConfigDWORD_DontUse_(CLRConfig::UNSUPPORTED_JitAlignLoops, fJitAlignLoops) != 0);
     fJitMinOpts = (GetConfigDWORD_DontUse_(CLRConfig::UNSUPPORTED_JITMinOpts, fJitMinOpts) == 1);
+	fJitProgressiveOptimization = (GetConfigDWORD_DontUse_(CLRConfig::UNSUPPORTED_JitProgressiveOptimization, fJitProgressiveOptimization) == 1);
     iJitOptimizeType      =  GetConfigDWORD_DontUse_(CLRConfig::EXTERNAL_JitOptimizeType, iJitOptimizeType);
     if (iJitOptimizeType > OPT_RANDOM)     iJitOptimizeType = OPT_DEFAULT;
 

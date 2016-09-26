@@ -394,8 +394,10 @@ BOOL Precode::SetTargetInterlocked(PCODE target)
     PCODE expected = GetTarget();
     BOOL ret = FALSE;
 
-    if (!IsPointingToPrestub(expected))
-        return FALSE;
+	if (!IsPointingToPrestub(expected))
+		return FALSE;
+
+
 
     g_IBCLogger.LogMethodPrecodeWriteAccess(GetMethodDesc());
 

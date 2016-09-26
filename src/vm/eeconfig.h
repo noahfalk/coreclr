@@ -295,6 +295,7 @@ public:
     bool          JitAlignLoops(void)               const {LIMITED_METHOD_CONTRACT;  return fJitAlignLoops; }
     bool          AddRejitNops(void)                const {LIMITED_METHOD_DAC_CONTRACT;  return fAddRejitNops; }
     bool          JitMinOpts(void)                  const {LIMITED_METHOD_CONTRACT;  return fJitMinOpts; }
+	bool          JitProgressiveOptimization(void)  const {LIMITED_METHOD_CONTRACT;  return fJitProgressiveOptimization; }
     
     BOOL PInvokeRestoreEsp(BOOL fDefault) const
     {
@@ -903,6 +904,7 @@ private: //----------------------------------------------------------------
     bool fJitAlignLoops;       // Enable/Disable loop alignment
     bool fAddRejitNops;        // Enable/Disable nop padding for rejit.          default is true
     bool fJitMinOpts;          // Enable MinOpts for all jitted methods
+	bool fJitProgressiveOptimization; 
 
     unsigned iJitOptimizeType; // 0=Blended,1=SmallCode,2=FastCode,              default is 0=Blended
     

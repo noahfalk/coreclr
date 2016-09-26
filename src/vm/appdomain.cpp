@@ -5188,6 +5188,11 @@ void AppDomain::Init()
 #endif //FEATURE_COMINTEROP
 
 #endif // CROSSGEN_COMPILE
+
+//#if defined(FEATURE_PROGRESSIVE_OPTIMIZATION) && defined(FEATURE_MULTICOREJIT)
+//	m_MulticoreJitManager.StartOptimizationThread(this);
+//#endif
+
 } // AppDomain::Init
 
 

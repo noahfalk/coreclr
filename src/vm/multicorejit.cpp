@@ -1192,6 +1192,61 @@ void MulticoreJitManager::SetProfileRoot(AppDomain * pDomain, const wchar_t * pP
     }
 }
 
+//#if defined(FEATURE_PROGRESSIVE_OPTIMIZATION)
+void MulticoreJitManager::StartOptimizationThread(AppDomain* pDomain)
+{
+	CONTRACTL
+	{
+		THROWS;
+	MODE_PREEMPTIVE;
+	INJECT_FAULT(COMPlusThrowOM(););
+	CAN_TAKE_LOCK;
+	}
+	CONTRACTL_END;
+
+	CrstHolder hold(&m_playerLock);
+
+	m_pMulticoreJitRecorder = new (nothrow) MulticoreJitRecorder(
+		pDomain,
+#if defined(FEATURE_CORECLR)
+		NULL,
+#else
+		NULL,
+#endif
+		false);
+
+	NewHolder<MulticoreJitProfilePlayer> player(new (nothrow) MulticoreJitProfilePlayer(
+		pDomain,
+#if defined(FEATURE_CORECLR)
+		NULL,
+#else
+		NULL,
+#endif
+		1,
+		false));
+
+	HRESULT hr1 = S_OK;
+	EX_TRY
+	{
+	    hr1 = player->ProcessProfile(NULL);
+	}
+	EX_CATCH_HRESULT(hr1);
+
+	// If ProcessProfile succeeds, the background thread is responsible for deleting it when it finishes; otherwise, delete now
+	if (SUCCEEDED(hr1))
+	{
+		if (g_MulticoreJitDelay > 0)
+		{
+			MulticoreJitTrace(("Delay main thread %d ms", g_MulticoreJitDelay));
+
+			ClrSleepEx(g_MulticoreJitDelay, FALSE);
+		}
+
+		player.SuppressRelease();
+	}
+
+}
+//#endif
 
 // API Function: StartProfile
 // Threading: protected by m_playerLock
@@ -1384,6 +1439,13 @@ void MulticoreJitManager::AutoStartProfile(AppDomain * pDomain)
             wszProfile,
             suffix);
     }
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	else
+	{
+		StartOptimizationThread(pDomain);
+	}
+#endif
+
 }
 
 #if defined(FEATURE_APPX_BINDER)

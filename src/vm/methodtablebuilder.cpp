@@ -7200,6 +7200,14 @@ MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
     }
 #endif
 
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	if (g_pConfig->JitProgressiveOptimization() &&
+		(pMDMethod->GetMethodType() == METHOD_TYPE_NORMAL || pMDMethod->GetMethodType() == METHOD_TYPE_INSTANTIATED))
+	{
+		return TRUE;
+	}
+#endif
+
     return GetModule()->IsEditAndContinueEnabled();
 }
 

@@ -84,6 +84,13 @@ private:
     unsigned                        m_nStored;
     unsigned                        m_nReturned;
 
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	unsigned m_nOptimizedStored;
+	MapSHashWithRemove<PVOID, PCODE> m_optimizeNativeCodeMap;
+	SList<SListElem<MethodDesc*>> m_methodsToOptimize;
+#endif
+
 public:
 
     void Init();
@@ -104,6 +111,10 @@ public:
     void StoreMethodCode(MethodDesc * pMethod, PCODE pCode);
     
     PCODE QueryMethodCode(MethodDesc * pMethod);
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	MethodDesc* GetNextOptimizeMethod();
+#endif
 
     inline unsigned GetRemainingMethodCount() const
     {
@@ -259,6 +270,10 @@ public:
 
     static bool IsLoadOkay(Module * pModule);
 
+#endif
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	void StartOptimizationThread(AppDomain* pDomain);
 #endif
 
 };

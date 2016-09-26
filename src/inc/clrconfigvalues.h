@@ -441,6 +441,7 @@ CONFIG_STRING_INFO_EX(INTERNAL_JITLateDisasmTo, W("JITLateDisasmTo"), "", CLRCon
 CONFIG_DWORD_INFO_EX(INTERNAL_JITMaxTempAssert, W("JITMaxTempAssert"), 1, "", CLRConfig::REGUTIL_default)
 CONFIG_DWORD_INFO_EX(INTERNAL_JitMaxUncheckedOffset, W("JitMaxUncheckedOffset"), (DWORD)8, "", CLRConfig::REGUTIL_default)
 RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_JITMinOpts, W("JITMinOpts"), "Forces MinOpts")
+RETAIL_CONFIG_DWORD_INFO_DIRECT_ACCESS(UNSUPPORTED_JitProgressiveOptimization, W("JITProgressiveOptimization"), "Forces progressive optimization on all jitted methods")
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_JITMinOptsBbCount, W("JITMinOptsBbCount"), "Internal jit control of MinOpts")
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_JITMinOptsCodeSize, W("JITMinOptsCodeSize"), "Internal jit control of MinOpts")
 CONFIG_DWORD_INFO_DIRECT_ACCESS(INTERNAL_JITMinOptsInstrCount, W("JITMinOptsInstrCount"), "Internal jit control of MinOpts")

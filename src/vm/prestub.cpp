@@ -65,13 +65,14 @@ PCODE MethodDesc::DoBackpatch(MethodTable * pMT, MethodTable *pDispatchingMT, BO
     {
         STANDARD_VM_CHECK;
         PRECONDITION(!ContainsGenericVariables());
-#ifndef FEATURE_INTERPRETER
+#if !defined(FEATURE_INTERPRETER)
         PRECONDITION(HasStableEntryPoint());
-#endif // FEATURE_INTERPRETER
+#endif
         PRECONDITION(pMT == GetMethodTable());
     }
     CONTRACTL_END;
-#ifdef FEATURE_INTERPRETER
+
+#if defined(FEATURE_INTERPRETER)
     PCODE pTarget = GetMethodEntryPoint();
 #else
     PCODE pTarget = GetStableEntryPoint();
@@ -254,29 +255,42 @@ void DACNotifyCompilationFinished(MethodDesc *methodDesc)
 
 PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWORD flags2)
 {
-    STANDARD_VM_CONTRACT;
+	STANDARD_VM_CONTRACT;
 
-    BOOL fIsILStub = IsILStub();        // @TODO: understand the need for this special case
+	BOOL fIsILStub = IsILStub();        // @TODO: understand the need for this special case
 
-    LOG((LF_JIT, LL_INFO1000000,
-         "MakeJitWorker(" FMT_ADDR ", %s) for %s:%s\n",
-         DBG_ADDR(this),
-         fIsILStub               ? " TRUE" : "FALSE",
-         GetMethodTable()->GetDebugClassName(),
-         m_pszDebugMethodName));
+	LOG((LF_JIT, LL_INFO1000000,
+		"MakeJitWorker(" FMT_ADDR ", %s) for %s:%s\n",
+		DBG_ADDR(this),
+		fIsILStub ? " TRUE" : "FALSE",
+		GetMethodTable()->GetDebugClassName(),
+		m_pszDebugMethodName));
 
-    PCODE pCode = NULL;
-    ULONG sizeOfCode = 0;
+	PCODE pCode = NULL;
+	ULONG sizeOfCode = 0;
+#if defined(FEATURE_INTERPRETER) || defined(FEATURE_PROGRESSIVE_OPTIMIZATION)
+	PCODE pPreviousCode = NULL;
+	BOOL fStable = TRUE;  // True iff the new code address (to be stored in pCode), is a stable entry point.
+#endif
 #ifdef FEATURE_INTERPRETER
-    PCODE pPreviousInterpStub = NULL;
-    BOOL fInterpreted = FALSE;
-    BOOL fStable = TRUE;  // True iff the new code address (to be stored in pCode), is a stable entry point.
+	BOOL fInterpreted = FALSE;
 #endif
 
 #ifdef FEATURE_MULTICOREJIT
-    MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+	MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
 
-    bool fBackgroundThread = (flags & CORJIT_FLG_MCJIT_BACKGROUND) != 0;
+	bool fBackgroundThread = (flags & CORJIT_FLG_MCJIT_BACKGROUND) != 0;
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	if (fBackgroundThread || !g_pConfig->JitProgressiveOptimization() || fIsILStub || !HasNativeCodeSlot() || !HasPrecode() || IsDynamicMethod())
+	{
+		fStable = TRUE;
+	}
+	else
+	{
+		fStable = FALSE;
+	    flags |= CORJIT_FLG_MIN_OPT;
+	}
+#endif
 #endif
 
     {
@@ -287,13 +301,18 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
         pCode = GetNativeCode();
         if (pCode != NULL)
         {
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+			if (fBackgroundThread)
+#endif
 #ifdef FEATURE_INTERPRETER
-            if (Interpreter::InterpretationStubToMethodInfo(pCode) == this)
-            {
-                pPreviousInterpStub = pCode;
-            }
-            else
-#endif // FEATURE_INTERPRETER
+			if (Interpreter::InterpretationStubToMethodInfo(pCode) == this)
+#endif
+#if defined(FEATURE_INTERPRETER) || defined(FEATURE_PROGRESSIVE_OPTIMIZATION)
+			{
+				pPreviousCode = pCode;
+			}
+			else
+#endif
             goto Done;
         }
 
@@ -348,11 +367,13 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
 
             // It is possible that another thread stepped in before we entered the lock.
             pCode = GetNativeCode();
-#ifdef FEATURE_INTERPRETER
-            if (pCode != NULL && (pCode != pPreviousInterpStub))
-#else
-            if (pCode != NULL)
-#endif // FEATURE_INTERPRETER
+//#if defined(FEATURE_INTERPRETER)
+//            if (pCode != NULL && (pCode != pPreviousCode))
+//#if defined(FEATURE_PROGRESSIVE_OPTIMIZATION)
+			if(pCode != NULL && !fBackgroundThread)
+//#else
+//            if (pCode != NULL)
+//#endif
             {
                 goto Done;
             }
@@ -368,31 +389,42 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
             // If not called from multi-core JIT thread, 
             if (! fBackgroundThread)
             {
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+				if(!fStable)
+				{
+#else
                 // Quick check before calling expensive out of line function on this method's domain has code JITted by background thread
                 if (mcJitManager.GetMulticoreJitCodeStorage().GetRemainingMethodCount() > 0)
                 {
-                    if (MulticoreJitManager::IsMethodSupported(this))
-                    {
-                        pCode = mcJitManager.RequestMethodCode(this); // Query multi-core JIT manager for compiled code
 
-                        // Multicore JIT manager starts background thread to pre-compile methods, but it does not back-patch it/notify profiler/notify DAC,
-                        // Jumtp to GotNewCode to do so
-                        if (pCode != NULL)
-                        {
-                            fCompiledInBackground = true;
-                    
-#ifdef DEBUGGING_SUPPORTED
-                            // Notify the debugger of the jitted function
-                            if (g_pDebugInterface != NULL)
-                            {
-                                g_pDebugInterface->JITComplete(this, pCode);
-                            }
+					if (MulticoreJitManager::IsMethodSupported(this))
+					{
+#endif
+						pCode = mcJitManager.RequestMethodCode(this); // Query multi-core JIT manager for compiled code
+
+						// Multicore JIT manager starts background thread to pre-compile methods, but it does not back-patch it/notify profiler/notify DAC,
+						// Jumtp to GotNewCode to do so
+						if (pCode != NULL)
+						{
+							fCompiledInBackground = true;
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+							fStable = TRUE; // We may not have been aiming for the stable version, but we got it for free anyways
 #endif
 
-                            goto GotNewCode;
-                        }
-                    }
+#ifdef DEBUGGING_SUPPORTED
+							// Notify the debugger of the jitted function
+							if (g_pDebugInterface != NULL)
+							{
+								g_pDebugInterface->JITComplete(this, pCode);
+							}
+#endif
+
+							goto GotNewCode;
+						}
+					}
+#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
                 }
+#endif
             }
 #endif
 
@@ -527,7 +559,9 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
                 
                 mcJitManager.GetMulticoreJitCodeStorage().StoreMethodCode(this, pCode);
                 
+#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
                 goto Done;
+#endif
             }
 
 GotNewCode:
@@ -545,28 +579,40 @@ GotNewCode:
             // code. This also avoid races with profiler overriding ngened code (see
             // matching SetNativeCodeInterlocked done after
             // JITCachedFunctionSearchStarted)
-#ifdef FEATURE_INTERPRETER
-            PCODE pExpected = pPreviousInterpStub;
-            if (pExpected == NULL) pExpected = GetTemporaryEntryPoint();
+#if defined(FEATURE_INTERPRETER) || defined(FEATURE_PROGRESSIVE_OPTIMIZATION)
+            PCODE pExpected = pPreviousCode;
+#else
+			PCODE pExpected = NULL;
 #endif
             {
                 ReJitPublishMethodHolder publishWorker(this, pCode);
-                if (!SetNativeCodeInterlocked(pCode
-#ifdef FEATURE_INTERPRETER
-                    , pExpected, fStable
+				
+                if (!SetNativeCodeInterlocked(pCode, pExpected
+#if defined(FEATURE_INTERPRETER)
+                    , fStable
 #endif
                     ))
                 {
                     // Another thread beat us to publishing its copy of the JITted code.
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+					//background thread should always win
+					if (fBackgroundThread)
+					{
+						pExpected = GetNativeCode();
+						BOOL bReplaced = SetNativeCodeInterlocked(pCode, pExpected);
+						_ASSERTE(bReplaced);
+					}
+#else
                     pCode = GetNativeCode();
                     goto Done;
+#endif
                 }
             }
 
 #ifdef FEATURE_INTERPRETER
             // State for dynamic methods cannot be freed if the method was ever interpreted,
             // since there is no way to ensure that it is not in use at the moment.
-            if (IsDynamicMethod() && !fInterpreted && (pPreviousInterpStub == NULL))
+            if (IsDynamicMethod() && !fInterpreted && (pPreviousCode == NULL))
             {
                 AsDynamicMethodDesc()->GetResolver()->FreeCompileTimeState();
             }
@@ -1245,7 +1291,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     /**************************   BACKPATCHING   *************************/
     // See if the addr of code has changed from the pre-stub
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
     if (!IsReallyPointingToPrestub())
 #else
     if (!IsPointingToPrestub())
@@ -1284,6 +1330,9 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     {
         // remember if we need to backpatch the MethodTable slot
         BOOL  fBackpatch           = !fRemotingIntercepted
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+                                    && !g_pConfig->JitProgressiveOptimization()
+#endif
                                     && !IsEnCMethod();
 
 #ifdef FEATURE_PREJIT 
@@ -1308,7 +1357,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
             if (!fShouldSearchCache)
             {
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
                 SetNativeCodeInterlocked(NULL, pCode, FALSE);
 #else
                 SetNativeCodeInterlocked(NULL, pCode);
@@ -1453,7 +1502,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
             pCode = MakeJitWorker(pHeader, 0, 0);
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
             if ((pCode != NULL) && !HasStableEntryPoint())
             {
                 // We don't yet have a stable entry point, so don't do backpatching yet.
@@ -1590,7 +1639,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
                 SetEntryPointInterlocked(pCode);
             }
             else
-#endif // FEATURE_INTERPRETER
+#endif
             {
                 SetStableEntryPointInterlocked(pCode);
             }
@@ -1611,7 +1660,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         }
     }
 
-#ifdef FEATURE_INTERPRETER
+#if defined(FEATURE_INTERPRETER)
     _ASSERTE(!IsReallyPointingToPrestub());
 #else // FEATURE_INTERPRETER
     _ASSERTE(!IsPointingToPrestub());
@@ -1705,6 +1754,9 @@ static PCODE PatchNonVirtualExternalMethod(MethodDesc * pMD, PCODE pCode, PTR_CO
 #ifdef HAS_FIXUP_PRECODE
     if (pMD->HasPrecode() && pMD->GetPrecode()->GetType() == PRECODE_FIXUP
         && !pMD->IsEnCMethod()
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+		&& !g_pConfig->JitProgressiveOptimization()
+#endif
 #ifndef HAS_REMOTING_PRECODE
         && !pMD->IsRemotingInterceptedViaPrestub()
 #endif

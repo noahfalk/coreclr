@@ -84,6 +84,7 @@
         <CDefines Condition="'$(FeaturePerfmon)' == 'true'">$(CDefines);FEATURE_PERFMON</CDefines>
         <CDefines Condition="'$(FeaturePls)' == 'true'">$(CDefines);FEATURE_PLS</CDefines>
         <CDefines Condition="'$(FeaturePrejit)' == 'true'">$(CDefines);FEATURE_PREJIT</CDefines>
+        <CDefines Condition="'$(FeatureProgressiveOptimization)' == 'true'">$(CDefines);FEATURE_PROGRESSIVE_OPTIMIZATION</CDefines>
         <CDefines Condition="'$(FeatureRandomizedStringHashing)' == 'true'">$(CDefines);FEATURE_RANDOMIZED_STRING_HASHING</CDefines>
         <CDefines Condition="'$(FeatureReflectionOnlyLoad)' == 'true'">$(CDefines);FEATURE_REFLECTION_ONLY_LOAD</CDefines>
         <CDefines Condition="'$(FeatureReJIT)' == 'true'">$(CDefines);FEATURE_REJIT</CDefines>
