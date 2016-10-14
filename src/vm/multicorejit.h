@@ -75,6 +75,10 @@ struct MulticoreJitPlayerStat
 
 
 // Code Storage
+struct PerMethodData
+{
+	int m_callCount;
+};
 
 class MulticoreJitCodeStorage
 {
@@ -87,7 +91,7 @@ private:
 
 #ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
 	unsigned m_nOptimizedStored;
-	MapSHashWithRemove<PVOID, PCODE> m_optimizeNativeCodeMap;
+	MapSHashWithRemove<PVOID, PerMethodData*> m_optimizeNativeCodeMap;
 	SList<SListElem<MethodDesc*>> m_methodsToOptimize;
 #endif
 
@@ -109,10 +113,11 @@ public:
 #endif
 
     void StoreMethodCode(MethodDesc * pMethod, PCODE pCode);
-    
+	
     PCODE QueryMethodCode(MethodDesc * pMethod);
 
 #ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	BOOL OnMethodCalled(MethodDesc* pMethod);
 	MethodDesc* GetNextOptimizeMethod();
 #endif
 

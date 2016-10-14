@@ -101,10 +101,6 @@ void MulticoreJitCodeStorage::StoreMethodCode(MethodDesc * pMD, PCODE pCode)
 		{
 			m_nativeCodeMap.Add(pMD, pCode);
             m_nStored ++;
-
-#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
-			m_optimizeNativeCodeMap.Remove(pMD);
-#endif
         }
     }
 }
@@ -126,6 +122,28 @@ MethodDesc* MulticoreJitCodeStorage::GetNextOptimizeMethod()
 }
 #endif
 
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+BOOL MulticoreJitCodeStorage::OnMethodCalled(MethodDesc * pMethod)
+{
+	CrstHolder holder(&m_crstCodeMap);
+	PerMethodData* pPerMethodData = NULL;
+	if(!m_optimizeNativeCodeMap.Lookup(pMethod, &pPerMethodData))
+	{
+		pPerMethodData = new PerMethodData();
+		pPerMethodData->m_callCount = 0;
+		m_optimizeNativeCodeMap.Add(pMethod, pPerMethodData);
+	}
+
+	if (pPerMethodData->m_callCount == 30)
+	{
+		m_nOptimizedStored++;
+		m_methodsToOptimize.InsertTail(new SListElem<MethodDesc*>(pMethod));
+	}
+
+	return pPerMethodData->m_callCount++ >= 30;
+}
+#endif
+
 // Query from MakeJitWorker: Lookup stored JITted methods
 PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
 {
@@ -133,10 +151,8 @@ PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
 
     PCODE code = NULL;
 
-#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
     if (m_nStored > m_nReturned) // Quick check before taking lock
     {
-#endif
         CrstHolder holder(& m_crstCodeMap);
     
         if (m_nativeCodeMap.Lookup(pMethod, & code))
@@ -146,17 +162,7 @@ PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
 			// Remove it to keep storage small (hopefully flat)
 			m_nativeCodeMap.Remove(pMethod);
         }
-#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
-		else if(g_pConfig->JitProgressiveOptimization() && !m_optimizeNativeCodeMap.Lookup(pMethod, &code))
-		{
-			m_nOptimizedStored++;
-			m_optimizeNativeCodeMap.Add(pMethod, NULL);
-			m_methodsToOptimize.InsertTail(new SListElem<MethodDesc*>(pMethod));
-		}
-#endif
-#ifndef FEATURE_PROGRESSIVE_OPTIMIZATION
     }
-#endif
 
 #ifdef MULTICOREJIT_LOGGING
     if (Logging2On(LF2_MULTICOREJIT, LL_INFO1000))
@@ -572,42 +578,33 @@ HRESULT MulticoreJitProfilePlayer::HandleModuleRecord(const ModuleRecord * pMod)
 bool MulticoreJitProfilePlayer::CompileMethodDesc(Module * pModule, MethodDesc * pMD)
 {
     STANDARD_VM_CONTRACT;
-    
-    COR_ILMETHOD_DECODER::DecoderStatus status;
         
-    COR_ILMETHOD_DECODER header(pMD->GetILHeader(), pModule->GetMDImport(), & status);
-        
-    if (status == COR_ILMETHOD_DECODER::SUCCESS)
+    if (m_stats.m_nTryCompiling == 0)
     {
-        if (m_stats.m_nTryCompiling == 0)
-        {
-            MulticoreJitTrace(("First call to MakeJitWorker"));
-        }
-
-        m_stats.m_nTryCompiling ++;
-
-#if defined(FEATURE_CORECLR)
-        // Reset the flag to allow managed code to be called in multicore JIT background thread from this routine
-        ThreadStateNCStackHolder holder(-1, Thread::TSNC_CallingManagedCodeDisabled);
-#endif
-
-#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
-		PCODE pOldCode = pMD->GetNativeCode();
-#endif
-        // MakeJitWorker calls back to MulticoreJitCodeStorage::StoreMethodCode under MethodDesc lock
-        PCODE pCode = pMD->MakeJitWorker(& header, CORJIT_FLG_MCJIT_BACKGROUND, 0);
-#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
-		Precode* pPrecode = pMD->GetPrecode();
-		pPrecode->Reset();
-		if (pOldCode != NULL && pCode != pOldCode)
-		{
-			//*(BYTE*)pOldCode = 0xcc;
-		}
-#endif
-        return true;
+        MulticoreJitTrace(("First call to MakeJitWorker"));
     }
 
-    return false;
+    m_stats.m_nTryCompiling ++;
+
+#if defined(FEATURE_CORECLR)
+    // Reset the flag to allow managed code to be called in multicore JIT background thread from this routine
+    ThreadStateNCStackHolder holder(-1, Thread::TSNC_CallingManagedCodeDisabled);
+#endif
+	// Dynamic methods (e.g., IL stubs) do not have an IL decoder but may
+	// require additional flags.  Ordinary methods require the opposite.
+	PCODE pCode = NULL;
+	if (pMD->IsDynamicMethod())
+	{
+		DWORD dwFlags = pMD->AsDynamicMethodDesc()->GetILStubResolver()->GetJitFlags() | CORJIT_FLG_MCJIT_BACKGROUND;
+		pCode = pMD->MakeJitWorker(NULL, dwFlags, 0);
+	}
+	else
+	{
+		COR_ILMETHOD_DECODER::DecoderStatus status;
+		COR_ILMETHOD_DECODER header(pMD->GetILHeader(), pModule->GetMDImport(), &status);
+		pCode = pMD->MakeJitWorker(&header, CORJIT_FLG_MCJIT_BACKGROUND, 0);
+	}
+	return true;
 }
 
 
@@ -1406,6 +1403,15 @@ HRESULT MulticoreJitProfilePlayer::PlayProfile()
     return hr;
 }
 
+extern DWORD g_lastForegroundJit;
+
+#ifndef MIN
+#define MIN(a,b) (a) < (b) ? (a) : (b)
+#endif
+#ifndef MAX
+#define MAX(a,b) (a) > (b) ? (a) : (b)
+#endif
+
 //#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
 void MulticoreJitProfilePlayer::OptimizeMethods()
 {
@@ -1414,17 +1420,25 @@ void MulticoreJitProfilePlayer::OptimizeMethods()
 	MulticoreJitCodeStorage & curStorage = GetAppDomain()->GetMulticoreJitManager().GetMulticoreJitCodeStorage();
 	while (true)
 	{
-		MethodDesc* pMD = NULL;
-		while (pMD == NULL)
+		DWORD curTickCount = GetTickCount();
+
+		int sleepMs = MAX(0, MIN(100, (int)(g_lastForegroundJit - curTickCount) + 100));
+		if (sleepMs > 0)
 		{
-			pMD = curStorage.GetNextOptimizeMethod();
-			if (pMD == NULL)
-			{
-				ClrSleepEx(1, FALSE);
-			}
+			ClrSleepEx(sleepMs, FALSE);
+			continue;
+		}
+		MethodDesc* pMD = NULL;
+		pMD = curStorage.GetNextOptimizeMethod();
+		if (pMD == NULL)
+		{
+			ClrSleepEx(1, FALSE);
+			continue;
 		}
 
 		CompileMethodDesc(pMD->GetModule(), pMD);
+		Precode* pPrecode = pMD->GetPrecode();
+		pPrecode->SetTargetInterlocked(pMD->GetNativeCode(), FALSE);
 	}
 }
 //#endif
@@ -1450,9 +1464,10 @@ HRESULT MulticoreJitProfilePlayer::JITThreadProc(Thread * pThread)
             GCX_PREEMP();
 
             m_stats.m_hr = PlayProfile();
-//#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+			//ClrSleepEx(10000, FALSE);
 			OptimizeMethods();
-//#endif
+#endif
         }
         END_DOMAIN_TRANSITION;
     }

@@ -1130,7 +1130,6 @@ void MulticoreJitRecorder::RecordModuleLoad(Module * pModule, FileLoadLevel load
     }
 }
 
-
 // Call back from MethodDesc::MakeJitWorker for
 PCODE MulticoreJitRecorder::RequestMethodCode(MethodDesc * pMethod, MulticoreJitManager * pManager)
 {

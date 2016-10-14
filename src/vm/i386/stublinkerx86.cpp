@@ -6667,20 +6667,20 @@ BOOL FixupPrecode::SetTargetInterlocked(TADDR target, TADDR expected)
     INT64 oldValue = *(INT64*)this;
     BYTE* pOldValue = (BYTE*)&oldValue;
 
-    if (pOldValue[OFFSETOF_PRECODE_TYPE_CALL_OR_JMP] != FixupPrecode::TypePrestub)
-        return FALSE;
+	MethodDesc * pMD = (MethodDesc*)GetMethodDesc();
+	g_IBCLogger.LogMethodPrecodeWriteAccess(pMD);
 
-    MethodDesc * pMD = (MethodDesc*)GetMethodDesc();
-    g_IBCLogger.LogMethodPrecodeWriteAccess(pMD);
-    
-    INT64 newValue = oldValue;
-    BYTE* pNewValue = (BYTE*)&newValue;
+	INT64 newValue = oldValue;
+	BYTE* pNewValue = (BYTE*)&newValue;
 
-    pNewValue[OFFSETOF_PRECODE_TYPE_CALL_OR_JMP] = FixupPrecode::Type;
+	if (pOldValue[OFFSETOF_PRECODE_TYPE_CALL_OR_JMP] == FixupPrecode::TypePrestub)
+	{
+		pNewValue[OFFSETOF_PRECODE_TYPE_CALL_OR_JMP] = FixupPrecode::Type;
 
-    pOldValue[offsetof(FixupPrecode,m_op)] = X86_INSTR_CALL_REL32;
-    pNewValue[offsetof(FixupPrecode,m_op)] = X86_INSTR_JMP_REL32;
-
+		pOldValue[offsetof(FixupPrecode, m_op)] = X86_INSTR_CALL_REL32;
+		pNewValue[offsetof(FixupPrecode, m_op)] = X86_INSTR_JMP_REL32;
+	}
+	
     *(INT32*)(&pNewValue[offsetof(FixupPrecode,m_rel32)]) = rel32UsingJumpStub(&m_rel32, target, pMD);
 
     _ASSERTE(IS_ALIGNED(this, sizeof(INT64)));

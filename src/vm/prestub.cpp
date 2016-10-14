@@ -251,7 +251,7 @@ void DACNotifyCompilationFinished(MethodDesc *methodDesc)
 //
 // This function creates a DeadlockAware list of methods being jitted
 // which prevents us from trying to JIT the same method more that once.
-
+DWORD g_lastForegroundJit = 0;
 
 PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWORD flags2)
 {
@@ -281,9 +281,14 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
 
 	bool fBackgroundThread = (flags & CORJIT_FLG_MCJIT_BACKGROUND) != 0;
 #ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
-	if (fBackgroundThread || !g_pConfig->JitProgressiveOptimization() || fIsILStub || !HasNativeCodeSlot() || !HasPrecode() || IsDynamicMethod())
+	if (!g_pConfig->JitProgressiveOptimization() || !HasNativeCodeSlot() || !HasPrecode())
 	{
 		fStable = TRUE;
+	}
+	else if (fBackgroundThread)
+	{
+		fStable = TRUE;
+		flags |= CORJIT_FLG_SPEED_OPT;
 	}
 	else
 	{
@@ -485,6 +490,7 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, DWORD flags, DWO
             if (!fBackgroundThread)
 #endif // FEATURE_MULTICOREJIT
             {
+				g_lastForegroundJit = ::GetTickCount();
                 StackSampler::RecordJittingInfo(this, flags, flags2);
             }
 #endif // FEATURE_STACK_SAMPLING
@@ -1153,152 +1159,165 @@ static void TestSEHGuardPageRestore()
 // pointer to the stub, and not a pointer directly to the JITted code.
 PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 {
-    CONTRACT(PCODE)
-    {
-        STANDARD_VM_CHECK;
-        POSTCONDITION(RETVAL != NULL);
-    }
-    CONTRACT_END;
+	CONTRACT(PCODE)
+	{
+		STANDARD_VM_CHECK;
+		POSTCONDITION(RETVAL != NULL);
+	}
+	CONTRACT_END;
 
-    Stub *pStub = NULL;
-    PCODE pCode = NULL;
+	Stub *pStub = NULL;
+	PCODE pCode = NULL;
 
-    Thread *pThread = GetThread();
+	Thread *pThread = GetThread();
 
-    MethodTable *pMT = GetMethodTable();
+	MethodTable *pMT = GetMethodTable();
 
-    // Running a prestub on a method causes us to access its MethodTable
-    g_IBCLogger.LogMethodDescAccess(this);
+	// Running a prestub on a method causes us to access its MethodTable
+	g_IBCLogger.LogMethodDescAccess(this);
 
-    // A secondary layer of defense against executing code in inspection-only assembly.
-    // This should already have been taken care of by not allowing inspection assemblies
-    // to be activated. However, this is a very inexpensive piece of insurance in the name
-    // of security.
-    if (IsIntrospectionOnly())
-    {
-        _ASSERTE(!"A ReflectionOnly assembly reached the prestub. This should not have happened.");
-        COMPlusThrow(kInvalidOperationException, IDS_EE_CODEEXECUTION_IN_INTROSPECTIVE_ASSEMBLY);
-    }
+	// A secondary layer of defense against executing code in inspection-only assembly.
+	// This should already have been taken care of by not allowing inspection assemblies
+	// to be activated. However, this is a very inexpensive piece of insurance in the name
+	// of security.
+	if (IsIntrospectionOnly())
+	{
+		_ASSERTE(!"A ReflectionOnly assembly reached the prestub. This should not have happened.");
+		COMPlusThrow(kInvalidOperationException, IDS_EE_CODEEXECUTION_IN_INTROSPECTIVE_ASSEMBLY);
+	}
 
-    if (ContainsGenericVariables())
-    {
-        COMPlusThrow(kInvalidOperationException, IDS_EE_CODEEXECUTION_CONTAINSGENERICVAR);
-    }
+	if (ContainsGenericVariables())
+	{
+		COMPlusThrow(kInvalidOperationException, IDS_EE_CODEEXECUTION_CONTAINSGENERICVAR);
+	}
 
-    /**************************   DEBUG CHECKS  *************************/
-    /*-----------------------------------------------------------------
-    // Halt if needed, GC stress, check the sharing count etc.
-    */
+	/**************************   DEBUG CHECKS  *************************/
+	/*-----------------------------------------------------------------
+	// Halt if needed, GC stress, check the sharing count etc.
+	*/
 
 #ifdef _DEBUG 
-    static unsigned ctr = 0;
-    ctr++;
+	static unsigned ctr = 0;
+	ctr++;
 
-    if (g_pConfig->ShouldPrestubHalt(this))
-    {
-        _ASSERTE(!"PreStubHalt");
-    }
+	if (g_pConfig->ShouldPrestubHalt(this))
+	{
+		_ASSERTE(!"PreStubHalt");
+	}
 
-    LOG((LF_CLASSLOADER, LL_INFO10000, "In PreStubWorker for %s::%s\n",
-                m_pszDebugClassName, m_pszDebugMethodName));
+	LOG((LF_CLASSLOADER, LL_INFO10000, "In PreStubWorker for %s::%s\n",
+		m_pszDebugClassName, m_pszDebugMethodName));
 
-    // This is a nice place to test out having some fatal EE errors. We do this only in a checked build, and only
-    // under the InjectFatalError key.
-    if (g_pConfig->InjectFatalError() == 1)
-    {
-        EEPOLICY_HANDLE_FATAL_ERROR(COR_E_EXECUTIONENGINE);
-    }
-    else if (g_pConfig->InjectFatalError() == 2)
-    {
-        EEPOLICY_HANDLE_FATAL_ERROR(COR_E_STACKOVERFLOW);
-    }
-    else if (g_pConfig->InjectFatalError() == 3)
-    {
-        TestSEHGuardPageRestore();
-    }
+	// This is a nice place to test out having some fatal EE errors. We do this only in a checked build, and only
+	// under the InjectFatalError key.
+	if (g_pConfig->InjectFatalError() == 1)
+	{
+		EEPOLICY_HANDLE_FATAL_ERROR(COR_E_EXECUTIONENGINE);
+	}
+	else if (g_pConfig->InjectFatalError() == 2)
+	{
+		EEPOLICY_HANDLE_FATAL_ERROR(COR_E_STACKOVERFLOW);
+	}
+	else if (g_pConfig->InjectFatalError() == 3)
+	{
+		TestSEHGuardPageRestore();
+	}
 
-    // Useful to test GC with the prestub on the call stack
-    if (g_pConfig->ShouldPrestubGC(this))
-    {
-        GCX_COOP();
-        GCHeap::GetGCHeap()->GarbageCollect(-1);
-    }
+	// Useful to test GC with the prestub on the call stack
+	if (g_pConfig->ShouldPrestubGC(this))
+	{
+		GCX_COOP();
+		GCHeap::GetGCHeap()->GarbageCollect(-1);
+	}
 #endif // _DEBUG
 
-    STRESS_LOG1(LF_CLASSLOADER, LL_INFO10000, "Prestubworker: method %pM\n", this);
+	STRESS_LOG1(LF_CLASSLOADER, LL_INFO10000, "Prestubworker: method %pM\n", this);
 
 
-    GCStress<cfg_any, EeconfigFastGcSPolicy, CoopGcModePolicy>::MaybeTrigger();
+	GCStress<cfg_any, EeconfigFastGcSPolicy, CoopGcModePolicy>::MaybeTrigger();
 
-    // Are we in the prestub because of a rejit request?  If so, let the ReJitManager
-    // take it from here.
-    pCode = ReJitManager::DoReJitIfNecessary(this);
-    if (pCode != NULL)
-    {
-        // A ReJIT was performed, so nothing left for DoPrestub() to do. Return now.
-        // 
-        // The stable entrypoint will either be a pointer to the original JITted code
-        // (with a jmp at the top to jump to the newly-rejitted code) OR a pointer to any
-        // stub code that must be executed first (e.g., a remoting stub), which in turn
-        // will call the original JITted code (which then jmps to the newly-rejitted
-        // code).
-        RETURN GetStableEntryPoint();
-    }
+	// Are we in the prestub because of a rejit request?  If so, let the ReJitManager
+	// take it from here.
+	pCode = ReJitManager::DoReJitIfNecessary(this);
+	if (pCode != NULL)
+	{
+		// A ReJIT was performed, so nothing left for DoPrestub() to do. Return now.
+		// 
+		// The stable entrypoint will either be a pointer to the original JITted code
+		// (with a jmp at the top to jump to the newly-rejitted code) OR a pointer to any
+		// stub code that must be executed first (e.g., a remoting stub), which in turn
+		// will call the original JITted code (which then jmps to the newly-rejitted
+		// code).
+		RETURN GetStableEntryPoint();
+	}
 
 #ifdef FEATURE_PREJIT 
-    // If this method is the root of a CER call graph and we've recorded this fact in the ngen image then we're in the prestub in
-    // order to trip any runtime level preparation needed for this graph (P/Invoke stub generation/library binding, generic
-    // dictionary prepopulation etc.).
-    GetModule()->RestoreCer(this);
+	// If this method is the root of a CER call graph and we've recorded this fact in the ngen image then we're in the prestub in
+	// order to trip any runtime level preparation needed for this graph (P/Invoke stub generation/library binding, generic
+	// dictionary prepopulation etc.).
+	GetModule()->RestoreCer(this);
 #endif // FEATURE_PREJIT
 
 #ifdef FEATURE_COMINTEROP 
-    /**************************   INTEROP   *************************/
-    /*-----------------------------------------------------------------
-    // Some method descriptors are COMPLUS-to-COM call descriptors
-    // they are not your every day method descriptors, for example
-    // they don't have an IL or code.
-    */
-    if (IsComPlusCall() || IsGenericComPlusCall())
-    {
-        pCode = GetStubForInteropMethod(this);
-        
-        GetPrecode()->SetTargetInterlocked(pCode);
+	/**************************   INTEROP   *************************/
+	/*-----------------------------------------------------------------
+	// Some method descriptors are COMPLUS-to-COM call descriptors
+	// they are not your every day method descriptors, for example
+	// they don't have an IL or code.
+	*/
+	if (IsComPlusCall() || IsGenericComPlusCall())
+	{
+		pCode = GetStubForInteropMethod(this);
 
-        RETURN GetStableEntryPoint();
-    }
+		GetPrecode()->SetTargetInterlocked(pCode);
+
+		RETURN GetStableEntryPoint();
+	}
 #endif // FEATURE_COMINTEROP
 
-    // workaround: This is to handle a punted work item dealing with a skipped module constructor
-    //       due to appdomain unload. Basically shared code was JITted in domain A, and then
-    //       this caused a link to another shared module with a module CCTOR, which was skipped
-    //       or aborted in another appdomain we were trying to propagate the activation to.
-    //
-    //       Note that this is not a fix, but that it just minimizes the window in which the
-    //       issue can occur.
-    if (pThread->IsAbortRequested())
-    {
-        pThread->HandleThreadAbort();
-    }
+	// workaround: This is to handle a punted work item dealing with a skipped module constructor
+	//       due to appdomain unload. Basically shared code was JITted in domain A, and then
+	//       this caused a link to another shared module with a module CCTOR, which was skipped
+	//       or aborted in another appdomain we were trying to propagate the activation to.
+	//
+	//       Note that this is not a fix, but that it just minimizes the window in which the
+	//       issue can occur.
+	if (pThread->IsAbortRequested())
+	{
+		pThread->HandleThreadAbort();
+	}
 
-    /**************************   CLASS CONSTRUCTOR   ********************/
-    // Make sure .cctor has been run
+	/**************************   CLASS CONSTRUCTOR   ********************/
+	// Make sure .cctor has been run
 
-    if (IsClassConstructorTriggeredViaPrestub())
-    {
-        pMT->CheckRunClassInitThrowing();
-    }
+	if (IsClassConstructorTriggeredViaPrestub())
+	{
+		pMT->CheckRunClassInitThrowing();
+	}
 
-    /**************************   BACKPATCHING   *************************/
-    // See if the addr of code has changed from the pre-stub
+	/**************************   BACKPATCHING   *************************/
+	// See if the addr of code has changed from the pre-stub
 #if defined(FEATURE_INTERPRETER)
-    if (!IsReallyPointingToPrestub())
+	if (!IsReallyPointingToPrestub())
 #else
-    if (!IsPointingToPrestub())
+	if (!IsPointingToPrestub())
 #endif
-    {
-        LOG((LF_CLASSLOADER, LL_INFO10000,
-                "    In PreStubWorker, method already jitted, backpatching call point\n"));
+	{
+		LOG((LF_CLASSLOADER, LL_INFO10000,
+			"    In PreStubWorker, method already jitted, backpatching call point\n"));
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+		PCODE pNativeCode = GetNativeCode();
+		if (g_pConfig->JitProgressiveOptimization() && HasPrecode() && IsIL() && HasNativeCodeSlot() && pNativeCode)
+		{
+			MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+			BOOL doBackPatch = mcJitManager.GetMulticoreJitCodeStorage().OnMethodCalled(this);
+			if (!doBackPatch)
+			{
+				return pNativeCode;
+			}
+		}
+#endif
 
         RETURN DoBackpatch(pMT, pDispatchingMT, TRUE);
     }
@@ -1623,6 +1642,18 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     // causing grief. We will try to avoid the race by executing an extra memory barrier.
     //
     MemoryBarrier();
+#endif
+
+#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
+	if (g_pConfig->JitProgressiveOptimization() && HasPrecode() && IsIL() && HasNativeCodeSlot() && pCode)
+	{
+		MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+		BOOL doBackPatch = mcJitManager.GetMulticoreJitCodeStorage().OnMethodCalled(this);
+		if (!doBackPatch)
+		{
+			return pCode;
+		}
+	}
 #endif
 
     if (pCode != NULL)

@@ -1792,7 +1792,6 @@ protected:
     WORD m_wFlags;
 
 
-
 public:
 #ifdef DACCESS_COMPILE 
     void EnumMemoryRegions(CLRDataEnumMemoryFlags flags);
