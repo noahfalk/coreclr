@@ -289,8 +289,10 @@ private:
     bool ShouldAbort(bool fast) const;
 
     HRESULT JITThreadProc(Thread * pThread);
+	HRESULT JITWorkerThreadProc(Thread * pThread);
 
     static DWORD WINAPI StaticJITThreadProc(void *args);
+	static DWORD WINAPI StaticJITWorkerThreadProc(void *args);
 
     void TraceSummary();
 
@@ -307,6 +309,8 @@ private:
 //#ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
 	void OptimizeMethods();
 //#endif
+
+	void JitMethods();
 
 public:
 

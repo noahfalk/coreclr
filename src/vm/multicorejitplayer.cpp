@@ -59,6 +59,8 @@ void MulticoreJitCodeStorage::Init()
 	m_nOptimizedStored = 0;
 	m_methodsToOptimize.Init();
 #endif
+
+	m_methodsToJit.Init();
 }
 
 
@@ -122,6 +124,21 @@ MethodDesc* MulticoreJitCodeStorage::GetNextOptimizeMethod()
 }
 #endif
 
+MethodDesc* MulticoreJitCodeStorage::GetNextMethodToJit()
+{
+	STANDARD_VM_CONTRACT;
+
+	CrstHolder holder(&m_crstCodeMap);
+	SListElem<MethodDesc*>* pElem = m_methodsToJit.RemoveHead();
+	if (pElem != NULL)
+	{
+		MethodDesc* pMD = *pElem;
+		delete pElem;
+		return pMD;
+	}
+	return NULL;
+}
+
 #ifdef FEATURE_PROGRESSIVE_OPTIMIZATION
 BOOL MulticoreJitCodeStorage::OnMethodCalled(MethodDesc * pMethod)
 {
@@ -143,6 +160,13 @@ BOOL MulticoreJitCodeStorage::OnMethodCalled(MethodDesc * pMethod)
 	return pPerMethodData->m_callCount++ >= 30;
 }
 #endif
+
+
+void MulticoreJitCodeStorage::AddMethodToJit(MethodDesc * pMethod)
+{
+	CrstHolder holder(&m_crstCodeMap);
+	m_methodsToJit.InsertTail(new SListElem<MethodDesc*>(pMethod));
+}
 
 // Query from MakeJitWorker: Lookup stored JITted methods
 PCODE MulticoreJitCodeStorage::QueryMethodCode(MethodDesc * pMethod)
@@ -656,14 +680,17 @@ void MulticoreJitProfilePlayer::JITMethod(Module * pModule, unsigned methodIndex
         {                    
             m_busyWith = methodIndex;
 
-            bool rslt = CompileMethodDesc(pModule, pMethod);
+			MulticoreJitManager & manager = GetAppDomain()->GetMulticoreJitManager();
+			MulticoreJitCodeStorage & curStorage = manager.GetMulticoreJitCodeStorage();
+			curStorage.AddMethodToJit(pMethod);
+            //bool rslt = CompileMethodDesc(pModule, pMethod);
 
             m_busyWith = EmptyToken;
 
-            if (rslt)
-            {
+            //if (rslt)
+            //{
                 return;
-            }
+            //}
         }
     }
     
@@ -1443,6 +1470,25 @@ void MulticoreJitProfilePlayer::OptimizeMethods()
 }
 //#endif
 
+void MulticoreJitProfilePlayer::JitMethods()
+{
+	STANDARD_VM_CONTRACT;
+
+	MulticoreJitCodeStorage & curStorage = GetAppDomain()->GetMulticoreJitManager().GetMulticoreJitCodeStorage();
+	while (true)
+	{
+		MethodDesc* pMD = NULL;
+		pMD = curStorage.GetNextMethodToJit();
+		if (pMD == NULL)
+		{
+			ClrSleepEx(1, FALSE);
+			continue;
+		}
+
+		CompileMethodDesc(pMD->GetModule(), pMD);
+	}
+}
+
 HRESULT MulticoreJitProfilePlayer::JITThreadProc(Thread * pThread)
 {
     CONTRACTL
@@ -1481,6 +1527,97 @@ HRESULT MulticoreJitProfilePlayer::JITThreadProc(Thread * pThread)
     EX_END_CATCH(SwallowAllExceptions);
 
     return (DWORD) m_stats.m_hr;
+}
+
+HRESULT MulticoreJitProfilePlayer::JITWorkerThreadProc(Thread * pThread)
+{
+	CONTRACTL
+	{
+		NOTHROW;
+	GC_TRIGGERS;
+	MODE_COOPERATIVE;
+	INJECT_FAULT(COMPlusThrowOM(););
+	}
+	CONTRACTL_END;
+
+	EX_TRY
+	{
+		ENTER_DOMAIN_ID(m_DomainID);
+	{
+		// Go into preemptive mode
+		GCX_PREEMP();
+
+		JitMethods();
+	}
+	END_DOMAIN_TRANSITION;
+	}
+		EX_CATCH
+	{
+	}
+	EX_END_CATCH(SwallowAllExceptions);
+
+	return (DWORD)0;
+}
+
+typedef struct JitWorkerThreadArgs
+{
+	MulticoreJitProfilePlayer * pPlayer;
+	Thread* pThread;
+} JitWorkerThreadArgs;
+
+DWORD WINAPI MulticoreJitProfilePlayer::StaticJITWorkerThreadProc(void *args)
+{
+	CONTRACTL
+	{
+		NOTHROW;
+	GC_TRIGGERS;
+	MODE_ANY;
+	ENTRY_POINT;
+	INJECT_FAULT(COMPlusThrowOM(););
+	}
+	CONTRACTL_END;
+
+	HRESULT hr = S_OK;
+
+	BEGIN_ENTRYPOINT_NOTHROW;
+
+	MulticoreJitTrace(("StaticJITWorkerThreadProc starting"));
+
+	// Mark the background thread via an ETW event for diagnostics.
+	_FireEtwMulticoreJit(W("JITTHREAD"), W(""), 0, 0, 0);
+
+	MulticoreJitProfilePlayer * pPlayer = ((JitWorkerThreadArgs *)args)->pPlayer;
+	Thread * pThread = ((JitWorkerThreadArgs *)args)->pThread;
+
+	if (pPlayer != NULL)
+	{
+		if ((pThread != NULL) && pThread->HasStarted())
+		{
+			// Disable calling managed code in background thread
+			ThreadStateNCStackHolder holder(TRUE, Thread::TSNC_CallingManagedCodeDisabled);
+
+			// Run as background thread, so ThreadStore::WaitForOtherThreads will not wait for it
+			pThread->SetBackground(TRUE);
+
+			hr = pPlayer->JITWorkerThreadProc(pThread);
+		}
+
+		// It needs to be deleted after GCX_PREEMP ends
+		if (pThread != NULL)
+		{
+			DestroyThread(pThread);
+		}
+
+		// The background thread is reponsible for deleting the MulticoreJitProfilePlayer object once it's started
+		// Actually after Thread::StartThread succeeds
+		delete pPlayer;
+	}
+
+	MulticoreJitTrace(("StaticJITWorkerThreadProc endding(%x)", hr));
+
+	END_ENTRYPOINT_NOTHROW;
+
+	return (DWORD)hr;
 }
 
 
@@ -1572,6 +1709,25 @@ HRESULT MulticoreJitProfilePlayer::ProcessProfile(const wchar_t * pFileName)
                 hr = S_OK;
             }
         }
+
+		for (int i = 0; i < 8; i++)
+		{
+			Thread* pThread = SetupUnstartedThread();
+			JitWorkerThreadArgs* args = new JitWorkerThreadArgs();
+			args->pPlayer = this;
+			args->pThread = pThread;
+			_ASSERTE(pThread != NULL);
+
+			if (pThread->CreateNewThread(0, StaticJITWorkerThreadProc, args))
+			{
+				int t = (int)pThread->StartThread();
+
+				if (t > 0)
+				{
+					hr = S_OK;
+				}
+			}
+		}
     }
 
     return hr;

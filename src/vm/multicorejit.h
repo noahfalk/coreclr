@@ -95,6 +95,8 @@ private:
 	SList<SListElem<MethodDesc*>> m_methodsToOptimize;
 #endif
 
+	SList<SListElem<MethodDesc*>> m_methodsToJit;
+
 public:
 
     void Init();
@@ -120,6 +122,9 @@ public:
 	BOOL OnMethodCalled(MethodDesc* pMethod);
 	MethodDesc* GetNextOptimizeMethod();
 #endif
+
+	void AddMethodToJit(MethodDesc* pMethod);
+	MethodDesc* GetNextMethodToJit();
 
     inline unsigned GetRemainingMethodCount() const
     {

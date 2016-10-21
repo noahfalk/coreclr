@@ -2298,6 +2298,12 @@ PCODE MethodDesc::TryGetMultiCallableAddrOfCode(CORINFO_ACCESS_FLAGS accessFlags
     // Record this method desc if required
     g_IBCLogger.LogMethodDescAccess(this);
 
+	if (IsIL() && GetNativeCode() == NULL)
+	{
+		MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+		mcJitManager.GetMulticoreJitCodeStorage().AddMethodToJit(this);
+	}
+
     if (IsGenericMethodDefinition())
     {
         _ASSERTE(!"Cannot take the address of an uninstantiated generic method.");
