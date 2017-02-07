@@ -540,7 +540,7 @@ class ZapperOptions
 
     bool        m_fNGenLastRetry;       // This is retry of the compilation
 
-    CORJIT_FLAGS m_compilerFlags;
+    unsigned    m_compilerFlags;
 
     bool       m_legacyMode;          // true if the zapper was invoked using legacy mode
 

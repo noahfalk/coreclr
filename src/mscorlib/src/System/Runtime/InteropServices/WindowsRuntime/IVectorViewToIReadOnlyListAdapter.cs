@@ -30,14 +30,15 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     {
         private IVectorViewToIReadOnlyListAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
         // T this[int index] { get }
+        [SecurityCritical]
         internal T Indexer_Get<T>(int index)
         {
             if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index));
+                throw new ArgumentOutOfRangeException("index");
 
             IVectorView<T> _this = JitHelpers.UnsafeCast<IVectorView<T>>(this);
 
@@ -51,13 +52,14 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             catch (Exception ex)
             {
                 if (__HResults.E_BOUNDS == ex._HResult)
-                    throw new ArgumentOutOfRangeException(nameof(index));
+                    throw new ArgumentOutOfRangeException("index");
 
                 throw;
             }
         }
 
         // T this[int index] { get }
+        [SecurityCritical]
         internal T Indexer_Get_Variance<T>(int index) where T : class
         {
             bool fUseString;

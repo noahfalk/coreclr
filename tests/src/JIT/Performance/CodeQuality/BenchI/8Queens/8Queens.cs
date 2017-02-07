@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public static class EightQueens
 {
 
@@ -70,7 +68,7 @@ public static class EightQueens
             }
             i = i + 1;
         }
-
+        
         TryMe(1, ref q, b, a);
 
         return (q == 1);
@@ -94,10 +92,9 @@ public static class EightQueens
         }
         return result;
     }
-
+    
     public static int Main() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

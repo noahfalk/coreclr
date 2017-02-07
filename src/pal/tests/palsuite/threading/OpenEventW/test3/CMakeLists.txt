@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8.12.2)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(TESTSOURCES
-  test3.cpp
+  test3.c
 )
 
 add_executable(paltest_openeventw_test3
@@ -20,7 +20,7 @@ target_link_libraries(paltest_openeventw_test3
 
 
 set(HELPERSOURCES
-  childprocess.cpp
+  childprocess.c
 )
 
 add_executable(paltest_openeventw_test3_child

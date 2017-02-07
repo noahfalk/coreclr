@@ -23,8 +23,6 @@ struct MethodDebugInfo
 {
     SequencePointInfo* points;
     int size;
-    char16_t** locals;
-    int localsSize;
 };
 
 typedef BOOL (*GetInfoForMethodDelegate)(const char*, unsigned int, MethodDebugInfo& methodDebugInfo);

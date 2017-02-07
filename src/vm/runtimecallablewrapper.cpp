@@ -42,7 +42,6 @@ class Object;
 #include "olevariant.h"
 #include "interopconverter.h"
 #include "constrainedexecutionregion.h"
-#include "typestring.h"
 #ifdef FEATURE_REMOTING
 #include "crossdomaincalls.h"
 #endif
@@ -1592,7 +1591,7 @@ public:
 
         if (pRCW->IsValid())
         {
-            if (!GCHeapUtilities::GetGCHeap()->IsPromoted(OBJECTREFToObject(pRCW->GetExposedObject())) &&
+            if (!GCHeap::GetGCHeap()->IsPromoted(OBJECTREFToObject(pRCW->GetExposedObject())) &&
                 !pRCW->IsDetached())
             {
                 // No need to use InterlockedOr here since every other place that modifies the flags
@@ -1613,7 +1612,7 @@ void RCWCache::DetachWrappersWorker()
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION(GCHeapUtilities::IsGCInProgress()); // GC is in progress and the runtime is suspended
+        PRECONDITION(GCHeap::IsGCInProgress()); // GC is in progress and the runtime is suspended
     }
     CONTRACTL_END;
 
@@ -2809,7 +2808,7 @@ void RCW::MinorCleanup()
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION(GCHeapUtilities::IsGCInProgress() || ( (g_fEEShutDown & ShutDown_SyncBlock) && g_fProcessDetach ));
+        PRECONDITION(GCHeap::IsGCInProgress() || ( (g_fEEShutDown & ShutDown_SyncBlock) && g_fProcessDetach ));
     }
     CONTRACTL_END;
     

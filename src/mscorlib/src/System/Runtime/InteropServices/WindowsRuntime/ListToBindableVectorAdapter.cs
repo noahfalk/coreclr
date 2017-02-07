@@ -10,7 +10,6 @@ using System.Reflection;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -29,10 +28,11 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     {
         private ListToBindableVectorAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
         // object GetAt(uint index)
+        [SecurityCritical]
         internal object GetAt(uint index)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -49,6 +49,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // uint Size { get }
+        [SecurityCritical]
         internal uint Size()
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -56,6 +57,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // IBindableVectorView GetView()
+        [SecurityCritical]
         internal IBindableVectorView GetView()
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -63,6 +65,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // bool IndexOf(object value, out uint index)
+        [SecurityCritical]
         internal bool IndexOf(object value, out uint index)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -79,6 +82,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void SetAt(uint index, object value)
+        [SecurityCritical]
         internal void SetAt(uint index, object value)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -95,6 +99,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void InsertAt(uint index, object value)
+        [SecurityCritical]
         internal void InsertAt(uint index, object value)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -116,6 +121,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void RemoveAt(uint index)
+        [SecurityCritical]
         internal void RemoveAt(uint index)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -134,6 +140,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void Append(object value)
+        [SecurityCritical]
         internal void Append(object value)
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -141,6 +148,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void RemoveAtEnd()
+        [SecurityCritical]
         internal void RemoveAtEnd()
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -156,6 +164,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void Clear()
+        [SecurityCritical]
         internal void Clear()
         {
             IList _this = JitHelpers.UnsafeCast<IList>(this);
@@ -170,7 +179,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             // that Size > Int32.MaxValue:
             if (((uint)Int32.MaxValue) <= index || index >= (uint)listCapacity)
             {
-                Exception e = new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_IndexLargerThanMaxValue"));
+                Exception e = new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_IndexLargerThanMaxValue"));
                 e.SetErrorCode(__HResults.E_BOUNDS);
                 throw e;
             }

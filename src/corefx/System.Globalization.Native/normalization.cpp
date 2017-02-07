@@ -4,7 +4,7 @@
 //
 
 #include <stdint.h>
-#include "icushim.h"
+#include <unicode/unorm2.h>
 
 /*
  * These values should be kept in sync with System.Text.NormalizationForm

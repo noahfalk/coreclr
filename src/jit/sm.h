@@ -42,7 +42,9 @@ public:
     inline void TermStateMatch(SM_STATE_ID stateID DEBUGARG(bool verbose))
     {
         assert(States[stateID].term);
+        assert(StateMatchedCounts[stateID] < _UI16_MAX);
 #ifdef DEBUG
+        ++StateMatchedCounts[stateID];
 #ifndef SMGEN_COMPILE
         if (verbose)
         {
@@ -63,6 +65,7 @@ public:
     }
 
 #ifdef DEBUG
+    WORD        StateMatchedCounts[NUM_SM_STATES];
     const char* StateDesc(SM_STATE_ID stateID);
 #endif
 

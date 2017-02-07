@@ -73,7 +73,7 @@ inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 #define FALSE false
 
 #define CALLBACK __stdcall
-#define FORCEINLINE __forceinline
+#define FORCEINLINE inline
 
 #define INFINITE 0xFFFFFFFF
 
@@ -96,7 +96,7 @@ inline HRESULT HRESULT_FROM_WIN32(unsigned long x)
 #define UNREFERENCED_PARAMETER(P)          (void)(P)
 
 #ifdef PLATFORM_UNIX
-#define _vsnprintf_s(string, sizeInBytes, count, format, args) vsnprintf(string, sizeInBytes, format, args)
+#define  _vsnprintf vsnprintf
 #define sprintf_s snprintf
 #define swprintf_s swprintf
 #endif
@@ -447,7 +447,7 @@ extern bool g_fFinalizerRunOnShutDown;
 // Locks
 //
 
-struct gc_alloc_context;
+struct alloc_context;
 class Thread;
 
 Thread * GetThread();

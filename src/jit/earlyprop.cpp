@@ -189,7 +189,8 @@ void Compiler::optEarlyProp()
 
             // Walk the stmt tree in linear order to rewrite any array length reference with a
             // constant array length.
-            bool isRewritten = false;
+            bool isRewritten    = false;
+            bool bbHasNullCheck = (block->bbFlags & BBF_HAS_NULLCHECK) != 0;
             for (GenTreePtr tree = stmt->gtStmt.gtStmtList; tree != nullptr; tree = tree->gtNext)
             {
                 if (optEarlyPropRewriteTree(tree))
@@ -237,8 +238,12 @@ bool Compiler::optEarlyPropRewriteTree(GenTreePtr tree)
         objectRefPtr = tree->gtOp.gtOp1;
         propKind     = optPropKind::OPK_ARRAYLEN;
     }
-    else if (tree->OperIsIndir())
+    else if ((tree->OperGet() == GT_IND) && !varTypeIsStruct(tree))
     {
+        // TODO-1stClassStructs: The above condition should apply equally to all indirections,
+        // but previously the implicit indirections due to a struct assignment were not
+        // considered, so we are currently limiting it to non-structs to preserve existing
+        // behavior.
         // optFoldNullCheck takes care of updating statement info if a null check is removed.
         optFoldNullCheck(tree);
 
@@ -254,7 +259,7 @@ bool Compiler::optEarlyPropRewriteTree(GenTreePtr tree)
                 return false;
             }
 
-            objectRefPtr = tree->AsIndir()->Addr();
+            objectRefPtr = tree->gtOp.gtOp1;
             propKind     = optPropKind::OPK_OBJ_GETTYPE;
         }
         else
@@ -506,23 +511,15 @@ void Compiler::optFoldNullCheck(GenTreePtr tree)
     //                             |
     //                             x
 
-    if ((compCurBB->bbFlags & BBF_HAS_NULLCHECK) == 0)
-    {
-        return;
-    }
-
-    assert(tree->OperIsIndir());
-
-    GenTree* const addr = tree->AsIndir()->Addr();
-    if (addr->OperGet() == GT_LCL_VAR)
+    assert(tree->OperGet() == GT_IND);
+    if (tree->gtGetOp1()->OperGet() == GT_LCL_VAR)
     {
         // Check if we have the pattern above and find the nullcheck node if we do.
 
         // Find the definition of the indirected local (x in the picture)
-        GenTreeLclVarCommon* const lclVarNode = addr->AsLclVarCommon();
-
-        const unsigned lclNum = lclVarNode->GetLclNum();
-        const unsigned ssaNum = lclVarNode->GetSsaNum();
+        GenTreePtr indLocalTree = tree->gtGetOp1();
+        unsigned   lclNum       = indLocalTree->AsLclVarCommon()->GetLclNum();
+        unsigned   ssaNum       = indLocalTree->AsLclVarCommon()->GetSsaNum();
 
         if (ssaNum != SsaConfig::RESERVED_SSA_NUM)
         {
@@ -560,7 +557,7 @@ void Compiler::optFoldNullCheck(GenTreePtr tree)
                                             {
                                                 // Walk from the use to the def in reverse execution order to see
                                                 // if any nodes have unsafe side effects.
-                                                GenTreePtr     currentTree        = lclVarNode->gtPrev;
+                                                GenTreePtr     currentTree        = indLocalTree->gtPrev;
                                                 bool           isInsideTry        = compCurBB->hasTryIndex();
                                                 bool           canRemoveNullCheck = true;
                                                 const unsigned maxNodesWalked     = 25;
@@ -615,8 +612,13 @@ void Compiler::optFoldNullCheck(GenTreePtr tree)
                                                         additionNode->gtFlags & (GTF_EXCEPT | GTF_DONT_CSE);
 
                                                     // Re-morph the statement.
-                                                    fgMorphBlockStmt(compCurBB,
-                                                                     curStmt->AsStmt() DEBUGARG("optFoldNullCheck"));
+                                                    fgMorphBlockStmt(compCurBB, curStmt DEBUGARG("optFoldNullCheck"));
+
+                                                    // Recalculate the gtCostSz, etc...
+                                                    gtSetStmtInfo(curStmt);
+
+                                                    // Re-thread the nodes
+                                                    fgSetStmtSeq(curStmt);
                                                 }
                                             }
                                         }

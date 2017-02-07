@@ -10,7 +10,6 @@ namespace System {
     using System.Collections.Generic;
     using System.Runtime.InteropServices;
     using System.Globalization;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using System.Security;
     using System.Security.Permissions;
@@ -437,6 +436,7 @@ namespace System {
                 Environment.GetResourceString("Format_AttributeUsage", type));
         }
 
+        [System.Security.SecuritySafeCritical]
         private static Attribute[] CreateAttributeArrayHelper(Type elementType, int elementCount)
         {
             return (Attribute[])Array.UnsafeCreateInstance(elementType, elementCount);
@@ -456,10 +456,10 @@ namespace System {
         public static Attribute[] GetCustomAttributes(MemberInfo element, Type type, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (type == null)
-                throw new ArgumentNullException(nameof(type));
+                throw new ArgumentNullException("type");
             
             if (!type.IsSubclassOf(typeof(Attribute)) && type != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -486,7 +486,7 @@ namespace System {
         public static Attribute[] GetCustomAttributes(MemberInfo element, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
             Contract.EndContractBlock();
 
             switch (element.MemberType)
@@ -511,10 +511,10 @@ namespace System {
         {
             // Returns true if a custom attribute subclass of attributeType class/interface with inheritance walk
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -568,16 +568,16 @@ namespace System {
         public static Attribute[] GetCustomAttributes(ParameterInfo element, Type attributeType, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
 
             if (element.Member == null)
-                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidParameterInfo"), nameof(element));
+                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidParameterInfo"), "element");
 
             Contract.EndContractBlock();
 
@@ -591,10 +591,10 @@ namespace System {
         public static Attribute[] GetCustomAttributes(ParameterInfo element, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (element.Member == null)
-                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidParameterInfo"), nameof(element));
+                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidParameterInfo"), "element");
 
             Contract.EndContractBlock();
 
@@ -614,10 +614,10 @@ namespace System {
         {
             // Returns true is a custom attribute subclass of attributeType class/interface with inheritance walk
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -637,7 +637,7 @@ namespace System {
                     return element.IsDefined(attributeType, false);
 
                 default: 
-                    Debug.Assert(false, "Invalid type for ParameterInfo member in Attribute class");
+                    Contract.Assert(false, "Invalid type for ParameterInfo member in Attribute class");
                     throw new ArgumentException(Environment.GetResourceString("Argument_InvalidParamInfo"));
             }
         }
@@ -681,7 +681,7 @@ namespace System {
         public static Attribute[] GetCustomAttributes(Module element, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
             Contract.EndContractBlock();
 
             return (Attribute[])element.GetCustomAttributes(typeof(Attribute), inherit);
@@ -690,10 +690,10 @@ namespace System {
         public static Attribute[] GetCustomAttributes(Module element, Type attributeType, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
 
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -711,10 +711,10 @@ namespace System {
         {
             // Returns true is a custom attribute subclass of attributeType class/interface with no inheritance walk
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
 
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -754,10 +754,10 @@ namespace System {
         public static Attribute[] GetCustomAttributes(Assembly element, Type attributeType, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
 
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -774,7 +774,7 @@ namespace System {
         public static Attribute[] GetCustomAttributes(Assembly element, bool inherit)
         {
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
             Contract.EndContractBlock();
 
             return (Attribute[])element.GetCustomAttributes(typeof(Attribute), inherit);
@@ -789,10 +789,10 @@ namespace System {
         {
             // Returns true is a custom attribute subclass of attributeType class/interface with no inheritance walk
             if (element == null)
-                throw new ArgumentNullException(nameof(element));
+                throw new ArgumentNullException("element");
 
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
 
             if (!attributeType.IsSubclassOf(typeof(Attribute)) && attributeType != typeof(Attribute))
                 throw new ArgumentException(Environment.GetResourceString("Argument_MustHaveAttributeBaseClass"));
@@ -830,13 +830,14 @@ namespace System {
         #endregion
 
         #region Object Overrides
+        [SecuritySafeCritical]
         public override bool Equals(Object obj)
         {
             if (obj == null)
                 return false;
 
-            Type thisType = this.GetType();
-            Type thatType = obj.GetType();
+            RuntimeType thisType = (RuntimeType)this.GetType();
+            RuntimeType thatType = (RuntimeType)obj.GetType();
 
             if (thatType != thisType)
                 return false;
@@ -844,22 +845,18 @@ namespace System {
             Object thisObj = this;
             Object thisResult, thatResult;
 
-            while (thisType != typeof(Attribute))
+            FieldInfo[] thisFields = thisType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+            for (int i = 0; i < thisFields.Length; i++)
             {
-                FieldInfo[] thisFields = thisType.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                // Visibility check and consistency check are not necessary.
+                thisResult = ((RtFieldInfo)thisFields[i]).UnsafeGetValue(thisObj);
+                thatResult = ((RtFieldInfo)thisFields[i]).UnsafeGetValue(obj);
 
-                for (int i = 0; i < thisFields.Length; i++)
+                if (!AreFieldValuesEqual(thisResult, thatResult))
                 {
-                    // Visibility check and consistency check are not necessary.
-                    thisResult = ((RtFieldInfo)thisFields[i]).UnsafeGetValue(thisObj);
-                    thatResult = ((RtFieldInfo)thisFields[i]).UnsafeGetValue(obj);
-
-                    if (!AreFieldValuesEqual(thisResult, thatResult))
-                    {
-                        return false;
-                    }
+                    return false;
                 }
-                thisType = thisType.BaseType;
             }
 
             return true;
@@ -890,7 +887,7 @@ namespace System {
 
                 // Attributes can only contain single-dimension arrays, so we don't need to worry about 
                 // multidimensional arrays.
-                Debug.Assert(thisValueArray.Rank == 1 && thatValueArray.Rank == 1);
+                Contract.Assert(thisValueArray.Rank == 1 && thatValueArray.Rank == 1);
                 for (int j = 0; j < thisValueArray.Length; j++)
                 {
                     if (!AreFieldValuesEqual(thisValueArray.GetValue(j), thatValueArray.GetValue(j)))
@@ -904,7 +901,7 @@ namespace System {
                 // An object of type Attribute will cause a stack overflow. 
                 // However, this should never happen because custom attributes cannot contain values other than
                 // constants, single-dimensional arrays and typeof expressions.
-                Debug.Assert(!(thisValue is Attribute));
+                Contract.Assert(!(thisValue is Attribute));
                 if (!thisValue.Equals(thatValue))
                     return false;
             }
@@ -912,36 +909,32 @@ namespace System {
             return true;
         }
 
+        [SecuritySafeCritical]
         public override int GetHashCode()
         {
             Type type = GetType();
 
-            while (type != typeof(Attribute))
+            FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            Object vThis = null;
+
+            for (int i = 0; i < fields.Length; i++)
             {
-                FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
-                Object vThis = null;
+                // Visibility check and consistency check are not necessary.
+                Object fieldValue = ((RtFieldInfo)fields[i]).UnsafeGetValue(this);
 
-                for (int i = 0; i < fields.Length; i++)
-                {
-                    // Visibility check and consistency check are not necessary.
-                    Object fieldValue = ((RtFieldInfo)fields[i]).UnsafeGetValue(this);
-
-                    // The hashcode of an array ignores the contents of the array, so it can produce 
-                    // different hashcodes for arrays with the same contents.
-                    // Since we do deep comparisons of arrays in Equals(), this means Equals and GetHashCode will
-                    // be inconsistent for arrays. Therefore, we ignore hashes of arrays.
-                    if (fieldValue != null && !fieldValue.GetType().IsArray)
-                        vThis = fieldValue;
-
-                    if (vThis != null)
-                        break;
-                }
+                // The hashcode of an array ignores the contents of the array, so it can produce 
+                // different hashcodes for arrays with the same contents.
+                // Since we do deep comparisons of arrays in Equals(), this means Equals and GetHashCode will
+                // be inconsistent for arrays. Therefore, we ignore hashes of arrays.
+                if (fieldValue != null && !fieldValue.GetType().IsArray)
+                    vThis = fieldValue;
 
                 if (vThis != null)
-                    return vThis.GetHashCode();
-
-                type = type.BaseType;
+                    break;
             }
+
+            if (vThis != null)
+                return vThis.GetHashCode();
 
             return type.GetHashCode();
         }
@@ -956,5 +949,27 @@ namespace System {
         #region Public Members
         public virtual bool IsDefaultAttribute() { return false; }
         #endregion
+
+#if !FEATURE_CORECLR
+        void _Attribute.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Attribute.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Attribute.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Attribute.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
     }
 }

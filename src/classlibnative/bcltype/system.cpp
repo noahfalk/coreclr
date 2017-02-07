@@ -63,16 +63,6 @@ FCIMPLEND;
 
 
 
-FCIMPL0(UINT32, SystemNative::GetCurrentProcessorNumber)
-{
-    FCALL_CONTRACT;
-
-    return ::GetCurrentProcessorNumber();
-}
-FCIMPLEND;
-
-
-
 FCIMPL0(UINT32, SystemNative::GetTickCount)
 {
     FCALL_CONTRACT;
@@ -683,7 +673,7 @@ FCIMPL0(FC_BOOL_RET, SystemNative::IsServerGC)
 {
     FCALL_CONTRACT;
 
-    FC_RETURN_BOOL(GCHeapUtilities::IsServerHeap());
+    FC_RETURN_BOOL(GCHeap::IsServerHeap());
 }
 FCIMPLEND
 

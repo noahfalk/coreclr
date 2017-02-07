@@ -14,7 +14,7 @@
 #ifndef __fwprintf_H__
 #define __fwprintf_H__
 
-void DoStrTest(const WCHAR *formatstr, char* param, const char *checkstr)
+void DoStrTest(WCHAR *formatstr, char* param, char *checkstr)
 {
     FILE *fp;    
     char buf[256] = { 0 };
@@ -45,7 +45,7 @@ void DoStrTest(const WCHAR *formatstr, char* param, const char *checkstr)
     fclose(fp);
 }
 
-void DoWStrTest(const WCHAR *formatstr, WCHAR* param, const char *checkstr)
+void DoWStrTest(WCHAR *formatstr, WCHAR* param, char *checkstr)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -77,8 +77,8 @@ void DoWStrTest(const WCHAR *formatstr, WCHAR* param, const char *checkstr)
 }
 
 
-void DoPointerTest(const WCHAR *formatstr, void* param, char* paramstr, 
-                   const char *checkstr1, const char *checkstr2)
+void DoPointerTest(WCHAR *formatstr, void* param, char* paramstr, 
+                   char *checkstr1, char *checkstr2)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -119,7 +119,7 @@ void DoPointerTest(const WCHAR *formatstr, void* param, char* paramstr,
 
 
 
-void DoCountTest(const WCHAR *formatstr, int param, const char *checkstr)
+void DoCountTest(WCHAR *formatstr, int param, char *checkstr)
 {
     FILE *fp;
     char buf[512] = { 0 };
@@ -162,7 +162,7 @@ void DoCountTest(const WCHAR *formatstr, int param, const char *checkstr)
     }
 }
 
-void DoShortCountTest(const WCHAR *formatstr, int param, const char *checkstr)
+void DoShortCountTest(WCHAR *formatstr, int param, char *checkstr)
 {
     FILE *fp;
     char buf[512] = { 0 };
@@ -206,7 +206,7 @@ void DoShortCountTest(const WCHAR *formatstr, int param, const char *checkstr)
 }
 
 
-void DoCharTest(const WCHAR *formatstr, char param, const char *checkstr)
+void DoCharTest(WCHAR *formatstr, char param, char *checkstr)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -237,7 +237,7 @@ void DoCharTest(const WCHAR *formatstr, char param, const char *checkstr)
     fclose(fp);
 }
 
-void DoWCharTest(const WCHAR *formatstr, WCHAR param, const char *checkstr)
+void DoWCharTest(WCHAR *formatstr, WCHAR param, char *checkstr)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -268,7 +268,7 @@ void DoWCharTest(const WCHAR *formatstr, WCHAR param, const char *checkstr)
     fclose(fp);
 }
 
-void DoNumTest(const WCHAR *formatstr, int value, const char *checkstr)
+void DoNumTest(WCHAR *formatstr, int value, char *checkstr)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -299,8 +299,8 @@ void DoNumTest(const WCHAR *formatstr, int value, const char *checkstr)
     fclose(fp);
 }
 
-void DoI64Test(const WCHAR *formatstr, INT64 value, char *valuestr, const char *checkstr1,
-               const char *checkstr2)
+void DoI64Test(WCHAR *formatstr, INT64 value, char *valuestr, char *checkstr1,
+               char *checkstr2)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -332,8 +332,8 @@ void DoI64Test(const WCHAR *formatstr, INT64 value, char *valuestr, const char *
     fclose(fp);
 }
 
-void DoDoubleTest(const WCHAR *formatstr, double value, const char *checkstr1,
-                  const char *checkstr2)
+void DoDoubleTest(WCHAR *formatstr, double value, char *checkstr1,
+                  char *checkstr2)
 {
     FILE *fp;
     char buf[256] = { 0 };
@@ -367,8 +367,8 @@ void DoDoubleTest(const WCHAR *formatstr, double value, const char *checkstr1,
 }
 
 
-void DoArgumentPrecTest(const WCHAR *formatstr, int precision, void *param, 
-                        char *paramstr, const char *checkstr1, const char *checkstr2)
+void DoArgumentPrecTest(WCHAR *formatstr, int precision, void *param, 
+                        char *paramstr, char *checkstr1, char *checkstr2)
 {
     FILE *fp;
     char buf[256];
@@ -409,8 +409,8 @@ void DoArgumentPrecTest(const WCHAR *formatstr, int precision, void *param,
             
 }
 
-void DoArgumentPrecDoubleTest(const WCHAR *formatstr, int precision, double param, 
-                              const char *checkstr1, const char *checkstr2)
+void DoArgumentPrecDoubleTest(WCHAR *formatstr, int precision, double param, 
+                              char *checkstr1, char *checkstr2)
 {
     FILE *fp;
     char buf[256];

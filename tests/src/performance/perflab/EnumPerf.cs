@@ -6,74 +6,67 @@ using System;
 using System.Reflection;
 using Xunit;
 
-namespace PerfLabTests
+public enum Color
 {
-    public enum Color
+    Black,
+    White,
+    Red,
+    Brown,
+    Yellow,
+    Purple,
+    Orange
+}
+
+public class EnumPerf
+{
+    [Benchmark]
+    [InlineData(Color.Red)]
+    public static void EnumCompareTo(Color color)
     {
-        Black,
-        White,
-        Red,
-        Brown,
-        Yellow,
-        Purple,
-        Orange
+        Color white = Color.White;
+
+        foreach (var iteration in Benchmark.Iterations)
+            using (iteration.StartMeasurement())
+                color.CompareTo(white);
     }
 
-    public class EnumPerf
+    [Benchmark]
+    public static Type ObjectGetType()
     {
-        [Benchmark(InnerIterationCount = 300000)]
-        [InlineData(Color.Red)]
-        public static void EnumCompareTo(Color color)
-        {
-            Color white = Color.White;
+        Type tmp = null;
+        Color black = Color.Black;
 
-            foreach (var iteration in Benchmark.Iterations)
-                using (iteration.StartMeasurement())
-                    for (int i = 0; i < Benchmark.InnerIterationCount; i++)
-                        color.CompareTo(white);
-        }
+        foreach (var iteration in Benchmark.Iterations)
+            using (iteration.StartMeasurement())
+                tmp = black.GetType();
 
-        [Benchmark(InnerIterationCount = 300000)]
-        public static Type ObjectGetType()
-        {
-            Type tmp = null;
-            Color black = Color.Black;
+        return tmp;
+    }
 
-            foreach (var iteration in Benchmark.Iterations)
-                using (iteration.StartMeasurement())
-                    for (int i = 0; i < Benchmark.InnerIterationCount; i++)
-                        tmp = black.GetType();
+    [Benchmark]
+    public static Type ObjectGetTypeNoBoxing()
+    {
+        Type tmp = null;
+        object black = Color.Black;
 
-            return tmp;
-        }
+        foreach (var iteration in Benchmark.Iterations)
+            using (iteration.StartMeasurement())
+                tmp = black.GetType();
 
-        [Benchmark(InnerIterationCount = 300000)]
-        public static Type ObjectGetTypeNoBoxing()
-        {
-            Type tmp = null;
-            object black = Color.Black;
+        return tmp;
+    }
 
-            foreach (var iteration in Benchmark.Iterations)
-                using (iteration.StartMeasurement())
-                    for (int i = 0; i < Benchmark.InnerIterationCount; i++)
-                        tmp = black.GetType();
+    [Benchmark]
+    public static bool EnumEquals()
+    {
+        Color black = Color.Black;
+        Color white = Color.White;
+        bool tmp = false;
 
-            return tmp;
-        }
+        foreach (var iteration in Benchmark.Iterations)
+            using (iteration.StartMeasurement())
+                tmp = black.Equals(white);
 
-        [Benchmark(InnerIterationCount = 300000)]
-        public static bool EnumEquals()
-        {
-            Color black = Color.Black;
-            Color white = Color.White;
-            bool tmp = false;
-
-            foreach (var iteration in Benchmark.Iterations)
-                using (iteration.StartMeasurement())
-                    for (int i = 0; i < Benchmark.InnerIterationCount; i++)
-                        tmp = black.Equals(white);
-
-            return tmp;
-        }
+        return tmp;
     }
 }

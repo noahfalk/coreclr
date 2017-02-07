@@ -110,7 +110,7 @@ namespace System.Collections.Generic {
         
         public Mscorlib_KeyedCollectionDebugView(KeyedCollection<K, T> keyedCollection) {
             if (keyedCollection == null) {
-                throw new ArgumentNullException(nameof(keyedCollection));
+                throw new ArgumentNullException("keyedCollection");
             }
             Contract.EndContractBlock();
 

@@ -7,7 +7,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 //using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -34,7 +33,7 @@ namespace System.Collections.Generic
             Contract.Ensures(Contract.Result<Comparer<T>>() != null);
 
             if (comparison == null)
-                throw new ArgumentNullException(nameof(comparison));
+                throw new ArgumentNullException("comparison");
 
             return new ComparisonComparer<T>(comparison);
         }
@@ -43,6 +42,7 @@ namespace System.Collections.Generic
         // Note that logic in this method is replicated in vm\compile.cpp to ensure that NGen
         // saves the right instantiations
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         private static Comparer<T> CreateComparer()
         {
             object result = null;
@@ -139,7 +139,7 @@ namespace System.Collections.Generic
     [Serializable]
     internal sealed class NullableComparer<T> : Comparer<T?> where T : struct, IComparable<T>
     {
-        public override int Compare(T? x, T? y) {
+        public override int Compare(Nullable<T> x, Nullable<T> y) {
             if (x.HasValue) {
                 if (y.HasValue) return x.value.CompareTo(y.value);
                 return 1;
@@ -196,7 +196,7 @@ namespace System.Collections.Generic
     {
         public Int32EnumComparer()
         {
-            Debug.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
+            Contract.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
         }
         
         // Used by the serialization engine.
@@ -216,6 +216,7 @@ namespace System.Collections.Generic
         public override int GetHashCode() =>
             GetType().GetHashCode();
 
+        [SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             // Previously Comparer<T> was not specialized for enums,
@@ -231,7 +232,7 @@ namespace System.Collections.Generic
     {
         public UInt32EnumComparer()
         {
-            Debug.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
+            Contract.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
         }
         
         // Used by the serialization engine.
@@ -251,6 +252,7 @@ namespace System.Collections.Generic
         public override int GetHashCode() =>
             GetType().GetHashCode();
 
+        [SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             info.SetType(typeof(ObjectComparer<T>));
@@ -262,7 +264,7 @@ namespace System.Collections.Generic
     {
         public Int64EnumComparer()
         {
-            Debug.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
+            Contract.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
         }
         
         // Used by the serialization engine.
@@ -282,6 +284,7 @@ namespace System.Collections.Generic
         public override int GetHashCode() =>
             GetType().GetHashCode();
 
+        [SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             info.SetType(typeof(ObjectComparer<T>));
@@ -293,7 +296,7 @@ namespace System.Collections.Generic
     {
         public UInt64EnumComparer()
         {
-            Debug.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
+            Contract.Assert(typeof(T).IsEnum, "This type is only intended to be used to compare enums!");
         }
         
         // Used by the serialization engine.
@@ -313,6 +316,7 @@ namespace System.Collections.Generic
         public override int GetHashCode() =>
             GetType().GetHashCode();
 
+        [SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             info.SetType(typeof(ObjectComparer<T>));

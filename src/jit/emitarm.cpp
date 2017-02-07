@@ -1406,6 +1406,34 @@ DONE:
     return false;
 }
 
+#ifdef ARM_HAZARD_AVOIDANCE
+// This function is called whenever we about to emit an unconditional branch instruction
+// that could be encoded using a T2 instruction
+// It returns true if we need to mark the instruction via idKraitNop(true)
+//
+bool emitter::emitKraitHazardActive(instrDesc* id)
+{
+    // Does the current instruction represent an
+    // unconditional branch instruction that is subject to the Krait errata
+    //
+    if (id->idIsKraitBranch())
+    {
+        // Only need to handle the Krait Hazard when we are Jitting
+        //
+        if ((emitComp->opts.eeFlags & CORJIT_FLG_PREJIT) == 0)
+        {
+            // Have we seen the necessary number of T1 instructions?
+            if (emitCurInstrCntT1 >= MAX_INSTR_COUNT_T1)
+            {
+                return true; /* Assume that we need to add a nopw as well */
+            }
+        }
+    }
+    return false;
+}
+
+#endif
+
 /*****************************************************************************
  *
  *  Add an instruction with no operands.
@@ -3276,6 +3304,10 @@ void emitter::emitIns_R_R_R_I(instruction ins,
     id->idReg2(reg2);
     id->idReg3(reg3);
 
+#ifdef ARM_HAZARD_AVOIDANCE
+    id->idKraitNop(emitKraitHazardActive(id));
+#endif
+
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4202,6 +4234,10 @@ void emitter::emitIns_J(instruction ins, BasicBlock* dst, int instrCount /* = 0 
         }
     }
 
+#ifdef ARM_HAZARD_AVOIDANCE
+    id->idKraitNop(emitKraitHazardActive(id));
+#endif
+
     dispIns(id);
     appendToCurIG(id);
 }
@@ -4368,7 +4404,6 @@ void emitter::emitIns_J_R(instruction ins, emitAttr attr, BasicBlock* dst, regNu
  *
  * EC_FUNC_TOKEN       : addr is the method address
  * EC_FUNC_ADDR        : addr is the absolute address of the function
- *                       if addr is NULL, it is a recursive call
  *
  * If callType is one of these emitCallTypes, addr has to be NULL.
  * EC_INDIR_R          : "call ireg".
@@ -4464,11 +4499,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(argSize % (int)sizeof(void*) == 0);
     argCnt = argSize / (int)sizeof(void*);
 
+#ifdef DEBUGGING_SUPPORT
     /* Managed RetVal: emit sequence point for the call */
     if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
+#endif
 
     /*
         We need to allocate the appropriate instruction descriptor based
@@ -4554,8 +4591,8 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
         assert(callType == EC_FUNC_TOKEN || callType == EC_FUNC_ADDR);
 
-        // if addr is nullptr then this call is treated as a recursive call.
-        assert(addr == nullptr || codeGen->arm_Valid_Imm_For_BL((ssize_t)addr));
+        assert(addr != NULL);
+        assert(codeGen->validImmForBL((ssize_t)addr));
 
         if (isJump)
         {
@@ -4588,6 +4625,11 @@ void emitter::emitIns_Call(EmitCallType          callType,
 
             id->idSetIsDspReloc();
         }
+#endif
+
+#ifdef ARM_HAZARD_AVOIDANCE
+        // Unconditional calls/branches may need nop.w for Krait errata
+        id->idKraitNop(emitKraitHazardActive(id));
 #endif
     }
 
@@ -5187,6 +5229,21 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
             /* For forward jumps, record the address of the distance value */
             id->idjTemp.idjAddr = (dstOffs > srcOffs) ? dst : NULL;
 
+#ifdef ARM_HAZARD_AVOIDANCE
+            if (id->idKraitNop())
+            {
+                // This is a pseudo-format representing a 32-bit nop followed by unconditional branch.
+                // First emit the nop
+
+                dst = emitOutputNOP(dst, INS_nopw, IF_T2_A);
+
+                // The distVal was computed based on the beginning of the pseudo-instruction, which is
+                // the 32-bit nop. So subtract the size of the nop from the offset, so it is relative to the
+                // unconditional branch.
+                distVal -= 4;
+            }
+#endif
+
             if (fmt == IF_LARGEJMP)
             {
                 // This is a pseudo-instruction format representing a large conditional branch, to allow
@@ -5265,8 +5322,8 @@ BYTE* emitter::emitOutputLJ(insGroup* ig, BYTE* dst, instrDesc* i)
                 else
 #endif
                 {
-                    assert(distVal >= CALL_DIST_MAX_NEG);
-                    assert(distVal <= CALL_DIST_MAX_POS);
+                    assert(distVal >= -16777216);
+                    assert(distVal <= 16777214);
 
                     if (distVal < 0)
                         code |= 1 << 26;
@@ -5763,6 +5820,15 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
         case IF_T2_E0: // T2_E0   ............nnnn tttt......shmmmm       R1  R2  R3               imm2
         case IF_T2_E1: // T2_E1   ............nnnn tttt............       R1  R2
         case IF_T2_E2: // T2_E2   ................ tttt............       R1
+#ifdef ARM_HAZARD_AVOIDANCE
+            if (id->idKraitNop())
+            {
+                // This is a pseudo-format representing a 32-bit nop followed by ldr pc
+                // First emit the nop
+
+                dst = emitOutputNOP(dst, INS_nopw, IF_T2_A);
+            }
+#endif
             code = emitInsCode(ins, fmt);
             code |= insEncodeRegT2_T(id->idReg1());
             if (fmt == IF_T2_E0)
@@ -6189,6 +6255,16 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
 
         case IF_T2_J3: // T2_J3   .....Siiiiiiiiii ..j.jiiiiiiiiii.      Call                imm24
 
+#ifdef ARM_HAZARD_AVOIDANCE
+            if (id->idKraitNop())
+            {
+                // This is a pseudo-format representing a 32-bit nop followed by unconditional call.
+                // First emit the nop
+
+                dst = emitOutputNOP(dst, INS_nopw, IF_T2_A);
+            }
+#endif
+
             /* Is this a "fat" call descriptor? */
 
             if (id->idIsLargeCall())
@@ -6210,14 +6286,7 @@ size_t emitter::emitOutputInstr(insGroup* ig, instrDesc* id, BYTE** dp)
                 sz = sizeof(instrDesc);
             }
 
-            if (id->idAddr()->iiaAddr == NULL) /* a recursive call */
-            {
-                addr = emitCodeBlock;
-            }
-            else
-            {
-                addr = id->idAddr()->iiaAddr;
-            }
+            addr = id->idAddr()->iiaAddr;
             code = emitInsCode(ins, fmt);
 
 #ifdef RELOC_SUPPORT
@@ -7411,6 +7480,42 @@ void emitter::emitDispIns(
 {
     insFormat fmt = id->idInsFmt();
 
+#ifdef ARM_HAZARD_AVOIDANCE
+    if (id->idKraitNop())
+    {
+        assert(id->idIsKraitBranch());
+
+        // We will display a nop.w unless we have an unbound INS_b instruction
+        //
+        // Most unbound INS_b instructions will be resolve to short jumps and thus
+        // we don't display the nop.w while they are unbound. If they are bound and
+        // are still marked with idKraitNop they will display the nop.w
+        //
+        if ((id->idIns() != INS_b) || id->idIsBound())
+        {
+            // First, display INS_nopw. Construct a temporary instrDesc to represent it, since
+            // there doesn't exist an actual one in the stream.
+
+            instrDesc idNOP;
+            memset(&idNOP, 0, sizeof(idNOP));
+
+            instrDesc* pidNOP = &idNOP;
+
+            pidNOP->idIns(INS_nopw);
+            pidNOP->idInsFmt(IF_T2_A);
+            pidNOP->idInsSize(emitInsSize(IF_T2_A));
+            pidNOP->idDebugOnlyInfo(id->idDebugOnlyInfo()); // share the idDebugOnlyInfo() field
+
+            size_t nopSizeOrZero = (code == NULL) ? 0 : 4; // NOPW is 4 bytes
+            emitDispInsHelp(pidNOP, false, doffs, asmfm, offset, code, nopSizeOrZero, ig);
+
+            code += nopSizeOrZero;
+            sz -= nopSizeOrZero;
+            offset += 4;
+        }
+    }
+#endif
+
     /* Special-case IF_LARGEJMP */
 
     if ((fmt == IF_LARGEJMP) && id->idIsBound())
@@ -7536,53 +7641,31 @@ void emitter::emitInsMov(instruction ins, emitAttr attr, GenTree* node)
     switch (node->OperGet())
     {
         case GT_IND:
+        {
+            GenTree* addr = node->gtGetOp1();
+            assert(!addr->isContained());
+            codeGen->genConsumeReg(addr);
+            emitIns_R_R(ins, attr, node->gtRegNum, addr->gtRegNum);
+        }
+        break;
+
         case GT_STOREIND:
         {
-            GenTreeIndir* indir = node->AsIndir();
-            GenTree*      addr  = indir->Addr();
-            GenTree*      data  = indir->gtOp.gtOp2;
+            GenTree* addr = node->gtGetOp1();
+            GenTree* data = node->gtOp.gtOp2;
 
-            regNumber reg = (node->OperGet() == GT_IND) ? node->gtRegNum : data->gtRegNum;
+            assert(!addr->isContained());
+            assert(!data->isContained());
+            codeGen->genConsumeReg(addr);
+            codeGen->genConsumeReg(data);
 
-            if (addr->isContained())
+            if (addr->OperGet() == GT_CLS_VAR_ADDR)
             {
-                assert(addr->OperGet() == GT_LCL_VAR_ADDR || addr->OperGet() == GT_LEA);
-
-                int   offset = 0;
-                DWORD lsl    = 0;
-
-                if (addr->OperGet() == GT_LEA)
-                {
-                    offset = (int)addr->AsAddrMode()->gtOffset;
-                    if (addr->AsAddrMode()->gtScale > 0)
-                    {
-                        assert(isPow2(addr->AsAddrMode()->gtScale));
-                        BitScanForward(&lsl, addr->AsAddrMode()->gtScale);
-                    }
-                }
-
-                GenTree* memBase = indir->Base();
-
-                if (indir->HasIndex())
-                {
-                    NYI_ARM("emitInsMov HasIndex");
-                }
-                else
-                {
-                    // TODO check offset is valid for encoding
-                    emitIns_R_R_I(ins, attr, reg, memBase->gtRegNum, offset);
-                }
+                emitIns_C_R(ins, attr, addr->gtClsVar.gtClsVarHnd, data->gtRegNum, 0);
             }
             else
             {
-                if (addr->OperGet() == GT_CLS_VAR_ADDR)
-                {
-                    emitIns_C_R(ins, attr, addr->gtClsVar.gtClsVarHnd, data->gtRegNum, 0);
-                }
-                else
-                {
-                    emitIns_R_R(ins, attr, reg, addr->gtRegNum);
-                }
+                emitIns_R_R(ins, attr, addr->gtRegNum, data->gtRegNum);
             }
         }
         break;
@@ -7603,6 +7686,7 @@ void emitter::emitInsMov(instruction ins, emitAttr attr, GenTree* node)
             else
             {
                 assert(!data->isContained());
+                codeGen->genConsumeReg(data);
                 emitIns_S_R(ins, attr, data->gtRegNum, varNode->GetLclNum(), 0);
                 codeGen->genUpdateLife(varNode);
             }

@@ -27,6 +27,87 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 namespace
 {
 /**
+ * Visits basic blocks in the depth first order and arranges them in the order of
+ * their DFS finish time.
+ *
+ * @param block The fgFirstBB or entry block.
+ * @param comp A pointer to compiler.
+ * @param visited In pointer initialized to false and of size at least fgMaxBBNum.
+ * @param count Out pointer for count of all nodes reachable by DFS.
+ * @param postOrder Out poitner to arrange the blocks and of size at least fgMaxBBNum.
+ */
+static void TopologicalSortHelper(BasicBlock* block, Compiler* comp, bool* visited, int* count, BasicBlock** postOrder)
+{
+    visited[block->bbNum] = true;
+
+    ArrayStack<BasicBlock*>      blocks(comp);
+    ArrayStack<AllSuccessorIter> iterators(comp);
+    ArrayStack<AllSuccessorIter> ends(comp);
+
+    // there are three stacks used here and all should be same height
+    // the first is for blocks
+    // the second is the iterator to keep track of what succ of the block we are looking at
+    // and the third is the end marker iterator
+    blocks.Push(block);
+    iterators.Push(block->GetAllSuccs(comp).begin());
+    ends.Push(block->GetAllSuccs(comp).end());
+
+    while (blocks.Height() > 0)
+    {
+        block = blocks.Top();
+
+#ifdef DEBUG
+        if (comp->verboseSsa)
+        {
+            printf("[SsaBuilder::TopologicalSortHelper] Visiting BB%02u: ", block->bbNum);
+            printf("[");
+            unsigned numSucc = block->NumSucc(comp);
+            for (unsigned i = 0; i < numSucc; ++i)
+            {
+                printf("BB%02u, ", block->GetSucc(i, comp)->bbNum);
+            }
+            EHSuccessorIter end = block->GetEHSuccs(comp).end();
+            for (EHSuccessorIter ehsi = block->GetEHSuccs(comp).begin(); ehsi != end; ++ehsi)
+            {
+                printf("[EH]BB%02u, ", (*ehsi)->bbNum);
+            }
+            printf("]\n");
+        }
+#endif
+
+        if (iterators.TopRef() != ends.TopRef())
+        {
+            // if the block on TOS still has unreached successors, visit them
+            AllSuccessorIter& iter = iterators.TopRef();
+            BasicBlock*       succ = *iter;
+            ++iter;
+            // push the child
+
+            if (!visited[succ->bbNum])
+            {
+                blocks.Push(succ);
+                iterators.Push(succ->GetAllSuccs(comp).begin());
+                ends.Push(succ->GetAllSuccs(comp).end());
+                visited[succ->bbNum] = true;
+            }
+        }
+        else
+        {
+            // all successors have been visited
+            blocks.Pop();
+            iterators.Pop();
+            ends.Pop();
+
+            postOrder[*count]     = block;
+            block->bbPostOrderNum = *count;
+            *count += 1;
+
+            DBG_SSA_JITDUMP("postOrder[%d] = [%p] and BB%02u\n", *count, dspPtr(block), block->bbNum);
+        }
+    }
+}
+
+/**
  * Method that finds a common IDom parent, much like least common ancestor.
  *
  * @param finger1 A basic block that might share IDom ancestor with finger2.
@@ -103,8 +184,6 @@ void Compiler::fgResetForSsa()
     {
         lvaTable[i].lvPerSsaData.Reset();
     }
-    lvHeapPerSsaData.Reset();
-    m_heapSsaMap = nullptr;
     for (BasicBlock* blk = fgFirstBB; blk != nullptr; blk = blk->bbNext)
     {
         // Eliminate phis.
@@ -116,32 +195,6 @@ void Compiler::fgResetForSsa()
             if (blk->bbTreeList != nullptr)
             {
                 blk->bbTreeList->gtPrev = last;
-            }
-        }
-
-        // Clear post-order numbers and SSA numbers; SSA construction will overwrite these,
-        // but only for reachable code, so clear them to avoid analysis getting confused
-        // by stale annotations in unreachable code.
-        blk->bbPostOrderNum = 0;
-        for (GenTreeStmt* stmt = blk->firstStmt(); stmt != nullptr; stmt = stmt->getNextStmt())
-        {
-            for (GenTreePtr tree = stmt->gtStmt.gtStmtList; tree != nullptr; tree = tree->gtNext)
-            {
-                if (tree->IsLocal())
-                {
-                    tree->gtLclVarCommon.SetSsaNum(SsaConfig::RESERVED_SSA_NUM);
-                    continue;
-                }
-
-                Compiler::IndirectAssignmentAnnotation* pIndirAssign = nullptr;
-                if ((tree->OperGet() != GT_ASG) || !GetIndirAssignMap()->Lookup(tree, &pIndirAssign) ||
-                    (pIndirAssign == nullptr))
-                {
-                    continue;
-                }
-
-                pIndirAssign->m_defSsaNum = SsaConfig::RESERVED_SSA_NUM;
-                pIndirAssign->m_useSsaNum = SsaConfig::RESERVED_SSA_NUM;
             }
         }
     }
@@ -169,97 +222,27 @@ SsaBuilder::SsaBuilder(Compiler* pCompiler, IAllocator* pIAllocator)
 {
 }
 
-//------------------------------------------------------------------------
-//  TopologicalSort: Topologically sort the graph and return the number of nodes visited.
-//
-//  Arguments:
-//     postOrder - The array in which the arranged basic blocks have to be returned.
-//     count - The size of the postOrder array.
-//
-//  Return Value:
-//     The number of nodes visited while performing DFS on the graph.
-
+/**
+ *  Topologically sort the graph and return the number of nodes visited.
+ *
+ *  @param postOrder The array in which the arranged basic blocks have to be returned.
+ *  @param count The size of the postOrder array.
+ *
+ *  @return The number of nodes visited while performing DFS on the graph.
+ */
 int SsaBuilder::TopologicalSort(BasicBlock** postOrder, int count)
 {
-    Compiler* comp = m_pCompiler;
-
-    BitVecTraits traits(comp->fgBBNumMax + 1, comp);
-    BitVec       BITVEC_INIT_NOCOPY(visited, BitVecOps::MakeEmpty(&traits));
+    // Allocate and initialize visited flags.
+    bool* visited = (bool*)alloca(count * sizeof(bool));
+    memset(visited, 0, count * sizeof(bool));
 
     // Display basic blocks.
-    DBEXEC(VERBOSE, comp->fgDispBasicBlocks());
-    DBEXEC(VERBOSE, comp->fgDispHandlerTab());
+    DBEXEC(VERBOSE, m_pCompiler->fgDispBasicBlocks());
+    DBEXEC(VERBOSE, m_pCompiler->fgDispHandlerTab());
 
-    // Compute order.
-    int         postIndex = 0;
-    BasicBlock* block     = comp->fgFirstBB;
-    BitVecOps::AddElemD(&traits, visited, block->bbNum);
-
-    ArrayStack<BasicBlock*>      blocks(comp);
-    ArrayStack<AllSuccessorIter> iterators(comp);
-    ArrayStack<AllSuccessorIter> ends(comp);
-
-    // there are three stacks used here and all should be same height
-    // the first is for blocks
-    // the second is the iterator to keep track of what succ of the block we are looking at
-    // and the third is the end marker iterator
-    blocks.Push(block);
-    iterators.Push(block->GetAllSuccs(comp).begin());
-    ends.Push(block->GetAllSuccs(comp).end());
-
-    while (blocks.Height() > 0)
-    {
-        block = blocks.Top();
-
-#ifdef DEBUG
-        if (comp->verboseSsa)
-        {
-            printf("[SsaBuilder::TopologicalSort] Visiting BB%02u: ", block->bbNum);
-            printf("[");
-            unsigned numSucc = block->NumSucc(comp);
-            for (unsigned i = 0; i < numSucc; ++i)
-            {
-                printf("BB%02u, ", block->GetSucc(i, comp)->bbNum);
-            }
-            EHSuccessorIter end = block->GetEHSuccs(comp).end();
-            for (EHSuccessorIter ehsi = block->GetEHSuccs(comp).begin(); ehsi != end; ++ehsi)
-            {
-                printf("[EH]BB%02u, ", (*ehsi)->bbNum);
-            }
-            printf("]\n");
-        }
-#endif
-
-        if (iterators.TopRef() != ends.TopRef())
-        {
-            // if the block on TOS still has unreached successors, visit them
-            AllSuccessorIter& iter = iterators.TopRef();
-            BasicBlock*       succ = *iter;
-            ++iter;
-
-            // push the children
-            if (!BitVecOps::IsMember(&traits, visited, succ->bbNum))
-            {
-                blocks.Push(succ);
-                iterators.Push(succ->GetAllSuccs(comp).begin());
-                ends.Push(succ->GetAllSuccs(comp).end());
-                BitVecOps::AddElemD(&traits, visited, succ->bbNum);
-            }
-        }
-        else
-        {
-            // all successors have been visited
-            blocks.Pop();
-            iterators.Pop();
-            ends.Pop();
-
-            postOrder[postIndex]  = block;
-            block->bbPostOrderNum = postIndex;
-            postIndex += 1;
-
-            DBG_SSA_JITDUMP("postOrder[%d] = [%p] and BB%02u\n", postIndex, dspPtr(block), block->bbNum);
-        }
-    }
+    // Call the recursive helper.
+    int postIndex = 0;
+    TopologicalSortHelper(m_pCompiler->fgFirstBB, m_pCompiler, visited, &postIndex, postOrder);
 
     // In the absence of EH (because catch/finally have no preds), this should be valid.
     // assert(postIndex == (count - 1));
@@ -1333,18 +1316,17 @@ void SsaBuilder::AssignPhiNodeRhsVariables(BasicBlock* block, SsaRenameState* pR
         {
             if (succ->bbHeapSsaPhiFunc == BasicBlock::EmptyHeapPhiDef)
             {
-                succ->bbHeapSsaPhiFunc = new (m_pCompiler) BasicBlock::HeapPhiArg(block->bbHeapSsaNumOut);
+                succ->bbHeapSsaPhiFunc = new (m_pCompiler) BasicBlock::HeapPhiArg(block);
             }
             else
             {
                 BasicBlock::HeapPhiArg* curArg = succ->bbHeapSsaPhiFunc;
-                unsigned                ssaNum = block->bbHeapSsaNumOut;
                 bool                    found  = false;
                 // This is a quadratic algorithm.  We might need to consider some switch over to a hash table
                 // representation for the arguments of a phi node, to make this linear.
                 while (curArg != nullptr)
                 {
-                    if (curArg->m_ssaNum == ssaNum)
+                    if (curArg->m_predBB == block)
                     {
                         found = true;
                         break;
@@ -1353,7 +1335,7 @@ void SsaBuilder::AssignPhiNodeRhsVariables(BasicBlock* block, SsaRenameState* pR
                 }
                 if (!found)
                 {
-                    succ->bbHeapSsaPhiFunc = new (m_pCompiler) BasicBlock::HeapPhiArg(ssaNum, succ->bbHeapSsaPhiFunc);
+                    succ->bbHeapSsaPhiFunc = new (m_pCompiler) BasicBlock::HeapPhiArg(block, succ->bbHeapSsaPhiFunc);
                 }
             }
             DBG_SSA_JITDUMP("  Added phi arg for Heap from BB%02u in BB%02u.\n", block->bbNum, succ->bbNum);
@@ -1467,18 +1449,20 @@ void SsaBuilder::AssignPhiNodeRhsVariables(BasicBlock* block, SsaRenameState* pR
                 {
                     if (handlerStart->bbHeapSsaPhiFunc == BasicBlock::EmptyHeapPhiDef)
                     {
-                        handlerStart->bbHeapSsaPhiFunc =
-                            new (m_pCompiler) BasicBlock::HeapPhiArg(block->bbHeapSsaNumOut);
+                        handlerStart->bbHeapSsaPhiFunc = new (m_pCompiler) BasicBlock::HeapPhiArg(block);
                     }
                     else
                     {
-                        // This path has a potential to introduce redundant phi args, due to multiple
-                        // preds of the same try-begin block having the same live-out heap def, and/or
-                        // due to nested try-begins each having preds with the same live-out heap def.
-                        // Avoid doing quadratic processing on handler phis, and instead live with the
-                        // occasional redundancy.
-                        handlerStart->bbHeapSsaPhiFunc = new (m_pCompiler)
-                            BasicBlock::HeapPhiArg(block->bbHeapSsaNumOut, handlerStart->bbHeapSsaPhiFunc);
+#ifdef DEBUG
+                        BasicBlock::HeapPhiArg* curArg = handlerStart->bbHeapSsaPhiFunc;
+                        while (curArg != nullptr)
+                        {
+                            assert(curArg->m_predBB != block);
+                            curArg = curArg->m_nextArg;
+                        }
+#endif // DEBUG
+                        handlerStart->bbHeapSsaPhiFunc =
+                            new (m_pCompiler) BasicBlock::HeapPhiArg(block, handlerStart->bbHeapSsaPhiFunc);
                     }
                     DBG_SSA_JITDUMP("  Added phi arg for Heap from BB%02u in BB%02u.\n", block->bbNum,
                                     handlerStart->bbNum);
@@ -1702,17 +1686,7 @@ void SsaBuilder::Build()
     JITDUMP("[SsaBuilder] Max block count is %d.\n", blockCount);
 
     // Allocate the postOrder array for the graph.
-
-    BasicBlock** postOrder;
-
-    if (blockCount > DEFAULT_MIN_OPTS_BB_COUNT)
-    {
-        postOrder = new (m_pCompiler->getAllocator()) BasicBlock*[blockCount];
-    }
-    else
-    {
-        postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
-    }
+    BasicBlock** postOrder = (BasicBlock**)alloca(blockCount * sizeof(BasicBlock*));
 
     // Topologically sort the graph.
     int count = TopologicalSort(postOrder, blockCount);

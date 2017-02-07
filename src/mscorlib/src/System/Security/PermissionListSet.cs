@@ -23,7 +23,6 @@ namespace System.Security
     using System.Threading;
     using System.Collections;
     using System.Collections.Generic;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     [Serializable]
@@ -54,13 +53,15 @@ namespace System.Security
         }
 
 #if FEATURE_PLS
+        [System.Security.SecurityCritical]  // auto-generated
         internal void UpdateDomainPLS (PermissionListSet adPLS) {
             if (adPLS != null && adPLS.m_firstPermSetTriple != null)
                 UpdateDomainPLS(adPLS.m_firstPermSetTriple.GrantSet, adPLS.m_firstPermSetTriple.RefusedSet);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void UpdateDomainPLS (PermissionSet grantSet, PermissionSet deniedSet) {
-            Debug.Assert(m_permSetTriples == null, "m_permSetTriples != null");
+            Contract.Assert(m_permSetTriples == null, "m_permSetTriples != null");
             if (m_firstPermSetTriple == null)
                 m_firstPermSetTriple = new PermissionSetTriple();
 
@@ -75,6 +76,7 @@ namespace System.Security
             UpdateTripleListAndCreateNewTriple(currentTriple, null);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private void Terminate(PermissionSetTriple currentTriple, PermissionListSet pls)
         {
 #if FEATURE_COMPRESSEDSTACK
@@ -84,6 +86,7 @@ namespace System.Security
             this.UpdateTripleListAndCreateNewTriple(currentTriple, null);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private bool Update(PermissionSetTriple currentTriple, PermissionListSet pls)
         {
 #if FEATURE_COMPRESSEDSTACK
@@ -92,6 +95,7 @@ namespace System.Security
             return this.UpdatePermissions(currentTriple, pls);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private bool Update(PermissionSetTriple currentTriple, FrameSecurityDescriptor fsd)
         {
 #if FEATURE_COMPRESSEDSTACK
@@ -113,6 +117,7 @@ namespace System.Security
         }
 
 #if FEATURE_COMPRESSEDSTACK
+        [System.Security.SecurityCritical]
         private bool Update2(PermissionSetTriple currentTriple, FrameSecurityDescriptorWithResolver fsdWithResolver)
         {
             System.Reflection.Emit.DynamicResolver resolver = fsdWithResolver.Resolver;
@@ -122,6 +127,7 @@ namespace System.Security
         }
 #endif // FEATURE_COMPRESSEDSTACK
 
+        [System.Security.SecurityCritical]  // auto-generated
         private bool Update2(PermissionSetTriple currentTriple, FrameSecurityDescriptor fsd, bool fDeclarative)
         {
             // Deny
@@ -181,6 +187,7 @@ namespace System.Security
 
             return false;
         }
+        [System.Security.SecurityCritical]  // auto-generated
         private void Update(PermissionSetTriple currentTriple, PermissionSet in_g, PermissionSet in_r)
         {
 #if FEATURE_COMPRESSEDSTACK
@@ -196,6 +203,7 @@ namespace System.Security
         }
 
         // Called from the VM for HG CS construction        
+        [System.Security.SecurityCritical]  // auto-generated
         private void Update(PermissionSet in_g)
         {
             if (m_firstPermSetTriple == null)
@@ -218,6 +226,7 @@ namespace System.Security
         }
 #endif // FEATURE_COMPRESSEDSTACK
 
+        [System.Security.SecurityCritical]  // auto-generated
         private bool UpdatePermissions(PermissionSetTriple currentTriple, PermissionListSet pls)
         {
             if (pls != null)
@@ -313,6 +322,7 @@ namespace System.Security
             }
         }
 
+[System.Security.SecurityCritical]  // auto-generated
 [System.Runtime.InteropServices.ComVisible(true)]
         // public(internal) interface begins...
         // Creation functions
@@ -360,6 +370,7 @@ namespace System.Security
             return pls;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         static internal PermissionListSet CreateCompressedState(IntPtr unmanagedDCS, out bool bHaltConstruction)
         {
             PermissionListSet pls = new PermissionListSet();
@@ -400,6 +411,7 @@ namespace System.Security
             return pls;
             
         }
+        [System.Security.SecurityCritical]  // auto-generated
         static internal PermissionListSet CreateCompressedState_HG()
         {
             PermissionListSet pls = new PermissionListSet();
@@ -408,10 +420,11 @@ namespace System.Security
         }
 #endif // #if FEATURE_COMPRESSEDSTACK
         // Private Demand evaluation functions - only called from the VM
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckDemandNoThrow(CodeAccessPermission demand)
         {
             // AppDomain permissions - no asserts. So there should only be one triple to work with
-            Debug.Assert(m_permSetTriples == null && m_firstPermSetTriple != null, "More than one PermissionSetTriple encountered in AD PermissionListSet");
+            Contract.Assert(m_permSetTriples == null && m_firstPermSetTriple != null, "More than one PermissionSetTriple encountered in AD PermissionListSet");
             
 
             
@@ -423,16 +436,18 @@ namespace System.Security
                 
 
         }
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckSetDemandNoThrow(PermissionSet pSet)
         {
             // AppDomain permissions - no asserts. So there should only be one triple to work with
-            Debug.Assert(m_permSetTriples == null && m_firstPermSetTriple != null, "More than one PermissionSetTriple encountered in AD PermissionListSet");
+            Contract.Assert(m_permSetTriples == null && m_firstPermSetTriple != null, "More than one PermissionSetTriple encountered in AD PermissionListSet");
 
             
             return m_firstPermSetTriple.CheckSetDemandNoThrow(pSet);
         }
 
         // Demand evauation functions
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckDemand(CodeAccessPermission demand, PermissionToken permToken, RuntimeMethodHandleInternal rmh)
         {
             bool bRet = SecurityRuntime.StackContinue;
@@ -452,6 +467,7 @@ namespace System.Security
             return bRet;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckSetDemand(PermissionSet pset , RuntimeMethodHandleInternal rmh)
         {
             PermissionSet unused;
@@ -459,6 +475,7 @@ namespace System.Security
             return SecurityRuntime.StackHalt; //  CS demand check always terminates the stackwalk    
         }
 
+        [System.Security.SecurityCritical]
         internal bool CheckSetDemandWithModification(PermissionSet pset, out PermissionSet alteredDemandSet, RuntimeMethodHandleInternal rmh)
         {
             bool bRet = SecurityRuntime.StackContinue;
@@ -486,9 +503,10 @@ namespace System.Security
         ///     Check to see if the PLS satisfies a demand for the special permissions encoded in flags
         /// </summary>
         /// <param name="flags">set of flags to check (See PermissionType)</param>
+        [System.Security.SecurityCritical]  // auto-generated
         private bool CheckFlags(int flags)
         {
-            Debug.Assert(flags != 0, "Invalid permission flag demand");
+            Contract.Assert(flags != 0, "Invalid permission flag demand");
 
             bool check = true;
 
@@ -513,6 +531,7 @@ namespace System.Security
         /// </summary>
         /// <param name="flags">set of flags to check (See PermissionType)</param>
         /// <param name="grantSet">alternate permission set to check</param>
+        [System.Security.SecurityCritical]  // auto-generated
         internal void DemandFlagsOrGrantSet(int flags, PermissionSet grantSet)
         {
             if (CheckFlags(flags))

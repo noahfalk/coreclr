@@ -10,7 +10,6 @@
 //
 
 using System;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Globalization;
 using System.Security.Permissions;
@@ -27,7 +26,7 @@ namespace System.Security.Policy
         public Site(String name)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
 
             m_name = new SiteString( name );
@@ -35,7 +34,7 @@ namespace System.Security.Policy
 
         private Site(SiteString name)
         {
-            Debug.Assert(name != null);
+            Contract.Assert(name != null);
             m_name = name;
         }
 
@@ -94,6 +93,30 @@ namespace System.Security.Policy
         {
             return Clone();
         }
+
+#if FEATURE_CAS_POLICY
+        internal SecurityElement ToXml()
+        {
+            SecurityElement elem = new SecurityElement( "System.Security.Policy.Site" );
+            // If you hit this assert then most likely you are trying to change the name of this class. 
+            // This is ok as long as you change the hard coded string above and change the assert below.
+            Contract.Assert( this.GetType().FullName.Equals( "System.Security.Policy.Site" ), "Class name changed!" );
+
+            elem.AddAttribute( "version", "1" );
+            
+            if(m_name != null)
+                elem.AddChild( new SecurityElement( "Name", m_name.ToString() ) );
+                
+            return elem;
+        }
+#endif // FEATURE_CAS_POLICY
+
+#if FEATURE_CAS_POLICY
+        public override String ToString()
+        {
+            return ToXml().ToString();
+        }
+#endif // FEATURE_CAS_POLICY
 
         // INormalizeForIsolatedStorage is not implemented for startup perf
         // equivalent to INormalizeForIsolatedStorage.Normalize()

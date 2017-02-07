@@ -46,6 +46,7 @@ namespace System.Runtime.InteropServices {
             SetErrorCode(errorCode);
         }
 
+        [SecuritySafeCritical]
         internal COMException(int hresult)
             : base(Win32Native.GetMessage(hresult))
         {

@@ -744,7 +744,7 @@ void MethodContext::recCompileMethod(CORINFO_METHOD_INFO *info, unsigned flags)
 void MethodContext::dmpCompileMethod(DWORD key, const Agnostic_CompileMethod& value)
 {
     printf("CompiledMethod key %u, value ftn-%016llX scp-%016llX ilo-%u ils-%u ms-%u ehc-%u opt-%u rk-%u "
-           "args{cc-%u rc-%016llX rts-%016llX rt-%u(%s) flg-%08X nA-%u cc-%u ci-%u mc-%u mi-%u arg-%016llX cb-%u pSig-%u scp-%016llX tok-%08X} "
+             "args{cc-%u rc-%016llX rts-%016llX rt-%u(%s) flg-%08X nA-%u cc-%u ci-%u mc-%u mi-%u arg-%016llX cb-%u pSig-%u scp-%016llX tok-%08X} "
            "locals{cc-%u rc-%016llX rts-%016llX rt-%u(%s) flg-%08X nA-%u cc-%u ci-%u mc-%u mi-%u arg-%016llX cb-%u pSig-%u scp-%016llX tok-%08X} "
            "flg-%08X",
         key,
@@ -1098,8 +1098,8 @@ void MethodContext::recGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes, DW
 }
 void MethodContext::dmpGetJitFlags(DWORD key, DD value)
 {
-    CORJIT_FLAGS *jitflags = (CORJIT_FLAGS*)GetJitFlags->GetBuffer(value.A);
-    printf("GetJitFlags key %u sizeInBytes-%u jitFlags-%016llX", key, value.B, jitflags->GetFlagsRaw());
+    CORJIT_FLAGS *flags = (CORJIT_FLAGS*)GetJitFlags->GetBuffer(value.A);
+    printf("GetJitFlags key %u sizeInBytes-%u corJitFlags-%08X corJitFlags2-%08X", key, value.B, flags->corJitFlags, flags->corJitFlags2);
     GetJitFlags->Unlock();
 }
 DWORD MethodContext::repGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes)
@@ -2840,34 +2840,6 @@ CORINFO_CLASS_HANDLE MethodContext::repGetArgClass(CORINFO_SIG_INFO* sig, CORINF
     DEBUG_REP(dmpGetArgClass(key, value));
 
     return (CORINFO_CLASS_HANDLE)value.result;
-}
-
-void MethodContext::recGetHFAType(CORINFO_CLASS_HANDLE clsHnd, CorInfoType result)
-{
-    if (GetHFAType == nullptr)
-        GetHFAType = new LightWeightMap<DWORDLONG, DWORD>();
-
-    GetHFAType->Add((DWORDLONG)clsHnd, (DWORD)result);
-    DEBUG_REC(dmpGetHFAType((DWORDLONG)clsHnd, (DWORD)result));
-    return;
-}
-
-void MethodContext::dmpGetHFAType(DWORDLONG key, DWORD value)
-{
-    printf("GetHFAType key %016llX, value %u ", key, value);
-    return;
-}
-
-CorInfoType MethodContext::repGetHFAType(CORINFO_CLASS_HANDLE clsHnd)
-{
-    DWORD value;
-
-    AssertCodeMsg(GetHFAType != nullptr, EXCEPTIONCODE_MC, "Didn't find anything for %016llX", (DWORDLONG)clsHnd);
-    AssertCodeMsg(GetHFAType->GetIndex((DWORDLONG)clsHnd) != -1, EXCEPTIONCODE_MC, "Didn't find %016llX", (DWORDLONG)clsHnd);
-
-    value = GetHFAType->Get((DWORDLONG)clsHnd);
-    DEBUG_REP(dmpGetHFAType((DWORDLONG)clsHnd, value));
-    return (CorInfoType)value;
 }
 
 void MethodContext::recGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO *info, bool result, DWORD exceptionCode)

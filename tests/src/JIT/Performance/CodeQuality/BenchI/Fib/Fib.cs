@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public static class Fib
 {
 
@@ -32,7 +30,7 @@ public static class Fib
             return 1;
         }
     }
-
+    
     [MethodImpl(MethodImplOptions.NoInlining)]
     static bool Bench() {
         int fib = Fibonacci(Number);
@@ -57,10 +55,9 @@ public static class Fib
         }
         return result;
     }
-
+    
     public static int Main() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

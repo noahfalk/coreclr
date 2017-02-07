@@ -69,7 +69,7 @@ namespace System
         {
             if (innerException == null)
             {
-                throw new ArgumentNullException(nameof(innerException));
+                throw new ArgumentNullException("innerException");
             }
 
             m_innerExceptions = new ReadOnlyCollection<Exception>(new Exception[] { innerException });
@@ -149,7 +149,7 @@ namespace System
         {
             if (innerExceptions == null)
             {
-                throw new ArgumentNullException(nameof(innerExceptions));
+                throw new ArgumentNullException("innerExceptions");
             }
 
             // Copy exceptions to our internal array and validate them. We must copy them,
@@ -227,7 +227,7 @@ namespace System
         {
             if (innerExceptionInfos == null)
             {
-                throw new ArgumentNullException(nameof(innerExceptionInfos));
+                throw new ArgumentNullException("innerExceptionInfos");
             }
 
             // Copy exceptions to our internal array and validate them. We must copy them,
@@ -258,12 +258,13 @@ namespace System
         /// contains contextual information about the source or destination. </param>
         /// <exception cref="T:System.ArgumentNullException">The <paramref name="info"/> argument is null.</exception>
         /// <exception cref="T:System.Runtime.Serialization.SerializationException">The exception could not be deserialized correctly.</exception>
+        [SecurityCritical]
         protected AggregateException(SerializationInfo info, StreamingContext context) :
             base(info, context)
         {
             if (info == null)
             {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
 
             Exception[] innerExceptions = info.GetValue("InnerExceptions", typeof(Exception[])) as Exception[];
@@ -284,11 +285,12 @@ namespace System
         /// <param name="context">The <see cref="T:System.Runtime.Serialization.StreamingContext"/> that
         /// contains contextual information about the source or destination. </param>
         /// <exception cref="T:System.ArgumentNullException">The <paramref name="info"/> argument is null.</exception>
+        [SecurityCritical]
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
             {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
 
             base.GetObjectData(info, context);
@@ -349,7 +351,7 @@ namespace System
         {
             if (predicate == null)
             {
-                throw new ArgumentNullException(nameof(predicate));
+                throw new ArgumentNullException("predicate");
             }
 
             List<Exception> unhandledExceptions = null;
@@ -377,8 +379,7 @@ namespace System
 
 
         /// <summary>
-        /// Flattens the inner instances of <see cref="AggregateException"/> by expanding its contained <see cref="Exception"/> instances
-        /// into a new <see cref="AggregateException"/>
+        /// Flattens an <see cref="AggregateException"/> instances into a single, new instance.
         /// </summary>
         /// <returns>A new, flattened <see cref="AggregateException"/>.</returns>
         /// <remarks>

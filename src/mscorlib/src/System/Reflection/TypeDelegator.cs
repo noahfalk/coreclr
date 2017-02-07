@@ -24,11 +24,14 @@ namespace System.Reflection {
 
         protected Type typeImpl;
         
+        #if FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical] // auto-generated
+        #endif
         protected TypeDelegator() {}
         
         public TypeDelegator(Type delegatingType) {
             if (delegatingType == null)
-                throw new ArgumentNullException(nameof(delegatingType));
+                throw new ArgumentNullException("delegatingType");
             Contract.EndContractBlock();
                 
             typeImpl = delegatingType;

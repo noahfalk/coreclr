@@ -52,8 +52,10 @@ class GCScan
     static void EnumMemoryRegions(CLRDataEnumMemoryFlags flags);
 #endif // DACCESS_COMPILE
 
-    static void GcScanHandlesForProfilerAndETW (int max_gen, ScanContext* sc, handle_scan_fn fn);
-    static void GcScanDependentHandlesForProfilerAndETW (int max_gen, ScanContext* sc, handle_scan_fn fn);
+#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+    static void GcScanHandlesForProfilerAndETW (int max_gen, ScanContext* sc);
+    static void GcScanDependentHandlesForProfilerAndETW (int max_gen, ProfilingScanContext* sc);
+#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 
     // scan for dead weak pointers
     static void GcWeakPtrScan (promote_func* fn, int condemned, int max_gen, ScanContext*sc );

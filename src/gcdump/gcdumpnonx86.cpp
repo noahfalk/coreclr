@@ -505,7 +505,7 @@ size_t      GCDump::DumpGCTable(PTR_CBYTE      gcInfoBlock,
 
 /*****************************************************************************/
 
-void    GCDump::DumpPtrsInFrame(PTR_CBYTE   gcInfoBlock,
+void    GCDump::DumpPtrsInFrame(PTR_CBYTE   infoBlock,
                                 PTR_CBYTE   codeBlock,
                                 unsigned    offs,
                                 bool        verifyGCTables)
@@ -520,7 +520,7 @@ void    GCDump::DumpPtrsInFrame(PTR_CBYTE   gcInfoBlock,
 #define LOG(x) ((void)0)
 #endif
 
-#define GCINFODECODER_CONTRACT ((void)0)
+#define GCINFODECODER_CONTRACT(contract)
 #define GET_CALLER_SP(pREGDISPLAY) ((size_t)GetSP(pREGDISPLAY->pCallerContext))
 #define VALIDATE_OBJECTREF(objref, fDeep) ((void)0)
 #define VALIDATE_ROOT(isInterior, hCallBack, pObjRef) ((void)0)

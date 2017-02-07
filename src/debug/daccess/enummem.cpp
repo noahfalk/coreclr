@@ -250,9 +250,9 @@ HRESULT ClrDataAccess::EnumMemCLRStatic(IN CLRDataEnumMemoryFlags flags)
         ReportMem(m_globalBase + g_dacGlobals.SharedDomain__m_pSharedDomain,
                   sizeof(SharedDomain));
 
-        // We need IGCHeap pointer to make EEVersion work
+        // We need GCHeap pointer to make EEVersion work
         ReportMem(m_globalBase + g_dacGlobals.dac__g_pGCHeap,
-              sizeof(IGCHeap *));
+              sizeof(GCHeap *));
 
         // see synblk.cpp, the pointer is pointed to a static byte[]
         SyncBlockCache::s_pSyncBlockCache.EnumMem();
@@ -292,9 +292,7 @@ HRESULT ClrDataAccess::EnumMemCLRStatic(IN CLRDataEnumMemoryFlags flags)
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pValueTypeClass.EnumMem(); )
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pEnumClass.EnumMem(); )
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pThreadClass.EnumMem(); )
-#ifdef FEATURE_CER
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pCriticalFinalizerObjectClass.EnumMem(); )
-#endif
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pFreeObjectMethodTable.EnumMem(); )
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_pObjectCtorMD.EnumMem(); )
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED( g_fHostConfig.EnumMem(); )
@@ -318,7 +316,7 @@ HRESULT ClrDataAccess::EnumMemCLRStatic(IN CLRDataEnumMemoryFlags flags)
 #ifdef FEATURE_SVR_GC
     CATCH_ALL_EXCEPT_RETHROW_COR_E_OPERATIONCANCELLED
     (
-        IGCHeap::gcHeapType.EnumMem();
+        GCHeap::gcHeapType.EnumMem();
     );
 #endif // FEATURE_SVR_GC
 
@@ -798,9 +796,10 @@ HRESULT ClrDataAccess::EnumMemWalkStackHelper(CLRDataEnumMemoryFlags flags,
         currentSP = dac_cast<TADDR>(pThread->GetCachedStackLimit()) + sizeof(TADDR);
 
         // exhaust the frames using DAC api
+        bool frameHadContext;
         for (; status == S_OK; )
         {
-            bool frameHadContext = false;
+            frameHadContext = false;
             status = pStackWalk->GetFrame(&pFrame);
             PCODE addr = NULL;
             if (status == S_OK && pFrame != NULL)
@@ -970,7 +969,7 @@ HRESULT ClrDataAccess::EnumMemWalkStackHelper(CLRDataEnumMemoryFlags flags,
                             // Pulls in sequence points and local variable info
                             DebugInfoManager::EnumMemoryRegionsForMethodDebugInfo(flags, pMethodDesc);
 
-#if defined(WIN64EXCEPTIONS) && defined(USE_GC_INFO_DECODER)
+#ifdef WIN64EXCEPTIONS
                           
                             if (addr != NULL)
                             {
@@ -988,7 +987,7 @@ HRESULT ClrDataAccess::EnumMemWalkStackHelper(CLRDataEnumMemoryFlags flags,
                                     DacEnumMemoryRegion(dac_cast<TADDR>(pGCInfo), gcDecoder.GetNumBytesRead(), true);
                                 }
                             }
-#endif // WIN64EXCEPTIONS && USE_GC_INFO_DECODER
+#endif // WIN64EXCEPTIONS
                         }
                         pMethodDefinition.Clear();
                     }

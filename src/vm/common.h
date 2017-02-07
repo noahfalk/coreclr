@@ -177,7 +177,7 @@ typedef DPTR(class StringBufferObject)  PTR_StringBufferObject;
 typedef DPTR(class TypeHandle)          PTR_TypeHandle;
 typedef VPTR(class VirtualCallStubManager) PTR_VirtualCallStubManager;
 typedef VPTR(class VirtualCallStubManagerManager) PTR_VirtualCallStubManagerManager;
-typedef VPTR(class IGCHeap)             PTR_IGCHeap;
+typedef VPTR(class GCHeap)              PTR_GCHeap;
 
 //
 // _UNCHECKED_OBJECTREF is for code that can't deal with DEBUG OBJECTREFs

@@ -36,14 +36,14 @@ class AppDomain;
 //  on the stack.  The FEF is used for unwinding.  If not defined, the unwinding
 //  uses the exception context.
 #define USE_FEF // to mark where code needs to be changed to eliminate the FEF
-#if defined(_TARGET_X86_) && !defined(FEATURE_PAL)
+#if defined(_TARGET_X86_)
  #undef USE_FEF // Turn off the FEF use on x86.
  #define ELIMINATE_FEF
 #else
  #if defined(ELIMINATE_FEF)
   #undef ELIMINATE_FEF
  #endif 
-#endif // _TARGET_X86_ && !FEATURE_PAL
+#endif // _86_
 
 //************************************************************************
 // Enumerate all functions.

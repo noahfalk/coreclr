@@ -39,7 +39,7 @@ namespace System.Collections {
 
         public int GetHashCode(Object obj) {
             if( obj == null) {
-                throw new ArgumentNullException(nameof(obj));
+                throw new ArgumentNullException("obj");
             }
             Contract.EndContractBlock();
 

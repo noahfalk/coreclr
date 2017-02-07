@@ -86,6 +86,8 @@
 #undef lstrcmp
 #undef lstrcmpi
 #undef lstrcpyn
+#undef lstrcpy
+#undef lstrcat
 #undef lstrlen
 #undef CreateMutex
 #undef OpenMutex
@@ -220,6 +222,7 @@
 // winuser.h
 #undef MAKEINTRESOURCE
 #undef wvsprintf
+#undef wsprintf
 #undef LoadKeyboardLayout
 #undef GetKeyboardLayoutName
 #undef CreateDesktop
@@ -392,6 +395,8 @@
 #define WszQueryRecoveryAgents   QueryRecoveryAgentsW
 #define Wszlstrcmp   lstrcmpW
 #define Wszlstrcmpi   lstrcmpiW
+#define Wszlstrcpy lstrcpyW
+#define Wszlstrcat lstrcatW
 #define WszCreateMutex CreateMutexW
 #define WszOpenMutex OpenMutexW
 #define WszCreateEvent CreateEventW
@@ -679,6 +684,8 @@
 
 // on win98 and higher
 #define Wszlstrlen      lstrlenW
+#define Wszlstrcpy      lstrcpyW
+#define Wszlstrcat      lstrcatW
 
 //File and Directory Functions which need special handling for LongFile Names
 //Note only the functions which are currently used are defined

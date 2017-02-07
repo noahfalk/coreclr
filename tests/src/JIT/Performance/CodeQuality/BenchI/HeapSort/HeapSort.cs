@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public static class HeapSort
 {
 
@@ -34,7 +32,7 @@ public static class HeapSort
             j = i;
             k = j / 2;
             m = x[i];
-
+            
             // 0 < k <= (n / 2)
             // 1 <= j <= n
             while (k > 0) {
@@ -115,10 +113,9 @@ public static class HeapSort
         }
         return result;
     }
-
+    
     public static int Main() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

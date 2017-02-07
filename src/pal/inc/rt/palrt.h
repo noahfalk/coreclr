@@ -834,6 +834,7 @@ enum tagMIMECONTF {
 
 // note: diff in NULL handing and calling convetion
 #define StrCpyW                 PAL_wcscpy
+#define StrCpyNW                lstrcpynW // note: can't be wcsncpy!
 #define StrCatW                 PAL_wcscat
 #define StrChrW                 (WCHAR*)PAL_wcschr
 #define StrCmpW                 PAL_wcscmp
@@ -849,9 +850,12 @@ STDAPI_(LPWSTR) StrCatBuffW(LPWSTR pszDest, LPCWSTR pszSrc, int cchDestBuffSize)
 
 #define lstrcmpW                PAL_wcscmp
 #define lstrcmpiW               _wcsicmp
+#define wnsprintfW              _snwprintf // note: not 100% compatible (wsprintf should be subset of sprintf...)
+#define wvnsprintfW             _vsnwprintf // note: not 100% compatible (wsprintf should be subset of sprintf...)
 
 #ifdef UNICODE
 #define StrCpy                  StrCpyW
+#define StrCpyN                 StrCpyNW
 #define StrCat                  StrCatW
 #define StrNCat                 StrNCatW
 #define StrChr                  StrChrW
@@ -867,6 +871,7 @@ STDAPI_(LPWSTR) StrCatBuffW(LPWSTR pszDest, LPCWSTR pszSrc, int cchDestBuffSize)
 
 #define lstrcmp                 lstrcmpW
 #define lstrcmpi                lstrcmpiW
+#define wnsprintf               wnsprintfW
 #endif
 
 
@@ -893,7 +898,12 @@ Remember to fix the errcode defintion in safecrt.h.
 */
 
 #define _wcslwr_s _wcslwr_unsafe
+#define _snwprintf_s _snwprintf_unsafe
+#define _vsnwprintf_s _vsnwprintf_unsafe
+#define _snprintf_s _snprintf_unsafe
+#define _vsnprintf_s _vsnprintf_unsafe
 #define swscanf_s swscanf
+#define sscanf_s sscanf
 
 #define _wfopen_s _wfopen_unsafe
 #define fopen_s _fopen_unsafe
@@ -901,6 +911,12 @@ Remember to fix the errcode defintion in safecrt.h.
 #define _strlwr_s _strlwr_unsafe
 
 #define _vscprintf _vscprintf_unsafe
+#define _vscwprintf _vscwprintf_unsafe
+
+#define sprintf_s _snprintf
+#define swprintf_s _snwprintf
+#define vsprintf_s _vsnprintf
+#define vswprintf_s _vsnwprintf
 
 extern "C++" {
 
@@ -956,17 +972,81 @@ inline int __cdecl _vscprintf_unsafe(const char *_Format, va_list _ArgList)
         if(buf == nullptr)
             return 0;
 
-        va_list argListCopy;
-        va_copy(argListCopy, _ArgList);
-        int ret = _vsnprintf_s(buf, guess, _TRUNCATE, _Format, argListCopy);
+        int ret = _vsnprintf(buf, guess, _Format, _ArgList);
         free(buf);
-        va_end(argListCopy);
 
         if ((ret != -1) && (ret < guess))
             return ret;
 
         guess *= 2;
     }
+}
+
+inline int __cdecl _vscwprintf_unsafe(const WCHAR *_Format, va_list _ArgList)
+{
+    int guess = 256;
+
+    for (;;)
+    {
+        WCHAR *buf = (WCHAR *)malloc(guess * sizeof(WCHAR));
+        if (buf == nullptr)
+            return 0;
+
+        va_list apcopy;
+        va_copy(apcopy, _ArgList);
+        int ret = _vsnwprintf(buf, guess, _Format, apcopy);
+        free(buf);
+        va_end(apcopy);
+
+        if ((ret != -1) && (ret < guess))
+            return ret;
+
+        guess *= 2;
+    }
+}
+
+inline int __cdecl _vsnwprintf_unsafe(WCHAR *_Dst, size_t _SizeInWords, size_t _Count, const WCHAR *_Format, va_list _ArgList)
+{
+    if (_Count == _TRUNCATE) _Count = _SizeInWords - 1;
+    int ret = _vsnwprintf(_Dst, _Count, _Format, _ArgList);
+    _Dst[_SizeInWords - 1] = L'\0';
+    if (ret < 0 && errno == 0)
+    {
+        errno = ERANGE;
+    }
+    return ret;
+}
+
+inline int __cdecl _snwprintf_unsafe(WCHAR *_Dst, size_t _SizeInWords, size_t _Count, const WCHAR *_Format, ...)
+{
+    int ret;
+    va_list _ArgList;
+    va_start(_ArgList, _Format);
+    ret = _vsnwprintf_unsafe(_Dst, _SizeInWords, _Count, _Format, _ArgList);
+    va_end(_ArgList);
+    return ret;
+}
+
+inline int __cdecl _vsnprintf_unsafe(char *_Dst, size_t _SizeInWords, size_t _Count, const char *_Format, va_list _ArgList)
+{
+    if (_Count == _TRUNCATE) _Count = _SizeInWords - 1;
+    int ret = _vsnprintf(_Dst, _Count, _Format, _ArgList);
+    _Dst[_SizeInWords - 1] = L'\0';
+    if (ret < 0 && errno == 0)
+    {
+        errno = ERANGE;
+    }
+    return ret;
+}
+
+inline int __cdecl _snprintf_unsafe(char *_Dst, size_t _SizeInWords, size_t _Count, const char *_Format, ...)
+{
+    int ret;
+    va_list _ArgList;
+    va_start(_ArgList, _Format);
+    ret = _vsnprintf_unsafe(_Dst, _SizeInWords, _Count, _Format, _ArgList);
+    va_end(_ArgList);
+    return ret;
 }
 
 inline errno_t __cdecl _wfopen_unsafe(PAL_FILE * *ff, const WCHAR *fileName, const WCHAR *mode)
@@ -991,6 +1071,100 @@ inline errno_t __cdecl _fopen_unsafe(PAL_FILE * *ff, const char *fileName, const
   }
 }
 
+/* _itow_s */
+_SAFECRT__EXTERN_C
+errno_t __cdecl _itow_s(int _Value, WCHAR *_Dst, size_t _SizeInWords, int _Radix);
+
+#if defined(__cplusplus) && _SAFECRT_USE_CPP_OVERLOADS
+template <size_t _SizeInWords>
+inline
+errno_t __cdecl _itow_s(int _Value, WCHAR (&_Dst)[_SizeInWords], int _Radix)
+{
+    return _itow_s(_Value, _Dst, _SizeInWords, _Radix);
+}
+#endif
+
+#if _SAFECRT_USE_INLINES
+
+__inline
+errno_t __cdecl _itow_s(int _Value, WCHAR *_Dst, size_t _SizeInWords, int _Radix)
+{
+    /* validation section */
+    _SAFECRT__VALIDATE_STRING(_Dst, _SizeInWords);
+
+    /* TODO: do not write past buffer size */
+    _itow(_Value, _Dst, _Radix);
+    return 0;
+}
+
+#endif
+
+/* _i64tow_s */
+_SAFECRT__EXTERN_C
+errno_t __cdecl _i64tow_s(__int64 _Value, WCHAR *_Dst, size_t _SizeInWords, int _Radix);
+
+#if defined(__cplusplus) && _SAFECRT_USE_CPP_OVERLOADS
+template <size_t _SizeInWords>
+inline
+errno_t __cdecl _i64tow_s(__int64 _Value, WCHAR (&_Dst)[_SizeInWords], int _Radix)
+{
+    return _i64tow_s(_Value, _Dst, _SizeInWords, _Radix);
+}
+#endif
+
+#if _SAFECRT_USE_INLINES
+
+__inline
+errno_t __cdecl _i64tow_s(__int64 _Value, WCHAR *_Dst, size_t _SizeInWords, int _Radix)
+{
+    /* validation section */
+    _SAFECRT__VALIDATE_STRING(_Dst, _SizeInWords);
+
+    /* TODO: do not write past buffer size */
+    _i64tow(_Value, _Dst, _Radix);
+    return 0;
+}
+
+#endif
+
+/* getenv_s */
+/*
+ * _ReturnValue indicates if the variable has been found and size needed
+ */
+_SAFECRT__EXTERN_C
+errno_t __cdecl getenv_s(size_t *_ReturnValue, char *_Dst, size_t _SizeInWords, const char *_Name);
+
+#if defined(__cplusplus) && _SAFECRT_USE_CPP_OVERLOADS
+template <size_t _SizeInWords>
+inline
+errno_t __cdecl getenv_s(size_t *_ReturnValue, char *_Dst, size_t _SizeInWords, const char *_Name)
+{
+    return getenv_s(_ReturnValue, _Dst, _SizeInWords, _Name);
+}
+#endif
+
+#if _SAFECRT_USE_INLINES
+
+__inline
+errno_t __cdecl getenv_s(size_t *_ReturnValue, char *_Dst, size_t _SizeInWords, const char *_Name)
+{
+    char *szFound;
+
+    /* validation section */
+    _SAFECRT__VALIDATE_STRING(_Dst, _SizeInWords);
+
+    szFound = getenv(_Name);
+    if (szFound == nullptr)
+    {
+        *_ReturnValue = 0;
+        return 0;
+    }
+    *_ReturnValue = strlen(szFound) + 1;
+    return strcpy_s(_Dst, _SizeInWords, szFound);
+}
+
+#endif
+ 
 }
 #endif /* __cplusplus */
 
@@ -1073,7 +1247,6 @@ namespace std
     typedef decltype(nullptr) nullptr_t;
 }
 
-extern "C++"
 template< class T >
 typename std::remove_reference<T>::type&& move( T&& t );
 #endif // __cplusplus
@@ -1154,7 +1327,7 @@ typedef VOID (__stdcall *WAITORTIMERCALLBACK)(PVOID, BOOLEAN);
 // The message in these two macros should not contain any keywords like TODO
 // or NYI. It should be just the brief description of the problem.
 
-#ifdef PORTABILITY_CHECK
+#if defined(_TARGET_X86_)
 // Finished ports - compile-time errors
 #define PORTABILITY_WARNING(message)    NEED_TO_PORT_THIS_ONE(NEED_TO_PORT_THIS_ONE)
 #define PORTABILITY_ASSERT(message)     NEED_TO_PORT_THIS_ONE(NEED_TO_PORT_THIS_ONE)
@@ -1493,7 +1666,7 @@ typedef struct _DISPATCHER_CONTEXT {
     ULONG64 Reserved;
 } DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
 
-#elif defined(_AMD64_)
+#else
 
 typedef struct _DISPATCHER_CONTEXT {
     ULONG64 ControlPc;
@@ -1506,29 +1679,6 @@ typedef struct _DISPATCHER_CONTEXT {
     PVOID HandlerData;
     PUNWIND_HISTORY_TABLE HistoryTable;
 } DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
-
-#elif defined(_X86_)
-
-typedef struct _EXCEPTION_REGISTRATION_RECORD {
-    struct _EXCEPTION_REGISTRATION_RECORD *Next;
-    PEXCEPTION_ROUTINE Handler;
-} EXCEPTION_REGISTRATION_RECORD;
-
-typedef struct _DISPATCHER_CONTEXT {
-    DWORD ControlPc;
-    DWORD ImageBase;
-    PRUNTIME_FUNCTION FunctionEntry;
-    DWORD EstablisherFrame;
-    DWORD TargetIp;
-    PCONTEXT ContextRecord;
-    PEXCEPTION_ROUTINE LanguageHandler;
-    PVOID HandlerData;
-    PUNWIND_HISTORY_TABLE HistoryTable;
-} DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
-
-#else
-
-#error Unknown architecture for defining DISPATCHER_CONTEXT.
 
 #endif
 

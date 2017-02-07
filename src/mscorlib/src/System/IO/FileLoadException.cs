@@ -91,6 +91,7 @@ namespace System.IO {
             if (StackTrace != null)
                 s += Environment.NewLine + StackTrace;
 
+#if FEATURE_FUSION
             try
             {
                 if(FusionLog!=null)
@@ -106,6 +107,7 @@ namespace System.IO {
             {
             
             }
+#endif // FEATURE_FUSION
 
             return s;
         }
@@ -115,6 +117,7 @@ namespace System.IO {
 
             _fileName = info.GetString("FileLoad_FileName");
 
+#if FEATURE_FUSION
             try
             {
                 _fusionLog = info.GetString("FileLoad_FusionLog");
@@ -123,6 +126,7 @@ namespace System.IO {
             {
                 _fusionLog = null;
             }
+#endif 
         }
 
         private FileLoadException(String fileName, String fusionLog,int hResult)
@@ -134,10 +138,15 @@ namespace System.IO {
             SetMessageField();
         }
 
+#if FEATURE_FUSION
         public String FusionLog {
+            [System.Security.SecuritySafeCritical]  // auto-generated
+            [SecurityPermissionAttribute( SecurityAction.Demand, Flags = SecurityPermissionFlag.ControlEvidence | SecurityPermissionFlag.ControlPolicy)]
             get { return _fusionLog; }
         }
+#endif // FEATURE_FUSION
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             // Serialize data for our base classes.  base will verify info != null.
             base.GetObjectData(info, context);
@@ -145,6 +154,7 @@ namespace System.IO {
             // Serialize data for this class
             info.AddValue("FileLoad_FileName", _fileName, typeof(String));
 
+#if FEATURE_FUSION
             try
             {
                 info.AddValue("FileLoad_FusionLog", FusionLog, typeof(String));
@@ -152,8 +162,10 @@ namespace System.IO {
             catch (SecurityException)
             {
             }
+#endif
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static String FormatFileLoadExceptionMessage(String fileName,
             int hResult)
         {
@@ -166,10 +178,12 @@ namespace System.IO {
             return String.Format(CultureInfo.CurrentCulture, format, fileName, message);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void GetFileLoadExceptionMessage(int hResult, StringHandleOnStack retString);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void GetMessageForHR(int hresult, StringHandleOnStack retString);

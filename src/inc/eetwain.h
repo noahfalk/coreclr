@@ -278,16 +278,16 @@ virtual void * GetGSCookieAddr(PREGDISPLAY     pContext,
   Returns true if the given IP is in the given method's prolog or an epilog.
 */
 virtual bool IsInPrologOrEpilog(DWORD  relPCOffset,
-                                GCInfoToken gcInfoToken,
+                                PTR_VOID methodInfoPtr,
                                 size_t* prologSize) = 0;
 
 /*
   Returns true if the given IP is in the synchronized region of the method (valid for synchronized methods only)
 */
 virtual bool IsInSynchronizedRegion(
-                DWORD       relOffset,
-                GCInfoToken gcInfoToken,
-                unsigned    flags) = 0;
+                DWORD           relOffset,
+                PTR_VOID        methodInfoPtr,
+                unsigned        flags) = 0;
 
 /*
   Returns the size of a given function as reported in the GC info (does
@@ -297,15 +297,9 @@ virtual bool IsInSynchronizedRegion(
 virtual size_t GetFunctionSize(GCInfoToken gcInfoToken) = 0;
 
 /*
-Returns the ReturnKind of a given function as reported in the GC info.
-*/
-
-virtual ReturnKind GetReturnKind(GCInfoToken gcInfotoken) = 0;
-
-/*
   Returns the size of the frame (barring localloc)
 */
-virtual unsigned int GetFrameSize(GCInfoToken gcInfoToken) = 0;
+virtual unsigned int GetFrameSize(PTR_VOID methodInfoPtr) = 0;
 
 #ifndef DACCESS_COMPILE
 
@@ -313,16 +307,16 @@ virtual unsigned int GetFrameSize(GCInfoToken gcInfoToken) = 0;
 
 virtual const BYTE*     GetFinallyReturnAddr(PREGDISPLAY pReg)=0;
 
-virtual BOOL            IsInFilter(GCInfoToken gcInfoToken,
+virtual BOOL            IsInFilter(void *methodInfoPtr,
                                    unsigned offset,
                                    PCONTEXT pCtx,
                                    DWORD curNestLevel) = 0;
 
-virtual BOOL            LeaveFinally(GCInfoToken gcInfoToken,
+virtual BOOL            LeaveFinally(void *methodInfoPtr,
                                      unsigned offset,
                                      PCONTEXT pCtx) = 0;
 
-virtual void            LeaveCatch(GCInfoToken gcInfoToken,
+virtual void            LeaveCatch(void *methodInfoPtr,
                                    unsigned offset,
                                    PCONTEXT pCtx)=0;
 
@@ -541,18 +535,18 @@ void * GetGSCookieAddr(PREGDISPLAY     pContext,
 */
 virtual
 bool IsInPrologOrEpilog(
-                DWORD       relOffset,
-                GCInfoToken gcInfoToken,
-                size_t*     prologSize);
+                DWORD           relOffset,
+                PTR_VOID        methodInfoPtr,
+                size_t*         prologSize);
 
 /*
   Returns true if the given IP is in the synchronized region of the method (valid for synchronized functions only)
 */
 virtual
 bool IsInSynchronizedRegion(
-                DWORD       relOffset,
-                GCInfoToken gcInfoToken,
-                unsigned    flags);
+                DWORD           relOffset,
+                PTR_VOID        methodInfoPtr,
+                unsigned        flags);
 
 /*
   Returns the size of a given function.
@@ -561,27 +555,23 @@ virtual
 size_t GetFunctionSize(GCInfoToken gcInfoToken);
 
 /*
-Returns the ReturnKind of a given function.
-*/
-virtual ReturnKind GetReturnKind(GCInfoToken gcInfotoken);
-
-/*
   Returns the size of the frame (barring localloc)
 */
 virtual
-unsigned int GetFrameSize(GCInfoToken gcInfoToken);
+unsigned int GetFrameSize(
+                PTR_VOID        methodInfoPtr);
 
 #ifndef DACCESS_COMPILE
 
 virtual const BYTE* GetFinallyReturnAddr(PREGDISPLAY pReg);
-virtual BOOL LeaveFinally(GCInfoToken gcInfoToken,
+virtual BOOL LeaveFinally(void *methodInfoPtr,
                           unsigned offset,
                           PCONTEXT pCtx);
-virtual BOOL IsInFilter(GCInfoToken gcInfoToken,
+virtual BOOL IsInFilter(void *methodInfoPtr,
                         unsigned offset,
                         PCONTEXT pCtx,
                           DWORD curNestLevel);
-virtual void LeaveCatch(GCInfoToken gcInfoToken,
+virtual void LeaveCatch(void *methodInfoPtr,
                          unsigned offset,
                          PCONTEXT pCtx);
 
@@ -602,7 +592,7 @@ HRESULT FixContextForEnC(PCONTEXT        pCtx,
 
 #endif // #ifndef DACCESS_COMPILE
 
-#ifdef WIN64EXCEPTIONS
+#ifndef _TARGET_X86_
     static void EnsureCallerContextIsValid( PREGDISPLAY pRD, StackwalkCacheEntry* pCacheEntry, EECodeInfo * pCodeInfo = NULL );
     static size_t GetCallerSp( PREGDISPLAY  pRD );
 #endif
@@ -656,9 +646,8 @@ struct hdrInfo
 {
     unsigned int        methodSize;     // native code bytes
     unsigned int        argSize;        // in bytes
-    unsigned int        stackSize;      // including callee saved registers
-    unsigned int        rawStkSize;     // excluding callee saved registers
-    ReturnKind          returnKind;     // The ReturnKind for this method.
+    unsigned int        stackSize;      /* including callee saved registers */
+    unsigned int        rawStkSize;     /* excluding callee saved registers */
 
     unsigned int        prologSize;
 
@@ -700,7 +689,6 @@ struct hdrInfo
     unsigned int        syncStartOffset; // start/end code offset of the protected region in synchronized methods.
     unsigned int        syncEndOffset;   // INVALID_SYNC_OFFSET if there not synchronized method
     unsigned int        syncEpilogStart; // The start of the epilog. Synchronized methods are guaranteed to have no more than one epilog.
-    unsigned int        revPInvokeOffset; // INVALID_REV_PINVOKE_OFFSET if there is no Reverse PInvoke frame
 
     enum { NOT_IN_PROLOG = -1, NOT_IN_EPILOG = -1 };
     

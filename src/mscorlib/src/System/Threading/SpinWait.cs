@@ -14,7 +14,6 @@ using System;
 using System.Runtime.ConstrainedExecution;
 using System.Security.Permissions;
 using System.Threading;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Diagnostics.CodeAnalysis;
 
@@ -70,6 +69,7 @@ namespace System.Threading
     /// threads must spin, each should use its own instance of SpinWait.
     /// </para>
     /// </remarks>
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     public struct SpinWait
     {
 
@@ -132,6 +132,10 @@ namespace System.Threading
                 // remove the thread from the scheduler's queue for 10+ms, if the system is
                 // configured to use the (default) coarse-grained system timer.
                 //
+
+#if !FEATURE_CORECLR
+                CdsSyncEtwBCLProvider.Log.SpinWait_NextSpinWillYield();
+#endif
                 int yieldsSoFar = (m_count >= YIELD_THRESHOLD ? m_count - YIELD_THRESHOLD : m_count);
 
                 if ((yieldsSoFar % SLEEP_1_EVERY_HOW_MANY_TIMES) == (SLEEP_1_EVERY_HOW_MANY_TIMES - 1))
@@ -193,7 +197,7 @@ namespace System.Threading
 #endif
             SpinUntil(condition, Timeout.Infinite);
 #if DEBUG
-            Debug.Assert(result);
+            Contract.Assert(result);
 #endif
         }
 
@@ -216,7 +220,7 @@ namespace System.Threading
             if (totalMilliseconds < -1 || totalMilliseconds > Int32.MaxValue)
             {
                 throw new System.ArgumentOutOfRangeException(
-                    nameof(timeout), timeout, Environment.GetResourceString("SpinWait_SpinUntil_TimeoutWrong"));
+                    "timeout", timeout, Environment.GetResourceString("SpinWait_SpinUntil_TimeoutWrong"));
             }
 
             // Call wait with the timeout milliseconds
@@ -238,11 +242,11 @@ namespace System.Threading
             if (millisecondsTimeout < Timeout.Infinite)
             {
                 throw new ArgumentOutOfRangeException(
-                   nameof(millisecondsTimeout), millisecondsTimeout, Environment.GetResourceString("SpinWait_SpinUntil_TimeoutWrong"));
+                   "millisecondsTimeout", millisecondsTimeout, Environment.GetResourceString("SpinWait_SpinUntil_TimeoutWrong"));
             }
             if (condition == null)
             {
-                throw new ArgumentNullException(nameof(condition), Environment.GetResourceString("SpinWait_SpinUntil_ArgumentNull"));
+                throw new ArgumentNullException("condition", Environment.GetResourceString("SpinWait_SpinUntil_ArgumentNull"));
             }
             uint startTime = 0;
             if (millisecondsTimeout != 0 && millisecondsTimeout != Timeout.Infinite)
@@ -300,7 +304,7 @@ namespace System.Threading
                     s_lastProcessorCountRefreshTicks = now;
                 }
 
-                Debug.Assert(procCount > 0 && procCount <= 64,
+                Contract.Assert(procCount > 0 && procCount <= 64,
                     "Processor count not within the expected range (1 - 64).");
 
                 return procCount;
@@ -341,7 +345,7 @@ namespace System.Threading
         public static int UpdateTimeOut(uint startTime, int originalWaitMillisecondsTimeout)
         {
             // The function must be called in case the time out is not infinite
-            Debug.Assert(originalWaitMillisecondsTimeout != Timeout.Infinite);
+            Contract.Assert(originalWaitMillisecondsTimeout != Timeout.Infinite);
 
             uint elapsedMilliseconds = (GetTime() - startTime);
 

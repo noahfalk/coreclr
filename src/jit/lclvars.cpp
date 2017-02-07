@@ -385,9 +385,8 @@ void Compiler::lvaInitThisPtr(InitVarDscInfo* varDscInfo)
                 if (simdBaseType != TYP_UNKNOWN)
                 {
                     assert(varTypeIsSIMD(type));
-                    varDsc->lvSIMDType  = true;
-                    varDsc->lvBaseType  = simdBaseType;
-                    varDsc->lvExactSize = genTypeSize(type);
+                    varDsc->lvSIMDType = true;
+                    varDsc->lvBaseType = simdBaseType;
                 }
             }
 #endif // FEATURE_SIMD
@@ -1449,16 +1448,12 @@ void Compiler::lvaCanPromoteStructType(CORINFO_CLASS_HANDLE    typeHnd,
 
 #if 1 // TODO-Cleanup: Consider removing this entire #if block in the future
 
-// This method has two callers. The one in Importer.cpp passes sortFields == false
-// and the other passes sortFields == true.
-// This is a workaround that leaves the inlining behavior the same as before while still
-// performing extra struct promotions when compiling the method.
-//
-// The x86 legacy back-end can't handle the more general RyuJIT struct promotion (notably structs
-// with holes), in genPushArgList(), so in that case always check for custom layout.
-#if FEATURE_FIXED_OUT_ARGS || !defined(LEGACY_BACKEND)
+        // This method has two callers. The one in Importer.cpp passes sortFields == false
+        // and the other passes sortFields == true.
+        // This is a workaround that leave the inlining behavior the same and before while still
+        // performing extra struct promotions when compiling the method.
+        //
         if (!sortFields) // the condition "!sortFields" really means "we are inlining"
-#endif
         {
             treatAsOverlapping = StructHasCustomLayout(typeFlags);
         }
@@ -1741,7 +1736,7 @@ void Compiler::lvaPromoteStructVar(unsigned lclNum, lvaStructPromotionInfo* Stru
     }
 }
 
-#if !defined(LEGACY_BACKEND) && !defined(_TARGET_64BIT_)
+#if !defined(_TARGET_64BIT_)
 //------------------------------------------------------------------------
 // lvaPromoteLongVars: "Struct promote" all register candidate longs as if they are structs of two ints.
 //
@@ -1757,16 +1752,27 @@ void Compiler::lvaPromoteLongVars()
     {
         return;
     }
-
     // The lvaTable might grow as we grab temps. Make a local copy here.
     unsigned startLvaCount = lvaCount;
     for (unsigned lclNum = 0; lclNum < startLvaCount; lclNum++)
     {
         LclVarDsc* varDsc = &lvaTable[lclNum];
         if (!varTypeIsLong(varDsc) || varDsc->lvDoNotEnregister || varDsc->lvIsMultiRegArgOrRet() ||
-            (varDsc->lvRefCnt == 0) || varDsc->lvIsStructField || (fgNoStructPromotion && varDsc->lvIsParam))
+            (varDsc->lvRefCnt == 0))
         {
             continue;
+        }
+
+        // Will this work ???
+        // We can't have nested promoted structs.
+        if (varDsc->lvIsStructField)
+        {
+            if (lvaGetPromotionType(varDsc->lvParentLcl) != PROMOTION_TYPE_INDEPENDENT)
+            {
+                continue;
+            }
+            varDsc->lvIsStructField = false;
+            varDsc->lvTracked       = false;
         }
 
         varDsc->lvFieldCnt      = 2;
@@ -1817,7 +1823,7 @@ void Compiler::lvaPromoteLongVars()
     }
 #endif // DEBUG
 }
-#endif // !defined(LEGACY_BACKEND) && !defined(_TARGET_64BIT_)
+#endif // !_TARGET_64BIT_
 
 /*****************************************************************************
  * Given a fldOffset in a promoted struct var, return the index of the local
@@ -1896,10 +1902,6 @@ void Compiler::lvaSetVarDoNotEnregister(unsigned varNum DEBUGARG(DoNotEnregister
             break;
         case DNER_IsStruct:
             JITDUMP("it is a struct\n");
-            assert(varTypeIsStruct(varDsc));
-            break;
-        case DNER_IsStructArg:
-            JITDUMP("it is a struct arg\n");
             assert(varTypeIsStruct(varDsc));
             break;
         case DNER_BlockOp:
@@ -2036,7 +2038,7 @@ void Compiler::lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool 
     }
 
 #ifndef _TARGET_64BIT_
-    BOOL fDoubleAlignHint = FALSE;
+    bool fDoubleAlignHint = FALSE;
 #ifdef _TARGET_X86_
     fDoubleAlignHint = TRUE;
 #endif
@@ -2694,10 +2696,6 @@ void Compiler::lvaSortByRefCount()
 {
     lvaTrackedCount             = 0;
     lvaTrackedCountInSizeTUnits = 0;
-
-#ifdef DEBUG
-    VarSetOps::AssignNoCopy(this, lvaTrackedVars, VarSetOps::MakeEmpty(this));
-#endif
 
     if (lvaCount == 0)
     {
@@ -3388,29 +3386,25 @@ void Compiler::lvaMarkLocalVars()
 
 #endif // !FEATURE_EH_FUNCLETS
 
-    // PSPSym and LocAllocSPvar are not used by the CoreRT ABI
-    if (!IsTargetAbi(CORINFO_CORERT_ABI))
-    {
 #if FEATURE_EH_FUNCLETS
-        if (ehNeedsPSPSym())
-        {
-            lvaPSPSym            = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
-            LclVarDsc* lclPSPSym = &lvaTable[lvaPSPSym];
-            lclPSPSym->lvType    = TYP_I_IMPL;
-        }
+    if (ehNeedsPSPSym())
+    {
+        lvaPSPSym            = lvaGrabTempWithImplicitUse(false DEBUGARG("PSPSym"));
+        LclVarDsc* lclPSPSym = &lvaTable[lvaPSPSym];
+        lclPSPSym->lvType    = TYP_I_IMPL;
+    }
 #endif // FEATURE_EH_FUNCLETS
 
-        // TODO: LocAllocSPvar should be only required by the implicit frame layout expected by the VM on x86.
-        // It should be removed on other platforms once we check there are no other implicit dependencies.
-        if (compLocallocUsed)
-        {
-            lvaLocAllocSPvar         = lvaGrabTempWithImplicitUse(false DEBUGARG("LocAllocSPvar"));
-            LclVarDsc* locAllocSPvar = &lvaTable[lvaLocAllocSPvar];
-            locAllocSPvar->lvType    = TYP_I_IMPL;
-        }
+    if (compLocallocUsed)
+    {
+        lvaLocAllocSPvar         = lvaGrabTempWithImplicitUse(false DEBUGARG("LocAllocSPvar"));
+        LclVarDsc* locAllocSPvar = &lvaTable[lvaLocAllocSPvar];
+        locAllocSPvar->lvType    = TYP_I_IMPL;
     }
 
     BasicBlock* block;
+
+#if defined(DEBUGGING_SUPPORT) || defined(DEBUG)
 
 #ifndef DEBUG
     // Assign slot numbers to all variables.
@@ -3433,6 +3427,8 @@ void Compiler::lvaMarkLocalVars()
             varDsc->lvSlotNum = lclNum;
         }
     }
+
+#endif // defined(DEBUGGING_SUPPORT) || defined(DEBUG)
 
     /* Mark all local variable references */
 
@@ -4066,11 +4062,12 @@ void Compiler::lvaFixVirtualFrameOffsets()
     LclVarDsc* varDsc;
 
 #if FEATURE_EH_FUNCLETS && defined(_TARGET_AMD64_)
-    if (lvaPSPSym != BAD_VAR_NUM)
+    if (ehNeedsPSPSym())
     {
         // We need to fix the offset of the PSPSym so there is no padding between it and the outgoing argument space.
         // Without this code, lvaAlignFrame might have put the padding lower than the PSPSym, which would be between
         // the PSPSym and the outgoing argument space.
+        assert(lvaPSPSym != BAD_VAR_NUM);
         varDsc = &lvaTable[lvaPSPSym];
         assert(varDsc->lvFramePointerBased); // We always access it RBP-relative.
         assert(!varDsc->lvMustInit);         // It is never "must init".
@@ -4456,9 +4453,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
     noway_assert(argSize);
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_L2R)
-    {
         argOffs -= argSize;
-    }
 
     unsigned fieldVarNum = BAD_VAR_NUM;
 
@@ -4548,9 +4543,7 @@ int Compiler::lvaAssignVirtualFrameOffsetToArg(unsigned lclNum,
     }
 
     if (Target::g_tgtArgOrder == Target::ARG_ORDER_R2L && !varDsc->lvIsRegArg)
-    {
         argOffs += argSize;
-    }
 
     return argOffs;
 }
@@ -4980,12 +4973,13 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
 #endif //_TARGET_AMD64_
 
 #if FEATURE_EH_FUNCLETS && defined(_TARGET_ARMARCH_)
-    if (lvaPSPSym != BAD_VAR_NUM)
+    if (ehNeedsPSPSym())
     {
         // On ARM/ARM64, if we need a PSPSym, allocate it first, before anything else, including
         // padding (so we can avoid computing the same padding in the funclet
         // frame). Note that there is no special padding requirement for the PSPSym.
         noway_assert(codeGen->isFramePointerUsed()); // We need an explicit frame pointer
+        assert(lvaPSPSym != BAD_VAR_NUM);            // We should have created the PSPSym variable
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, TARGET_POINTER_SIZE, stkOffs);
     }
 #endif // FEATURE_EH_FUNCLETS && defined(_TARGET_ARMARCH_)
@@ -5039,7 +5033,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaSecurityObject, TARGET_POINTER_SIZE, stkOffs);
     }
 
-    if (lvaLocAllocSPvar != BAD_VAR_NUM)
+    if (compLocallocUsed)
     {
 #ifdef JIT32_GCENCODER
         noway_assert(codeGen->isFramePointerUsed()); // else offsets of locals of frameless methods will be incorrect
@@ -5284,9 +5278,7 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
                 //  a local variable which will need stack frame space.
                 //
                 if (!varDsc->lvIsRegArg)
-                {
                     continue;
-                }
 
 #ifdef _TARGET_ARM64_
                 if (info.compIsVarArgs)
@@ -5485,12 +5477,13 @@ void Compiler::lvaAssignVirtualFrameOffsetsToLocals()
     }
 
 #if FEATURE_EH_FUNCLETS && defined(_TARGET_AMD64_)
-    if (lvaPSPSym != BAD_VAR_NUM)
+    if (ehNeedsPSPSym())
     {
         // On AMD64, if we need a PSPSym, allocate it last, immediately above the outgoing argument
         // space. Any padding will be higher on the stack than this
         // (including the padding added by lvaAlignFrame()).
         noway_assert(codeGen->isFramePointerUsed()); // We need an explicit frame pointer
+        assert(lvaPSPSym != BAD_VAR_NUM);            // We should have created the PSPSym variable
         stkOffs = lvaAllocLocalAndSetVirtualOffset(lvaPSPSym, TARGET_POINTER_SIZE, stkOffs);
     }
 #endif // FEATURE_EH_FUNCLETS && defined(_TARGET_AMD64_)

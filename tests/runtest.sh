@@ -50,7 +50,6 @@ function print_usage {
     echo '  --jitstressregs=<n>              : Runs the tests with COMPlus_JitStressRegs=n'
     echo '  --jitminopts                     : Runs the tests with COMPlus_JITMinOpts=1'
     echo '  --jitforcerelocs                 : Runs the tests with COMPlus_ForceRelocs=1'
-    echo '  --jitdisasm                      : Runs jit-dasm on the tests'
     echo '  --gcstresslevel n                : Runs the tests with COMPlus_GCStress=n'
     echo '    0: None                                1: GC on all allocs and '"'easy'"' places'
     echo '    2: GC on transitions to preemptive GC  4: GC on every allowable JITed instr'
@@ -59,7 +58,6 @@ function print_usage {
     echo '  --gcsimulator                    : Runs the GCSimulator tests'
     echo '  --show-time                      : Print execution sequence and running time for each test'
     echo '  --no-lf-conversion               : Do not execute LF conversion before running test script'
-    echo '  --build-overlay-only             : Exit after overlay directory is populated'
     echo '  --limitedDumpGeneration          : Enables the generation of a limited number of core dumps if test(s) crash, even if ulimit'
     echo '                                     is zero when launching this script. This option is intended for use in CI.'
     echo ''
@@ -384,52 +382,36 @@ function create_core_overlay {
     cp -f -v "$coreFxNativeBinDir/Native/"*."$libExtension" "$coreOverlayDir/" 2>/dev/null
 
     cp -f -v "$coreClrBinDir/"* "$coreOverlayDir/" 2>/dev/null
-    cp -f -v "$mscorlibDir/mscorlib.dll" "$coreOverlayDir/" 2>/dev/null
-    if [ -d "$mscorlibDir/bin" ]; then
-        cp -f -v "$mscorlibDir/bin/"* "$coreOverlayDir/" 2>/dev/null
-    fi
+    cp -f -v "$mscorlibDir/mscorlib.dll" "$coreOverlayDir/"
     cp -n -v "$testDependenciesDir"/* "$coreOverlayDir/" 2>/dev/null
     if [ -f "$coreOverlayDir/mscorlib.ni.dll" ]; then
         # Test dependencies come from a Windows build, and mscorlib.ni.dll would be the one from Windows
         rm -f "$coreOverlayDir/mscorlib.ni.dll"
     fi
-    if [ -f "$coreOverlayDir/System.Private.CoreLib.ni.dll" ]; then
-        # Test dependencies come from a Windows build, and System.Private.CoreLib.ni.dll would be the one from Windows
-        rm -f "$coreOverlayDir/System.Private.CoreLib.ni.dll"
-    fi
-    copy_test_native_bin_to_test_root
 }
 
 function precompile_overlay_assemblies {
 
     if [ $doCrossgen == 1 ]; then
+
         local overlayDir=$CORE_ROOT
 
         filesToPrecompile=$(ls -trh $overlayDir/*.dll)
         for fileToPrecompile in ${filesToPrecompile}
         do
             local filename=${fileToPrecompile}
-            if [ $jitdisasm == 1]; then
-
-                $overlayDir/corerun $overlayDir/jit-dasm.dll --crossgen $overlayDir/crossgen --platform $overlayDir --output $testRootDir/dasm $filename
-                local exitCode=$?
-                if [ $exitCode != 0 ]; then
-                    echo Unable to generate dasm for $filename
-                fi
-            else
-                # Precompile any assembly except mscorlib since we already have its NI image available.
-                if [[ "$filename" != *"mscorlib.dll"* ]]; then
-                    if [[ "$filename" != *"mscorlib.ni.dll"* ]]; then
-                        echo Precompiling $filename
-                        $overlayDir/crossgen /Platform_Assemblies_Paths $overlayDir $filename 2>/dev/null
-                        local exitCode=$?
-                        if [ $exitCode == -2146230517 ]; then
-                            echo $filename is not a managed assembly.
-                        elif [ $exitCode != 0 ]; then
-                            echo Unable to precompile $filename.
-                        else
-                            echo Successfully precompiled $filename
-                        fi
+            # Precompile any assembly except mscorlib since we already have its NI image available.
+            if [[ "$filename" != *"mscorlib.dll"* ]]; then
+                if [[ "$filename" != *"mscorlib.ni.dll"* ]]; then
+                    echo Precompiling $filename
+                    $overlayDir/crossgen /Platform_Assemblies_Paths $overlayDir $filename 2>/dev/null
+                    local exitCode=$?
+                    if [ $exitCode == -2146230517 ]; then
+                        echo $filename is not a managed assembly.
+                    elif [ $exitCode != 0 ]; then
+                        echo Unable to precompile $filename.
+                    else
+                        echo Successfully precompiled $filename
                     fi
                 fi
             fi
@@ -483,9 +465,6 @@ function read_array {
 function load_unsupported_tests {
     # Load the list of tests that are not supported on this platform. These tests are disabled (skipped) permanently.
     unsupportedTests=($(read_array "$(dirname "$0")/testsUnsupportedOutsideWindows.txt"))
-    if [ "$ARCH" == "arm" ]; then
-        unsupportedTests+=($(read_array "$(dirname "$0")/testsUnsupportedOnARM32.txt"))
-    fi
 }
 
 function load_failing_tests {
@@ -751,14 +730,10 @@ function finish_test {
     local testRunningTime=
     local header=
 
-    if ((verbose == 1)); then
-        header=$(printf "[%4d]" $countTotalTests)
-    fi
-
     if [ "$showTime" == "ON" ]; then
         testEndTime=$(date +%s)
-        testRunningTime=$(( $testEndTime - ${testStartTimes[$nextProcessIndex]} ))
-        header=$header$(printf "[%4ds]" $testRunningTime)
+        testRunningTime=$(echo "$testEndTime - ${testStartTimes[$nextProcessIndex]}" | bc)
+        header=$(printf "[%03d:%4.0fs] " "$countTotalTests" "$testRunningTime")
     fi
 
     local xunitTestResult
@@ -808,7 +783,6 @@ function finish_remaining_tests {
 
 function prep_test {
     local scriptFilePath=$1
-    local scriptFileDir=$(dirname "$scriptFilePath")
 
     test "$verbose" == 1 && echo "Preparing $scriptFilePath"
 
@@ -821,8 +795,8 @@ function prep_test {
     chmod +x "$scriptFilePath"
 
     #remove any NI and Locks
-    rm -f $scriptFileDir/*.ni.*
-    rm -rf $scriptFileDir/lock
+    rm -f *.ni.*
+    rm -rf lock
 }
 
 function start_test {
@@ -896,65 +870,37 @@ function run_tests_in_directory {
     done
 }
 
-function coreclr_code_coverage {
-    local coverageDir="$coverageOutputDir/Coverage"
-    local toolsDir="$coverageOutputDir/Coverage/tools"
-    local reportsDir="$coverageOutputDir/Coverage/reports"
-    local packageName="unix-code-coverage-tools.1.0.0.nupkg"
+function coreclr_code_coverage()
+{
 
-    rm -rf $coverageDir
-    mkdir -p $coverageDir
-    mkdir -p $toolsDir
-    mkdir -p $reportsDir
-    pushd $toolsDir > /dev/null
+  local coverageDir="$coverageOutputDir/Coverage"
+  local toolsDir="$coverageOutputDir/Coverage/tools"
+  local reportsDir="$coverageOutputDir/Coverage/reports"
+  local packageName="unix-code-coverage-tools.1.0.0.nupkg"
+  rm -rf $coverageDir
+  mkdir -p $coverageDir
+  mkdir -p $toolsDir
+  mkdir -p $reportsDir
+  pushd $toolsDir > /dev/null
 
-    echo "Pulling down code coverage tools"
-    wget -q https://www.myget.org/F/dotnet-buildtools/api/v2/package/unix-code-coverage-tools/1.0.0 -O $packageName
-    echo "Unzipping to $toolsDir"
-    unzip -q -o $packageName
+  echo "Pulling down code coverage tools"
+  wget -q https://www.myget.org/F/dotnet-buildtools/api/v2/package/unix-code-coverage-tools/1.0.0 -O $packageName
+  echo "Unzipping to $toolsDir"
+  unzip -q -o $packageName
 
-    # Invoke gcovr
-    chmod a+rwx ./gcovr
-    chmod a+rwx ./$OSName/llvm-cov
+  # Invoke gcovr
+  chmod a+rwx ./gcovr
+  chmod a+rwx ./$OSName/llvm-cov
 
-    echo
-    echo "Generating coreclr code coverage reports at $reportsDir/coreclr.html"
-    echo "./gcovr $coreClrObjs --gcov-executable=$toolsDir/$OS/llvm-cov -r $coreClrSrc --html --html-details -o $reportsDir/coreclr.html"
-    echo
-    ./gcovr $coreClrObjs --gcov-executable=$toolsDir/$OSName/llvm-cov -r $coreClrSrc --html --html-details -o $reportsDir/coreclr.html
-    exitCode=$?
-    popd > /dev/null
-    exit $exitCode
+  echo
+  echo "Generating coreclr code coverage reports at $reportsDir/coreclr.html"
+  echo "./gcovr $coreClrObjs --gcov-executable=$toolsDir/$OS/llvm-cov -r $coreClrSrc --html --html-details -o $reportsDir/coreclr.html"
+  echo
+  ./gcovr $coreClrObjs --gcov-executable=$toolsDir/$OSName/llvm-cov -r $coreClrSrc --html --html-details -o $reportsDir/coreclr.html
+  exitCode=$?
+  popd > /dev/null
+  exit $exitCode
 }
-
-function check_cpu_architecture {
-    local CPUName=$(uname -m)
-    local __arch=
-
-    case $CPUName in
-        i686)
-            __arch=x86
-            ;;
-        x86_64)
-            __arch=x64
-            ;;
-        armv7l)
-            __arch=arm
-            ;;
-        aarch64)
-            __arch=arm64
-            ;;
-        *)
-            echo "Unknown CPU $CPUName detected, configuring as if for x64"
-            __arch=x64
-            ;;
-    esac
-
-    echo "$__arch"
-}
-
-ARCH=$(check_cpu_architecture)
-echo "Running on  CPU- $ARCH"
 
 # Exit code constants
 readonly EXIT_CODE_SUCCESS=0       # Script ran normally.
@@ -976,7 +922,6 @@ testEnv=
 playlistFile=
 showTime=
 noLFConversion=
-buildOverlayOnly=
 gcsimulator=
 longgc=
 limitedCoreDumps=
@@ -987,7 +932,6 @@ limitedCoreDumps=
 # Handle arguments
 verbose=0
 doCrossgen=0
-jitdisasm=0
 
 for i in "$@"
 do
@@ -1013,9 +957,6 @@ do
             ;;
         --jitforcerelocs)
             export COMPlus_ForceRelocs=1
-            ;;
-        --jitdisasm)
-            jitdisasm=1
             ;;
         --testRootDir=*)
             testRootDir=${i#*=}
@@ -1092,9 +1033,6 @@ do
         --no-lf-conversion)
             noLFConversion=ON
             ;;
-        --build-overlay-only)
-            buildOverlayOnly=ON
-            ;;
         --limitedDumpGeneration)
             limitedCoreDumps=ON
             ;;
@@ -1105,11 +1043,6 @@ do
             ;;
     esac
 done
-
-if [ -n "$coreOverlayDir" ] && [ "$buildOverlayOnly" == "ON" ]; then
-    echo "Can not use \'--coreOverlayDir=<path>\' and \'--build-overlay-only\' at the same time."
-    exit $EXIT_CODE_EXCEPTION
-fi
 
 if ((disableEventLogging == 0)); then
     export COMPlus_EnableEventLog=1
@@ -1132,6 +1065,9 @@ fi
 if [ -z "$mscorlibDir" ]; then
     mscorlibDir=$coreClrBinDir
 fi
+if [ -d "$mscorlibDir" ] && [ -d "$mscorlibDir/bin" ]; then
+    cp $mscorlibDir/bin/* $mscorlibDir
+fi
 
 if [ ! -z "$longgc" ]; then
     echo "Running Long GC tests"
@@ -1141,11 +1077,6 @@ fi
 if [ ! -z "$gcsimulator" ]; then
     echo "Running GC simulator tests"
     export RunningGCSimulatorTests=1
-fi
-
-if [[ ! "$jitdisasm" -eq 0 ]]; then
-    echo "Running jit disasm"
-    export RunningJitDisasm=1
 fi
 
 # If this is a coverage run, make sure the appropriate args have been passed
@@ -1184,12 +1115,7 @@ fi
 xunit_output_begin
 create_core_overlay
 precompile_overlay_assemblies
-
-if [ "$buildOverlayOnly" == "ON" ];
-then
-    echo "Build overlay directory \'$coreOverlayDir\' complete."
-    exit 0
-fi
+copy_test_native_bin_to_test_root
 
 if [ -n "$playlistFile" ]
 then
@@ -1201,14 +1127,8 @@ else
     load_failing_tests
 fi
 
-# Other architectures are not supported yet.
-if [ "$ARCH" == "x64" ]
-then
-    scriptPath=$(dirname $0)
-    ${scriptPath}/setup-runtime-dependencies.sh --outputDir=$coreOverlayDir
-else
-    echo "Skip preparing for GC stress test. Dependent package is not supported on this architecture."
-fi
+scriptPath=$(dirname $0)
+${scriptPath}/setup-runtime-dependencies.sh --outputDir=$coreOverlayDir
 
 export __TestEnv=$testEnv
 

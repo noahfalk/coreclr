@@ -1,4 +1,4 @@
-@if not defined _echo @echo off
+@if "%_echo%" neq "on" echo off
 setlocal
 
 if not defined VisualStudioVersion (
@@ -30,8 +30,8 @@ if NOT [%ERRORLEVEL%]==[0] (
 set _toolRuntime=%~dp0Tools
 set _dotnet=%_toolRuntime%\dotnetcli\dotnet.exe
 
-echo Running: %_dotnet% %_toolRuntime%\run.exe %~dp0config.json %*
-call %_dotnet% %_toolRuntime%\run.exe %~dp0config.json %*
+echo Running: %_dotnet% %_toolRuntime%\run.exe %*
+call %_dotnet% %_toolRuntime%\run.exe %*
 if NOT [%ERRORLEVEL%]==[0] (
   exit /b 1
 )

@@ -17,6 +17,7 @@ namespace System.Threading
     /// <remarks>
     /// To unregister a callback, dispose the corresponding Registration instance.
     /// </remarks>
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     public struct CancellationTokenRegistration : IEquatable<CancellationTokenRegistration>, IDisposable
     {
         private readonly CancellationCallbackInfo m_callbackInfo;

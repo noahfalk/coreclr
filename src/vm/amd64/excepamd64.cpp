@@ -21,7 +21,7 @@
 #include "comutilnative.h"
 #include "sigformat.h"
 #include "siginfo.hpp"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include "eedbginterfaceimpl.h" //so we can clearexception in COMPlusThrow
 #include "perfcounters.h"
 #include "asmconstants.h"

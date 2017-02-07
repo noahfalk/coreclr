@@ -33,6 +33,7 @@ namespace System.Runtime.InteropServices {
     [System.Runtime.InteropServices.ComVisible(false)]
     public interface ICustomQueryInterface
     {
+        [System.Security.SecurityCritical]
         CustomQueryInterfaceResult GetInterface([In]ref Guid iid, out IntPtr ppv);
     }
 }

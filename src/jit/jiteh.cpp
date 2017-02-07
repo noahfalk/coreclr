@@ -93,7 +93,7 @@ bool EHblkDsc::HasFinallyHandler()
 
 bool EHblkDsc::HasFaultHandler()
 {
-    return (ebdHandlerType == EH_HANDLER_FAULT) || (ebdHandlerType == EH_HANDLER_FAULT_WAS_FINALLY);
+    return ebdHandlerType == EH_HANDLER_FAULT;
 }
 
 bool EHblkDsc::HasFinallyOrFaultHandler()
@@ -2426,11 +2426,6 @@ bool Compiler::fgNormalizeEHCase2()
                                 // this once per dup.
                                 fgReplaceJumpTarget(predBlock, newTryStart, insertBeforeBlk);
 
-                                // Need to adjust ref counts here since we're retargeting edges.
-                                newTryStart->bbRefs++;
-                                assert(insertBeforeBlk->countOfInEdges() > 0);
-                                insertBeforeBlk->bbRefs--;
-
 #ifdef DEBUG
                                 if (verbose)
                                 {
@@ -2984,7 +2979,7 @@ void Compiler::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& claus
     // Note: the flags field is kind of weird. It should be compared for equality
     // to determine the type of clause, even though it looks like a bitfield. In
     // Particular, CORINFO_EH_CLAUSE_NONE is zero, so you can "&" to check it.
-    // You do need to mask off the bits, though, because CORINFO_EH_CLAUSE_DUPLICATE
+    // You do need to mask off the bits, though, because COR_ILEXCEPTION_CLAUSE_DUPLICATED
     // is and'ed in.
     const DWORD CORINFO_EH_CLAUSE_TYPE_MASK = 0x7;
     switch (clause.Flags & CORINFO_EH_CLAUSE_TYPE_MASK)
@@ -3018,18 +3013,14 @@ void Compiler::dispOutgoingEHClause(unsigned num, const CORINFO_EH_CLAUSE& claus
     }
 
     if ((clause.TryOffset == clause.TryLength) && (clause.TryOffset == clause.HandlerOffset) &&
-        ((clause.Flags & (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)) ==
-         (CORINFO_EH_CLAUSE_DUPLICATE | CORINFO_EH_CLAUSE_FINALLY)))
+        ((clause.Flags & (COR_ILEXCEPTION_CLAUSE_DUPLICATED | COR_ILEXCEPTION_CLAUSE_FINALLY)) ==
+         (COR_ILEXCEPTION_CLAUSE_DUPLICATED | COR_ILEXCEPTION_CLAUSE_FINALLY)))
     {
         printf(" cloned finally");
     }
-    else if (clause.Flags & CORINFO_EH_CLAUSE_DUPLICATE)
+    else if (clause.Flags & COR_ILEXCEPTION_CLAUSE_DUPLICATED)
     {
         printf(" duplicated");
-    }
-    else if (clause.Flags & CORINFO_EH_CLAUSE_SAMETRY)
-    {
-        printf(" same try");
     }
     printf("\n");
 }

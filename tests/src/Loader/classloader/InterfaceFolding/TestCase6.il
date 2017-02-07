@@ -37,29 +37,19 @@
     ldstr      "A::Bar2"
     ret
   }
-  .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
-  {
-    ret
-  }
+  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {}
 }
 
 .class private abstract auto ansi beforefieldinit B`2<V,W>
        extends class A`1<!V>
        implements class I`1<!W>, J
 {
-  .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
-  {
-    ret
-  }
+  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {}
 }
 
 .class private auto ansi beforefieldinit C extends class B`2<class C,class C>
-{
-  .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
-  {
-    ret
-  }
-}
+{ .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {} }
+
 
 .class public auto ansi beforefieldinit Test extends [mscorlib]System.Object
 {

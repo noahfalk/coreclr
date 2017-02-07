@@ -24,6 +24,7 @@ namespace System.Reflection.Emit {
     // A EventBuilder is always associated with a TypeBuilder.  The TypeBuilder.DefineEvent
     // method will return a new EventBuilder to a client.
     // 
+    [HostProtection(MayLeakOnAbort = true)]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_EventBuilder))]
 [System.Runtime.InteropServices.ComVisible(true)]
@@ -57,11 +58,12 @@ namespace System.Reflection.Emit {
             return m_evToken;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private void SetMethodSemantics(MethodBuilder mdBuilder, MethodSemanticsAttributes semantics)
         {
             if (mdBuilder == null)
             {
-                throw new ArgumentNullException(nameof(mdBuilder));
+                throw new ArgumentNullException("mdBuilder");
             }
             Contract.EndContractBlock();
 
@@ -73,21 +75,25 @@ namespace System.Reflection.Emit {
                 mdBuilder.GetToken().Token);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetAddOnMethod(MethodBuilder mdBuilder)
         {
             SetMethodSemantics(mdBuilder, MethodSemanticsAttributes.AddOn);
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetRemoveOnMethod(MethodBuilder mdBuilder)
         {
             SetMethodSemantics(mdBuilder, MethodSemanticsAttributes.RemoveOn);
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetRaiseMethod(MethodBuilder mdBuilder)
         {
             SetMethodSemantics(mdBuilder, MethodSemanticsAttributes.Fire);
         }
        
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AddOtherMethod(MethodBuilder mdBuilder)
         {
             SetMethodSemantics(mdBuilder, MethodSemanticsAttributes.Other);
@@ -95,13 +101,18 @@ namespace System.Reflection.Emit {
     
         // Use this function if client decides to form the custom attribute blob themselves
 
+#if FEATURE_CORECLR
+[System.Security.SecurityCritical] // auto-generated
+#else
+[System.Security.SecuritySafeCritical]
+#endif
 [System.Runtime.InteropServices.ComVisible(true)]
         public void SetCustomAttribute(ConstructorInfo con, byte[] binaryAttribute)
         {
             if (con == null)
-                throw new ArgumentNullException(nameof(con));
+                throw new ArgumentNullException("con");
             if (binaryAttribute == null)
-                throw new ArgumentNullException(nameof(binaryAttribute));
+                throw new ArgumentNullException("binaryAttribute");
             Contract.EndContractBlock();
             m_type.ThrowIfCreated();
 
@@ -114,16 +125,40 @@ namespace System.Reflection.Emit {
         }
 
         // Use this function if client wishes to build CustomAttribute using CustomAttributeBuilder
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetCustomAttribute(CustomAttributeBuilder customBuilder)
         {
             if (customBuilder == null)
             {
-                throw new ArgumentNullException(nameof(customBuilder));
+                throw new ArgumentNullException("customBuilder");
             }
             Contract.EndContractBlock();
             m_type.ThrowIfCreated();
             customBuilder.CreateCustomAttribute(m_module, m_evToken.Token);
         }
+
+#if !FEATURE_CORECLR
+        void _EventBuilder.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _EventBuilder.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _EventBuilder.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _EventBuilder.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
+
 
         // These are package private so that TypeBuilder can access them.
         private String              m_name;         // The name of the event
@@ -132,4 +167,8 @@ namespace System.Reflection.Emit {
         private EventAttributes     m_attributes;
         private TypeBuilder         m_type;       
     }
+
+
+
+
 }

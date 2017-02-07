@@ -48,8 +48,12 @@
 
 #include "util.hpp"
 
+#include "gcenv.ee.h"
+#include "gcenv.os.h"
 #include "gcenv.interlocked.h"
 #include "gcenv.interlocked.inl"
+
+#include "../gc/softwarewritewatch.h"
 
 namespace ETW
 {

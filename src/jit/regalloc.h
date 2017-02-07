@@ -17,18 +17,6 @@ enum FrameType
 #endif
 };
 
-#if DOUBLE_ALIGN
-enum CanDoubleAlign
-{
-    CANT_DOUBLE_ALIGN,
-    CAN_DOUBLE_ALIGN,
-    MUST_DOUBLE_ALIGN,
-    COUNT_DOUBLE_ALIGN,
-
-    DEFAULT_DOUBLE_ALIGN = CAN_DOUBLE_ALIGN
-};
-#endif
-
 #ifdef LEGACY_BACKEND
 
 #include "varset.h"
@@ -106,6 +94,18 @@ enum rpPredictReg
 #endif // _TARGET_
 
 };
+#if DOUBLE_ALIGN
+enum CanDoubleAlign
+{
+    CANT_DOUBLE_ALIGN,
+    CAN_DOUBLE_ALIGN,
+    MUST_DOUBLE_ALIGN,
+    COUNT_DOUBLE_ALIGN,
+
+    DEFAULT_DOUBLE_ALIGN = CAN_DOUBLE_ALIGN
+};
+#endif
+
 #endif // LEGACY_BACKEND
 
 #endif // REGALLOC_H_

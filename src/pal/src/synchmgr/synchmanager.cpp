@@ -1648,7 +1648,7 @@ namespace CorUnix
     }
 
     // Entry point routine for the thread that initiates process termination.
-    DWORD PALAPI TerminationRequestHandlingRoutine(LPVOID pArg)
+    DWORD TerminationRequestHandlingRoutine(LPVOID pArg)
     {
         // Call the termination request handler if one is registered.
         if (g_terminationRequestHandler != NULL)

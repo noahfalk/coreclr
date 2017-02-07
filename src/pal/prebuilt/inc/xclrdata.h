@@ -1017,7 +1017,7 @@ EXTERN_C const IID IID_IXCLRDataDisplay;
     IXCLRDataDisplay : public IUnknown
     {
     public:
-        virtual HRESULT STDMETHODVCALLTYPE ErrorPrintF(
+        virtual HRESULT STDMETHODCALLTYPE ErrorPrintF( 
             const char *const fmt,
             ...) = 0;
         
@@ -1063,11 +1063,11 @@ EXTERN_C const IID IID_IXCLRDataDisplay;
         
         virtual HRESULT STDMETHODCALLTYPE EndTextElement( void) = 0;
         
-        virtual HRESULT STDMETHODVCALLTYPE WriteXmlText(
+        virtual HRESULT STDMETHODCALLTYPE WriteXmlText( 
             const char *const fmt,
             ...) = 0;
         
-        virtual HRESULT STDMETHODVCALLTYPE WriteXmlTextBlock(
+        virtual HRESULT STDMETHODCALLTYPE WriteXmlTextBlock( 
             const char *const fmt,
             ...) = 0;
         
@@ -1258,7 +1258,7 @@ EXTERN_C const IID IID_IXCLRDataDisplay;
         ULONG ( STDMETHODCALLTYPE *Release )( 
             IXCLRDataDisplay * This);
         
-        HRESULT ( STDMETHODVCALLTYPE *ErrorPrintF )(
+        HRESULT ( STDMETHODCALLTYPE *ErrorPrintF )( 
             IXCLRDataDisplay * This,
             const char *const fmt,
             ...);
@@ -1319,12 +1319,12 @@ EXTERN_C const IID IID_IXCLRDataDisplay;
         HRESULT ( STDMETHODCALLTYPE *EndTextElement )( 
             IXCLRDataDisplay * This);
         
-        HRESULT ( STDMETHODVCALLTYPE *WriteXmlText )(
+        HRESULT ( STDMETHODCALLTYPE *WriteXmlText )( 
             IXCLRDataDisplay * This,
             const char *const fmt,
             ...);
         
-        HRESULT ( STDMETHODVCALLTYPE *WriteXmlTextBlock )(
+        HRESULT ( STDMETHODCALLTYPE *WriteXmlTextBlock )( 
             IXCLRDataDisplay * This,
             const char *const fmt,
             ...);

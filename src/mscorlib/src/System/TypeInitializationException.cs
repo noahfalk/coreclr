@@ -56,6 +56,7 @@ namespace System {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             base.GetObjectData(info, context);
             info.AddValue("TypeName",TypeName,typeof(String));

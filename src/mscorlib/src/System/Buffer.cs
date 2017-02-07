@@ -11,7 +11,6 @@ namespace System {
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.InteropServices;
     using System.Runtime.Versioning;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using System.Security;
     using System.Runtime;
@@ -29,6 +28,7 @@ namespace System {
         // respecting types.  This calls memmove internally.  The count and 
         // offset parameters here are in bytes.  If you want to use traditional
         // array element indices and counts, use Array.Copy.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern void BlockCopy(Array src, int srcOffset,
             Array dst, int dstOffset, int count);
@@ -37,6 +37,7 @@ namespace System {
         // parameter validation has already been done.  The count and offset
         // parameters here are in bytes.  If you want to use traditional
         // array element indices and counts, use Array.Copy.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void InternalBlockCopy(Array src, int srcOffsetBytes,
             Array dst, int dstOffsetBytes, int byteCount);
@@ -46,9 +47,10 @@ namespace System {
         // It is however cross platform as the CRT hasn't ported their fast version to 64-bit
         // platforms.
         //
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe static int IndexOfByte(byte* src, byte value, int index, int count)
         {
-            Debug.Assert(src != null, "src should not be null");
+            Contract.Assert(src != null, "src should not be null");
 
             byte* pByte = src + index;
 
@@ -120,6 +122,7 @@ namespace System {
         
         // Returns a bool to indicate if the array is of primitive data types
         // or not.
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool IsPrimitiveTypeArray(Array array);
 
@@ -129,22 +132,24 @@ namespace System {
         // This essentially does the following: 
         // return ((byte*)array) + index.
         //
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern byte _GetByte(Array array, int index);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static byte GetByte(Array array, int index)
         {
             // Is the array present?
             if (array == null)
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
 
             // Is it of primitive types?
             if (!IsPrimitiveTypeArray(array))
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), nameof(array));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), "array");
 
             // Is the index in valid range of the array?
             if (index < 0 || index >= _ByteLength(array))
-                throw new ArgumentOutOfRangeException(nameof(index));
+                throw new ArgumentOutOfRangeException("index");
 
             return _GetByte(array, index);
         }
@@ -155,22 +160,24 @@ namespace System {
         // This essentially does the following: 
         // *(((byte*)array) + index) = value.
         //
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void _SetByte(Array array, int index, byte value);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void SetByte(Array array, int index, byte value)
         {
             // Is the array present?
             if (array == null)
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
 
             // Is it of primitive types?
             if (!IsPrimitiveTypeArray(array))
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), nameof(array));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), "array");
 
             // Is the index in valid range of the array?
             if (index < 0 || index >= _ByteLength(array))
-                throw new ArgumentOutOfRangeException(nameof(index));
+                throw new ArgumentOutOfRangeException("index");
 
             // Make the FCall to do the work
             _SetByte(array, index, value);
@@ -183,32 +190,36 @@ namespace System {
         // This essentially does the following: 
         // return array.length * sizeof(array.UnderlyingElementType).
         //
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern int _ByteLength(Array array);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static int ByteLength(Array array)
         {
             // Is the array present?
             if (array == null)
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
 
             // Is it of primitive types?
             if (!IsPrimitiveTypeArray(array))
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), nameof(array));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBePrimArray"), "array");
 
             return _ByteLength(array);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe static void ZeroMemory(byte* src, long len)
         {
             while(len-- > 0)
                 *(src + len) = 0;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal unsafe static void Memcpy(byte[] dest, int destIndex, byte* src, int srcIndex, int len) {
-            Debug.Assert( (srcIndex >= 0) && (destIndex >= 0) && (len >= 0), "Index and length must be non-negative!");
-            Debug.Assert(dest.Length - destIndex >= len, "not enough bytes in dest");
+            Contract.Assert( (srcIndex >= 0) && (destIndex >= 0) && (len >= 0), "Index and length must be non-negative!");
+            Contract.Assert(dest.Length - destIndex >= len, "not enough bytes in dest");
             // If dest has 0 elements, the fixed statement will throw an 
             // IndexOutOfRangeException.  Special-case 0-byte copies.
             if (len==0)
@@ -218,11 +229,12 @@ namespace System {
             }
         }
 
+        [SecurityCritical]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal unsafe static void Memcpy(byte* pDest, int destIndex, byte[] src, int srcIndex, int len)
         {
-            Debug.Assert( (srcIndex >= 0) && (destIndex >= 0) && (len >= 0), "Index and length must be non-negative!");        
-            Debug.Assert(src.Length - srcIndex >= len, "not enough bytes in src");
+            Contract.Assert( (srcIndex >= 0) && (destIndex >= 0) && (len >= 0), "Index and length must be non-negative!");        
+            Contract.Assert(src.Length - srcIndex >= len, "not enough bytes in src");
             // If dest has 0 elements, the fixed statement will throw an 
             // IndexOutOfRangeException.  Special-case 0-byte copies.
             if (len==0)
@@ -242,6 +254,7 @@ namespace System {
         // 1. This method is given access to other internal dlls and this close to release we do not want to change it.
         // 2. It is difficult to get this right for arm and again due to release dates we would like to visit it later.
         [FriendAccessAllowed]
+        [System.Security.SecurityCritical]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
 #if ARM
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
@@ -249,12 +262,13 @@ namespace System {
 #else // ARM
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         internal unsafe static void Memcpy(byte* dest, byte* src, int len) {
-            Debug.Assert(len >= 0, "Negative length in memcopy!");
+            Contract.Assert(len >= 0, "Negative length in memcopy!");
             Memmove(dest, src, (uint)len);
         }
 #endif // ARM
 
         // This method has different signature for x64 and other platforms and is done for performance reasons.
+        [System.Security.SecurityCritical]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         internal unsafe static void Memmove(byte* dest, byte* src, nuint len)
         {
@@ -510,7 +524,7 @@ namespace System {
             // We know due to the above switch-case that this loop will always run 1 iteration; max
             // bytes we copy before checking is 23 (7 to align the pointers, 16 for 1 iteration) so
             // the switch handles lengths 0-22.
-            Debug.Assert(end >= 7 && i <= end);
+            Contract.Assert(end >= 7 && i <= end);
 
             // This is separated out into a different variable, so the i + 16 addition can be
             // performed at the start of the pipeline and the loop condition does not have
@@ -581,6 +595,7 @@ namespace System {
 
         // Non-inlinable wrapper around the QCall that avoids poluting the fast path
         // with P/Invoke prolog/epilog.
+        [SecurityCritical]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         [MethodImplAttribute(MethodImplOptions.NoInlining)]
         private unsafe static void _Memmove(byte* dest, byte* src, nuint len)
@@ -590,11 +605,13 @@ namespace System {
 
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
+        [SecurityCritical]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         extern private unsafe static void __Memmove(byte* dest, byte* src, nuint len);
 
         // The attributes on this method are chosen for best JIT performance. 
         // Please do not edit unless intentional.
+        [System.Security.SecurityCritical]
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         [CLSCompliant(false)]
         public static unsafe void MemoryCopy(void* source, void* destination, long destinationSizeInBytes, long sourceBytesToCopy)
@@ -609,6 +626,7 @@ namespace System {
 
         // The attributes on this method are chosen for best JIT performance. 
         // Please do not edit unless intentional.
+        [System.Security.SecurityCritical]
         [MethodImplAttribute(MethodImplOptions.AggressiveInlining)]
         [CLSCompliant(false)]
         public static unsafe void MemoryCopy(void* source, void* destination, ulong destinationSizeInBytes, ulong sourceBytesToCopy)

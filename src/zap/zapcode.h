@@ -187,7 +187,12 @@ public:
 
 };
 
-#if defined(_TARGET_X86_)
+#ifdef _TARGET_ARM_
+// Avoid ARM hazard due to QualComm Krait processor bug.
+#define ARM_HAZARD_AVOIDANCE
+#endif
+
+#if defined(_TARGET_X86_) || defined(ARM_HAZARD_AVOIDANCE)
 class ZapCodeBlob : public ZapBlobWithRelocs
 {
 protected:

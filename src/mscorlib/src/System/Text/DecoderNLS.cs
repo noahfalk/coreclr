@@ -42,6 +42,7 @@ namespace System.Text
         }
 
         // ISerializable implementation. called during serialization.
+        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
             SerializeDecoder(info);
@@ -76,19 +77,20 @@ namespace System.Text
             return GetCharCount(bytes, index, count, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetCharCount(byte[] bytes, int index, int count, bool flush)
         {
             // Validate Parameters
             if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes),
+                throw new ArgumentNullException("bytes",
                     Environment.GetResourceString("ArgumentNull_Array"));
 
             if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException((index<0 ? nameof(index) : nameof(count)),
+                throw new ArgumentOutOfRangeException((index<0 ? "index" : "count"),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
 
             if (bytes.Length - index < count)
-                throw new ArgumentOutOfRangeException(nameof(bytes),
+                throw new ArgumentOutOfRangeException("bytes",
                     Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
 
             Contract.EndContractBlock();
@@ -102,15 +104,16 @@ namespace System.Text
                 return GetCharCount(pBytes + index, count, flush);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         public unsafe override int GetCharCount(byte* bytes, int count, bool flush)
         {
             // Validate parameters
             if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes),
+                throw new ArgumentNullException("bytes",
                       Environment.GetResourceString("ArgumentNull_Array"));
 
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count),
+                throw new ArgumentOutOfRangeException("count",
                       Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -128,24 +131,25 @@ namespace System.Text
             return GetChars(bytes, byteIndex, byteCount, chars, charIndex, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetChars(byte[] bytes, int byteIndex, int byteCount,
                                              char[] chars, int charIndex, bool flush)
         {
             // Validate Parameters
             if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? nameof(bytes) : nameof(chars),
+                throw new ArgumentNullException(bytes == null ? "bytes" : "chars",
                     Environment.GetResourceString("ArgumentNull_Array"));
 
             if (byteIndex < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException((byteIndex<0 ? nameof(byteIndex) : nameof(byteCount)),
+                throw new ArgumentOutOfRangeException((byteIndex<0 ? "byteIndex" : "byteCount"),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
 
             if ( bytes.Length - byteIndex < byteCount)
-                throw new ArgumentOutOfRangeException(nameof(bytes),
+                throw new ArgumentOutOfRangeException("bytes",
                     Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
 
             if (charIndex < 0 || charIndex > chars.Length)
-                throw new ArgumentOutOfRangeException(nameof(charIndex),
+                throw new ArgumentOutOfRangeException("charIndex",
                     Environment.GetResourceString("ArgumentOutOfRange_Index"));
 
             Contract.EndContractBlock();
@@ -166,16 +170,17 @@ namespace System.Text
                                     pChars + charIndex, charCount, flush);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         public unsafe override int GetChars(byte* bytes, int byteCount,
                                               char* chars, int charCount, bool flush)
         {
             // Validate parameters
             if (chars == null || bytes == null)
-                throw new ArgumentNullException((chars == null ? nameof(chars) : nameof(bytes)),
+                throw new ArgumentNullException((chars == null ? "chars" : "bytes"),
                       Environment.GetResourceString("ArgumentNull_Array"));
 
             if (byteCount < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException((byteCount<0 ? nameof(byteCount) : nameof(charCount)),
+                throw new ArgumentOutOfRangeException((byteCount<0 ? "byteCount" : "charCount"),
                       Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -189,29 +194,30 @@ namespace System.Text
 
         // This method is used when the output buffer might not be big enough.
         // Just call the pointer version.  (This gets chars)
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe void Convert(byte[] bytes, int byteIndex, int byteCount,
                                               char[] chars, int charIndex, int charCount, bool flush,
                                               out int bytesUsed, out int charsUsed, out bool completed)
         {
             // Validate parameters
             if (bytes == null || chars == null)
-                throw new ArgumentNullException((bytes == null ? nameof(bytes) : nameof(chars)),
+                throw new ArgumentNullException((bytes == null ? "bytes" : "chars"),
                       Environment.GetResourceString("ArgumentNull_Array"));
 
             if (byteIndex < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException((byteIndex<0 ? nameof(byteIndex) : nameof(byteCount)),
+                throw new ArgumentOutOfRangeException((byteIndex<0 ? "byteIndex" : "byteCount"),
                       Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
 
             if (charIndex < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException((charIndex<0 ? nameof(charIndex) : nameof(charCount)),
+                throw new ArgumentOutOfRangeException((charIndex<0 ? "charIndex" : "charCount"),
                       Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
 
             if (bytes.Length - byteIndex < byteCount)
-                throw new ArgumentOutOfRangeException(nameof(bytes),
+                throw new ArgumentOutOfRangeException("bytes",
                       Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
 
             if (chars.Length - charIndex < charCount)
-                throw new ArgumentOutOfRangeException(nameof(chars),
+                throw new ArgumentOutOfRangeException("chars",
                       Environment.GetResourceString("ArgumentOutOfRange_IndexCountBuffer"));
 
             Contract.EndContractBlock();
@@ -235,17 +241,18 @@ namespace System.Text
 
         // This is the version that used pointers.  We call the base encoding worker function
         // after setting our appropriate internal variables.  This is getting chars
+        [System.Security.SecurityCritical]  // auto-generated
         public unsafe override void Convert(byte* bytes, int byteCount,
                                               char* chars, int charCount, bool flush,
                                               out int bytesUsed, out int charsUsed, out bool completed)
         {
             // Validate input parameters
             if (chars == null || bytes == null)
-                throw new ArgumentNullException(chars == null ? nameof(chars) : nameof(bytes),
+                throw new ArgumentNullException(chars == null ? "chars" : "bytes",
                     Environment.GetResourceString("ArgumentNull_Array"));
 
             if (byteCount < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException((byteCount<0 ? nameof(byteCount) : nameof(charCount)),
+                throw new ArgumentOutOfRangeException((byteCount<0 ? "byteCount" : "charCount"),
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 

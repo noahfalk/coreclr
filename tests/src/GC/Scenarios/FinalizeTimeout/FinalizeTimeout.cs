@@ -17,7 +17,6 @@ public class FinalizeTimeout
         do
         {
             finalizableObject = new BlockingFinalizerOnShutdown();
-            GC.KeepAlive(finalizableObject);
         } while (!BlockingFinalizerOnShutdown.finalizerCompletedOnce);
 
         // Start a bunch of threads that allocate continuously, to increase the chance that when Main returns, one of the
@@ -43,15 +42,12 @@ public class FinalizeTimeout
     {
         byte[] b;
         while (true)
-        {
             b = new byte[1024];
-            GC.KeepAlive(b);
-        }
     }
 
     private class BlockingFinalizerOnShutdown
     {
-        public volatile static bool finalizerCompletedOnce = false;
+        public static bool finalizerCompletedOnce = false;
         public bool isLastObject = false;
 
         ~BlockingFinalizerOnShutdown()
@@ -72,7 +68,6 @@ public class FinalizeTimeout
             do
             {
                 o = new object();
-                GC.KeepAlive(o);
             } while ((++i & 0xff) != 0 || (elapsed = DateTime.Now - start) < timeout);
 
             Console.WriteLine("Finalizer end");

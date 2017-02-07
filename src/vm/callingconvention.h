@@ -1341,15 +1341,11 @@ void ArgIteratorTemplate<ARGITERATOR_BASE>::ComputeReturnFlags()
         break;
 
     case ELEMENT_TYPE_R4:
-#ifndef ARM_SOFTFP
         flags |= sizeof(float) << RETURN_FP_SIZE_SHIFT;
-#endif
         break;
 
     case ELEMENT_TYPE_R8:
-#ifndef ARM_SOFTFP
         flags |= sizeof(double) << RETURN_FP_SIZE_SHIFT;
-#endif
         break;
 
     case ELEMENT_TYPE_VALUETYPE:

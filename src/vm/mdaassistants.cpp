@@ -137,7 +137,7 @@ void TriggerGCForMDAInternal()
 
     EX_TRY
     {
-        GCHeapUtilities::GetGCHeap()->GarbageCollect();
+        GCHeap::GetGCHeap()->GarbageCollect();
 
 #ifdef FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
         //
@@ -868,7 +868,7 @@ LPVOID MdaInvalidOverlappedToPinvoke::CheckOverlappedPointer(UINT index, LPVOID 
 
         {
             GCX_COOP();
-            IGCHeap *pHeap = GCHeapUtilities::GetGCHeap();
+            GCHeap *pHeap = GCHeap::GetGCHeap();
             fHeapPointer = pHeap->IsHeapPointer(pOverlapped);
         }
 

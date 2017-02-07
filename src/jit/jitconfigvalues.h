@@ -17,10 +17,10 @@ CONFIG_INTEGER(DebugBreakOnVerificationFailure, W("DebugBreakOnVerificationFailu
                                                                                          // verification failure
 CONFIG_INTEGER(DiffableDasm, W("JitDiffableDasm"), 0)            // Make the disassembly diff-able
 CONFIG_INTEGER(DisplayLoopHoistStats, W("JitLoopHoistStats"), 0) // Display JIT loop hoisting statistics
-CONFIG_INTEGER(DisplayLsraStats, W("JitLsraStats"), 0)       // Display JIT Linear Scan Register Allocator statistics
-CONFIG_INTEGER(DumpJittedMethods, W("DumpJittedMethods"), 0) // Prints all jitted methods to the console
-CONFIG_INTEGER(EnablePCRelAddr, W("JitEnablePCRelAddr"), 1)  // Whether absolute addr be encoded as PC-rel offset by
-                                                             // RyuJIT where possible
+CONFIG_INTEGER(DisplayMemStats, W("JitMemStats"), 0)             // Display JIT memory usage statistics
+CONFIG_INTEGER(DumpJittedMethods, W("DumpJittedMethods"), 0)     // Prints all jitted methods to the console
+CONFIG_INTEGER(EnablePCRelAddr, W("JitEnablePCRelAddr"), 1)      // Whether absolute addr be encoded as PC-rel offset by
+                                                                 // RyuJIT where possible
 CONFIG_INTEGER(InterpreterFallback, W("InterpreterFallback"), 0) // Fallback to the interpreter when the JIT compiler
                                                                  // fails
 CONFIG_INTEGER(JitAssertOnMaxRAPasses, W("JitAssertOnMaxRAPasses"), 0)
@@ -154,12 +154,10 @@ CONFIG_METHODSET(JitNoProcedureSplittingEH, W("JitNoProcedureSplittingEH")) // D
                                                                             // exception handling
 CONFIG_METHODSET(JitStressOnly, W("JitStressOnly")) // Internal Jit stress mode: stress only the specified method(s)
 CONFIG_METHODSET(JitUnwindDump, W("JitUnwindDump")) // Dump the unwind codes for the method
-CONFIG_METHODSET(JitOptRepeat, W("JitOptRepeat"))   // Runs optimizer multiple times on the method
-CONFIG_INTEGER(JitOptRepeatCount, W("JitOptRepeatCount"), 2) // Number of times to repeat opts when repeating
-CONFIG_METHODSET(NgenDisasm, W("NgenDisasm"))                // Same as JitDisasm, but for ngen
-CONFIG_METHODSET(NgenDump, W("NgenDump"))                    // Same as JitDump, but for ngen
-CONFIG_METHODSET(NgenDumpIR, W("NgenDumpIR"))                // Same as JitDumpIR, but for ngen
-CONFIG_METHODSET(NgenEHDump, W("NgenEHDump"))                // Dump the EH table for the method, as reported to the VM
+CONFIG_METHODSET(NgenDisasm, W("NgenDisasm"))       // Same as JitDisasm, but for ngen
+CONFIG_METHODSET(NgenDump, W("NgenDump"))           // Same as JitDump, but for ngen
+CONFIG_METHODSET(NgenDumpIR, W("NgenDumpIR"))       // Same as JitDumpIR, but for ngen
+CONFIG_METHODSET(NgenEHDump, W("NgenEHDump"))       // Dump the EH table for the method, as reported to the VM
 CONFIG_METHODSET(NgenGCDump, W("NgenGCDump"))
 CONFIG_METHODSET(NgenUnwindDump, W("NgenUnwindDump")) // Dump the unwind codes for the method
 CONFIG_STRING(JitDumpFg, W("JitDumpFg"))              // Dumps Xml/Dot Flowgraph for specified method
@@ -188,10 +186,6 @@ CONFIG_STRING(NgenDumpIRFormat, W("NgenDumpIRFormat"))           // Same as JitD
 CONFIG_STRING(NgenDumpIRPhase, W("NgenDumpIRPhase"))             // Same as JitDumpIRPhase, but for ngen
 #endif                                                           // defined(DEBUG)
 
-#ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
-CONFIG_INTEGER(JitNoRangeChks, W("JitNoRngChks"), 0) // If 1, don't generate range checks
-#endif
-
 // AltJitAssertOnNYI should be 0 on targets where JIT is under developement or bring up stage, so as to facilitate
 // fallback to main JIT on hitting a NYI.
 #if defined(_TARGET_ARM64_) || defined(_TARGET_X86_)
@@ -200,17 +194,11 @@ CONFIG_INTEGER(AltJitAssertOnNYI, W("AltJitAssertOnNYI"), 0) // Controls the Alt
 CONFIG_INTEGER(AltJitAssertOnNYI, W("AltJitAssertOnNYI"), 1) // Controls the AltJit behavior of NYI stuff
 #endif                                                       // defined(_TARGET_ARM64_) || defined(_TARGET_X86_)
 
-#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
-CONFIG_INTEGER(EnableSSE3_4, W("EnableSSE3_4"), 1) // Enable SSE3, SSSE3, SSE 4.1 and 4.2 instruction set as default
-#endif
-
 #if defined(_TARGET_AMD64_)
-CONFIG_INTEGER(EnableAVX, W("EnableAVX"), 1) // Enable AVX instruction set for wide operations as default.
-// When both AVX and SSE3_4 are set, we will use the most capable instruction set available
-// which will prefer AVX over SSE3/4.
-#else  // !defined(_TARGET_AMD64_)
+CONFIG_INTEGER(EnableAVX, W("EnableAVX"), 1) // Enable AVX instruction set for wide operations as default
+#else                                        // !defined(_TARGET_AMD64_)
 CONFIG_INTEGER(EnableAVX, W("EnableAVX"), 0)                 // Enable AVX instruction set for wide operations as default
-#endif // defined(_TARGET_AMD64_)
+#endif                                       // defined(_TARGET_AMD64_)
 
 #if !defined(DEBUG) && !defined(_DEBUG)
 CONFIG_INTEGER(JitEnableNoWayAssert, W("JitEnableNoWayAssert"), 0)
@@ -218,17 +206,9 @@ CONFIG_INTEGER(JitEnableNoWayAssert, W("JitEnableNoWayAssert"), 0)
 CONFIG_INTEGER(JitEnableNoWayAssert, W("JitEnableNoWayAssert"), 1)
 #endif // !defined(DEBUG) && !defined(_DEBUG)
 
-// The following should be wrapped inside "#if MEASURE_MEM_ALLOC / #endif", but
-// some files include this one without bringing in the definitions from "jit.h"
-// so we don't always know what the "true" value of that flag should be. For now
-// we take the easy way out and always include the flag, even in release builds
-// (normally MEASURE_MEM_ALLOC is off for release builds but if it's toggled on
-// for release in "jit.h" the flag would be missing for some includers).
-// TODO-Cleanup: need to make 'MEASURE_MEM_ALLOC' well-defined here at all times.
-CONFIG_INTEGER(DisplayMemStats, W("JitMemStats"), 0) // Display JIT memory usage statistics
-
 CONFIG_INTEGER(JitAggressiveInlining, W("JitAggressiveInlining"), 0) // Aggressive inlining of all methods
-CONFIG_INTEGER(JitELTHookEnabled, W("JitELTHookEnabled"), 0)         // If 1, emit Enter/Leave/TailCall callbacks
+CONFIG_INTEGER(JitELTHookEnabled, W("JitELTHookEnabled"), 0) // On ARM, setting this will emit Enter/Leave/TailCall
+                                                             // callbacks
 CONFIG_INTEGER(JitInlineSIMDMultiplier, W("JitInlineSIMDMultiplier"), 3)
 
 #if defined(FEATURE_ENABLE_NO_RANGE_CHECKS)
@@ -262,8 +242,6 @@ CONFIG_INTEGER(JitInlineLimit, W("JitInlineLimit"), -1)
 CONFIG_INTEGER(JitInlinePolicyDiscretionary, W("JitInlinePolicyDiscretionary"), 0)
 CONFIG_INTEGER(JitInlinePolicyFull, W("JitInlinePolicyFull"), 0)
 CONFIG_INTEGER(JitInlinePolicySize, W("JitInlinePolicySize"), 0)
-CONFIG_INTEGER(JitInlinePolicyRandom, W("JitInlinePolicyRandom"), 0) // nozero enables; value is the external random
-                                                                     // seed
 CONFIG_INTEGER(JitInlinePolicyReplay, W("JitInlinePolicyReplay"), 0)
 CONFIG_STRING(JitNoInlineRange, W("JitNoInlineRange"))
 CONFIG_STRING(JitInlineReplayFile, W("JitInlineReplayFile"))
@@ -271,16 +249,6 @@ CONFIG_STRING(JitInlineReplayFile, W("JitInlineReplayFile"))
 
 CONFIG_INTEGER(JitInlinePolicyLegacy, W("JitInlinePolicyLegacy"), 0)
 CONFIG_INTEGER(JitInlinePolicyModel, W("JitInlinePolicyModel"), 0)
-
-CONFIG_INTEGER(JitEECallTimingInfo, W("JitEECallTimingInfo"), 0)
-
-#if defined(DEBUG)
-#if defined(FEATURE_CORECLR)
-CONFIG_INTEGER(JitEnableFinallyCloning, W("JitEnableFinallyCloning"), 1)
-#else
-CONFIG_INTEGER(JitEnableFinallyCloning, W("JitEnableFinallyCloning"), 0)
-#endif // defined(FEATURE_CORECLR)
-#endif // DEBUG
 
 #undef CONFIG_INTEGER
 #undef CONFIG_STRING

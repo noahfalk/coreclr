@@ -53,7 +53,7 @@ namespace System.Security
         protected HostProtectionException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
             if (info==null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             m_protected = (HostProtectionResource)info.GetValue(ProtectedResourcesName, typeof(HostProtectionResource));
@@ -120,10 +120,11 @@ namespace System.Security
 
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info==null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             base.GetObjectData( info, context );

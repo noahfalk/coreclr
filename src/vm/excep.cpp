@@ -20,7 +20,7 @@
 #include "cgensys.h"
 #include "comutilnative.h"
 #include "siginfo.hpp"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include "eedbginterfaceimpl.h" //so we can clearexception in RealCOMPlusThrow
 #include "perfcounters.h"
 #include "dllimportcallback.h"
@@ -1679,7 +1679,7 @@ bool FinallyIsUnwinding(EHRangeTreeNode *pNode,
 BOOL LeaveCatch(ICodeManager* pEECM,
                 Thread *pThread,
                 CONTEXT *pCtx,
-                GCInfoToken gcInfoToken,
+                void *methodInfoPtr,
                 unsigned offset)
 {
     CONTRACTL
@@ -1690,7 +1690,6 @@ BOOL LeaveCatch(ICodeManager* pEECM,
     }
     CONTRACTL_END;
 
-#ifndef FEATURE_PAL
     // We can assert these things here, and skip a call
     // to COMPlusCheckForAbort later.
 
@@ -1704,14 +1703,10 @@ BOOL LeaveCatch(ICodeManager* pEECM,
     PopNestedExceptionRecords(esp, pCtx, pThread->GetExceptionListPtr());
 
     // Do JIT-specific work
-    pEECM->LeaveCatch(gcInfoToken, offset, pCtx);
+    pEECM->LeaveCatch(methodInfoPtr, offset, pCtx);
 
     SetSP(pCtx, (UINT_PTR)esp);
     return TRUE;
-#else // FEATURE_PAL
-    PORTABILITY_ASSERT("LeaveCatch");
-    return FALSE;
-#endif
 }
 #endif // WIN64EXCEPTIONS
 
@@ -1767,7 +1762,7 @@ HRESULT IsLegalTransition(Thread *pThread,
                           ICodeManager* pEECM,
                           PREGDISPLAY pReg,
                           SLOT addrStart,
-                          GCInfoToken gcInfoToken,
+                          void *methodInfoPtr,
                           PCONTEXT pCtx)
 {
     CONTRACTL
@@ -1880,7 +1875,7 @@ HRESULT IsLegalTransition(Thread *pThread,
                         if (!LeaveCatch(pEECM,
                                         pThread,
                                         pFilterCtx,
-                                        gcInfoToken,
+                                        methodInfoPtr,
                                         offFrom))
                             return E_FAIL;
                     }
@@ -1935,7 +1930,7 @@ HRESULT IsLegalTransition(Thread *pThread,
 
                         if (!fCanSetIPOnly)
                         {
-                            if (!pEECM->LeaveFinally(gcInfoToken,
+                            if (!pEECM->LeaveFinally(methodInfoPtr,
                                                      offFrom,
                                                      pFilterCtx))
                                 return E_FAIL;
@@ -2046,7 +2041,7 @@ HRESULT SetIPFromSrcToDst(Thread *pThread,
     EECodeInfo codeInfo((TADDR)(addrStart));
 
     ICodeManager * pEECM = codeInfo.GetCodeManager();
-    GCInfoToken gcInfoToken = codeInfo.GetGCInfoToken();
+    LPVOID methodInfoPtr = codeInfo.GetGCInfo();
 
     // Do both checks here so compiler doesn't complain about skipping
     // initialization b/c of goto.
@@ -2102,7 +2097,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               gcInfoToken,
+                               methodInfoPtr,
                                pCtx);
 
         if (FAILED(hr))
@@ -2125,7 +2120,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               gcInfoToken,
+                               methodInfoPtr,
                                pCtx);
 
         if (FAILED(hr))
@@ -2148,7 +2143,7 @@ retryForCommit:
                                pEECM,
                                pReg,
                                addrStart,
-                               gcInfoToken,
+                               methodInfoPtr,
                                pCtx);
 
         if (FAILED(hr))
@@ -7264,13 +7259,11 @@ IsDebuggerFault(EXCEPTION_RECORD *pExceptionRecord,
 
 #ifdef WIN64EXCEPTIONS
 
-#ifndef _TARGET_X86_
 EXTERN_C void JIT_MemSet_End();
 EXTERN_C void JIT_MemCpy_End();
 
 EXTERN_C void JIT_WriteBarrier_End();
 EXTERN_C void JIT_CheckedWriteBarrier_End();
-#endif // _TARGET_X86_
 
 #if defined(_TARGET_AMD64_) && defined(_DEBUG)
 EXTERN_C void JIT_WriteBarrier_Debug();
@@ -7290,13 +7283,11 @@ bool IsIPInMarkedJitHelper(UINT_PTR uControlPc)
 #define CHECK_RANGE(name) \
     if (GetEEFuncEntryPoint(name) <= uControlPc && uControlPc < GetEEFuncEntryPoint(name##_End)) return true;
 
-#ifndef _TARGET_X86_
     CHECK_RANGE(JIT_MemSet)
     CHECK_RANGE(JIT_MemCpy)
 
     CHECK_RANGE(JIT_WriteBarrier)
     CHECK_RANGE(JIT_CheckedWriteBarrier)
-#endif // _TARGET_X86_
 
 #if defined(_TARGET_AMD64_) && defined(_DEBUG)
     CHECK_RANGE(JIT_WriteBarrier_Debug)
@@ -7318,11 +7309,12 @@ AdjustContextForWriteBarrier(
 {
     WRAPPER_NO_CONTRACT;
 
-#if defined(_TARGET_X86_) && !defined(PLATFORM_UNIX)
+#ifdef _TARGET_X86_
+
     void* f_IP = (void *)GetIP(pContext);
 
-    if (((f_IP >= (void *) JIT_WriteBarrierStart) && (f_IP <= (void *) JIT_WriteBarrierLast)) ||
-        ((f_IP >= (void *) JIT_PatchedWriteBarrierStart) && (f_IP <= (void *) JIT_PatchedWriteBarrierLast)))
+    if (f_IP >= (void *) JIT_WriteBarrierStart && f_IP <= (void *) JIT_WriteBarrierLast ||
+        f_IP >= (void *) JIT_PatchedWriteBarrierStart && f_IP <= (void *) JIT_PatchedWriteBarrierLast)
     {
         // set the exception IP to be the instruction that called the write barrier
         void* callsite = (void *)GetAdjustedCallAddress(*dac_cast<PTR_PCODE>(GetSP(pContext)));
@@ -7332,8 +7324,11 @@ AdjustContextForWriteBarrier(
         // put ESP back to what it was before the call.
         SetSP(pContext, PCODE((BYTE*)GetSP(pContext) + sizeof(void*)));
     }
+
     return FALSE;
-#elif defined(WIN64EXCEPTIONS) // _TARGET_X86_ && !PLATFORM_UNIX
+
+#elif defined(WIN64EXCEPTIONS)
+
     void* f_IP = dac_cast<PTR_VOID>(GetIP(pContext));
 
     CONTEXT             tempContext;
@@ -7377,7 +7372,7 @@ AdjustContextForWriteBarrier(
        // Now we save the address back into the context so that it gets used
        // as the faulting address.
        SetIP(pContext, ControlPCPostAdjustment);
-#endif // _TARGET_ARM_ || _TARGET_ARM64_
+#endif // _TARGET_ARM_
 
         // Unwind the frame chain - On Win64, this is required since we may handle the managed fault and to do so,
         // we will replace the exception context with the managed context and "continue execution" there. Thus, we do not
@@ -7399,10 +7394,13 @@ AdjustContextForWriteBarrier(
     }
 
     return FALSE;
-#else // WIN64EXCEPTIONS
-    PORTABILITY_ASSERT("AdjustContextForWriteBarrier");
+
+#else // ! _X86_ && !WIN64EXCEPTIONS
+
+    PORTABILITY_WARNING("AdjustContextForWriteBarrier() not implemented on this platform");
     return FALSE;
-#endif // ELSE
+
+#endif
 }
 
 struct SavedExceptionInfo
@@ -7553,21 +7551,20 @@ void InitSavedExceptionInfo()
 void FaultingExceptionFrame::Init(CONTEXT *pContext)
 {
     WRAPPER_NO_CONTRACT;
-#ifndef WIN64EXCEPTIONS
-#ifdef _TARGET_X86_
+#if defined(_TARGET_X86_)
     CalleeSavedRegisters *pRegs = GetCalleeSavedRegisters();
-#define CALLEE_SAVED_REGISTER(regname) pRegs->regname = pContext->regname;
-    ENUM_CALLEE_SAVED_REGISTERS();
-#undef CALLEE_SAVED_REGISTER
+    pRegs->ebp = pContext->Ebp;
+    pRegs->ebx = pContext->Ebx;
+    pRegs->esi = pContext->Esi;
+    pRegs->edi = pContext->Edi;
     m_ReturnAddress = ::GetIP(pContext);
     m_Esp = (DWORD)GetSP(pContext);
-#else // _TARGET_X86_
-    PORTABILITY_ASSERT("FaultingExceptionFrame::Init");
-#endif // _TARGET_???_ (ELSE)
-#else // !WIN64EXCEPTIONS
+#elif defined(WIN64EXCEPTIONS)
     m_ReturnAddress = ::GetIP(pContext);
     CopyOSContext(&m_ctx, pContext);
-#endif // !WIN64EXCEPTIONS
+#else
+    PORTABILITY_ASSERT("FaultingExceptionFrame::InitAndLink");
+#endif
 }
 
 //
@@ -8984,13 +8981,11 @@ LONG ReflectionInvocationExceptionFilter(
 #else // !(_WIN64 || _TARGET_X86_)
 #error Unsupported platform
 #endif // _WIN64
-
-#ifdef FEATURE_CORRUPTING_EXCEPTIONS
+        
         if (pEHTracker->GetCorruptionSeverity() == ProcessCorrupting)
         {
             EEPolicy::HandleFatalError(COR_E_FAILFAST, reinterpret_cast<UINT_PTR>(pExceptionInfo->ExceptionRecord->ExceptionAddress), NULL, pExceptionInfo);
         }
-#endif // FEATURE_CORRUPTING_EXCEPTIONS
     }
 
     return ret;
@@ -9921,48 +9916,47 @@ PTR_EHWatsonBucketTracker GetWatsonBucketTrackerForPreallocatedException(OBJECTR
         goto doValidation;
     }
 
-    {
-        // Find the reference to the exception tracker corresponding to the preallocated exception,
-        // starting the search from the current exception tracker (2nd arg of NULL specifies that).
- #if defined(WIN64EXCEPTIONS)
-        PTR_ExceptionTracker pEHTracker = NULL;
-        PTR_ExceptionTracker pPreviousEHTracker = NULL;
+    // Find the reference to the exception tracker corresponding to the preallocated exception,
+    // starting the search from the current exception tracker (2nd arg of NULL specifies that).
+#if defined(WIN64EXCEPTIONS)
+    PTR_ExceptionTracker pEHTracker = NULL;
+    PTR_ExceptionTracker pPreviousEHTracker = NULL;
 
 #elif _TARGET_X86_
-        PTR_ExInfo pEHTracker = NULL;
-        PTR_ExInfo pPreviousEHTracker = NULL;
+    PTR_ExInfo pEHTracker = NULL;
+    PTR_ExInfo pPreviousEHTracker = NULL;
 #else // !(_WIN64 || _TARGET_X86_)
 #error Unsupported platform
 #endif // _WIN64
 
-        if (fStartSearchFromPreviousTracker)
-        {
-            // Get the exception tracker previous to the current one
-            pPreviousEHTracker = GetThread()->GetExceptionState()->GetCurrentExceptionTracker()->GetPreviousExceptionTracker();
+    if (fStartSearchFromPreviousTracker)
+    {
+        // Get the exception tracker previous to the current one
+        pPreviousEHTracker = GetThread()->GetExceptionState()->GetCurrentExceptionTracker()->GetPreviousExceptionTracker();
 
-            // If there is no previous tracker to start from, then simply abort the search attempt.
-            // If we couldnt find the exception tracker, then buckets are not available
-            if (pPreviousEHTracker == NULL)
-            {
-                LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find the previous EHTracker to start the search from.\n"));
-                pWBTracker = NULL;
-                goto done;
-            }
-        }
-
-        pEHTracker = GetEHTrackerForPreallocatedException(gc.oPreAllocThrowable, pPreviousEHTracker);
-
+        // If there is no previous tracker to start from, then simply abort the search attempt.
         // If we couldnt find the exception tracker, then buckets are not available
-        if (pEHTracker == NULL)
+        if (pPreviousEHTracker == NULL)
         {
-            LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find EHTracker for preallocated exception object.\n"));
+            LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find the previous EHTracker to start the search from.\n"));
             pWBTracker = NULL;
             goto done;
         }
-
-        // Get the Watson Bucket Tracker from the exception tracker
-        pWBTracker = pEHTracker->GetWatsonBucketTracker();
     }
+
+    pEHTracker = GetEHTrackerForPreallocatedException(gc.oPreAllocThrowable, pPreviousEHTracker);
+
+    // If we couldnt find the exception tracker, then buckets are not available
+    if (pEHTracker == NULL)
+    {
+        LOG((LF_EH, LL_INFO100, "GetWatsonBucketTrackerForPreallocatedException - Couldnt find EHTracker for preallocated exception object.\n"));
+        pWBTracker = NULL;
+        goto done;
+    }
+
+    // Get the Watson Bucket Tracker from the exception tracker
+    pWBTracker = pEHTracker->GetWatsonBucketTracker();
+
 doValidation:
     _ASSERTE(pWBTracker != NULL);
 
@@ -12202,7 +12196,7 @@ done:
 // CE can be caught in the VM and later reraised again. Examples of such scenarios
 // include AD transition, COM interop, Reflection invocation, to name a few.
 // In such cases, we want to mark the corruption severity for reuse upon reraise,
-// implying that when the VM does a reraise of such an exception, we should use
+// implying that when the VM does a reraise of such a exception, we should use
 // the original corruption severity for the new raised exception, instead of creating
 // a new one for it.
 /* static */
@@ -12919,6 +12913,15 @@ void ExceptionNotifications::DeliverNotificationInternal(ExceptionNotificationHa
     AppDomain *pCurDomain = GetAppDomain();
     _ASSERTE(pCurDomain != NULL);
 
+#ifdef FEATURE_CORECLR
+    if (true)
+    {
+        // On CoreCLR, we dont support enhanced exception notifications
+        _ASSERTE(!"CoreCLR does not support enhanced exception notifications!");
+        return;
+    }
+#endif // FEATURE_CORECLR
+
     struct
     {
         OBJECTREF oNotificationDelegate;
@@ -13111,9 +13114,9 @@ StackWalkAction TAResetStateCallback(CrawlFrame* pCf, void* data)
 // there is no more managed code on the stack.
 //
 // Note: This function should be invoked ONLY during unwind.
-#ifndef WIN64EXCEPTIONS
+#if defined(_TARGET_X86_)
 void ResetThreadAbortState(PTR_Thread pThread, void *pEstablisherFrame)
-#else
+#elif defined(WIN64EXCEPTIONS)
 void ResetThreadAbortState(PTR_Thread pThread, CrawlFrame *pCf, StackFrame sfCurrentStackFrame)
 #endif
 {
@@ -13123,9 +13126,9 @@ void ResetThreadAbortState(PTR_Thread pThread, CrawlFrame *pCf, StackFrame sfCur
         GC_NOTRIGGER;
         MODE_ANY;
         PRECONDITION(pThread != NULL);
-#ifndef WIN64EXCEPTIONS
+#if defined(_TARGET_X86_)
         PRECONDITION(pEstablisherFrame != NULL);
-#else
+#elif defined(WIN64EXCEPTIONS)
         PRECONDITION(pCf != NULL);
         PRECONDITION(!sfCurrentStackFrame.IsNull());
 #endif
@@ -13136,14 +13139,14 @@ void ResetThreadAbortState(PTR_Thread pThread, CrawlFrame *pCf, StackFrame sfCur
 
     if (pThread->IsAbortRequested())
     {
-#ifndef WIN64EXCEPTIONS
+#if defined(_TARGET_X86_)
         if (GetNextCOMPlusSEHRecord(static_cast<EXCEPTION_REGISTRATION_RECORD *>(pEstablisherFrame)) == EXCEPTION_CHAIN_END)
         {
             // Topmost handler and abort requested.
             fResetThreadAbortState = TRUE;
             LOG((LF_EH, LL_INFO100, "ResetThreadAbortState: Topmost handler resets abort as no more managed code beyond %p.\n", pEstablisherFrame));
         }
-#else // !WIN64EXCEPTIONS
+#elif defined(WIN64EXCEPTIONS)
         // Get the active exception tracker
         PTR_ExceptionTracker pCurEHTracker = pThread->GetExceptionState()->GetCurrentExceptionTracker();
         _ASSERTE(pCurEHTracker != NULL);
@@ -13198,7 +13201,9 @@ void ResetThreadAbortState(PTR_Thread pThread, CrawlFrame *pCf, StackFrame sfCur
             LOG((LF_EH, LL_INFO100, "ResetThreadAbortState: Resetting thread abort state since there is no more managed code beyond stack frames:\n"));
             LOG((LF_EH, LL_INFO100, "sf.SP = %p   ", dataCallback.sfSeedCrawlFrame.SP));
         }
-#endif // !WIN64EXCEPTIONS
+#else // WIN64EXCEPTIONS
+#error Unsupported platform
+#endif // WIN64EXCEPTIONS
     }
 
     if (fResetThreadAbortState)

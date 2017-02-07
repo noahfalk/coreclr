@@ -7,7 +7,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -23,6 +22,9 @@ namespace System.Security.Policy
     /// </summary>
     [ComVisible(true)]
     [Serializable]
+#pragma warning disable 618
+    [PermissionSet(SecurityAction.InheritanceDemand, Unrestricted = true)]
+#pragma warning restore 618
     public abstract class EvidenceBase
     {
         protected EvidenceBase()
@@ -42,6 +44,11 @@ namespace System.Security.Policy
         ///     Since legacy evidence objects would be cloned by being serialized, the default implementation
         ///     of EvidenceBase will do the same.
         /// </remarks>
+#pragma warning disable 618
+        [SecurityPermission(SecurityAction.Assert, SerializationFormatter = true)]
+        [PermissionSet(SecurityAction.InheritanceDemand, Unrestricted = true)]
+#pragma warning restore 618
+        [SecuritySafeCritical]
         public virtual EvidenceBase Clone()
         {
 #if FEATURE_SERIALIZATION
@@ -79,9 +86,9 @@ namespace System.Security.Policy
 
         internal LegacyEvidenceWrapper(object legacyEvidence)
         {
-            Debug.Assert(legacyEvidence != null);
-            Debug.Assert(legacyEvidence.GetType() != typeof(EvidenceBase), "Attempt to wrap an EvidenceBase in a LegacyEvidenceWrapper");
-            Debug.Assert(legacyEvidence.GetType().IsSerializable, "legacyEvidence.GetType().IsSerializable");
+            Contract.Assert(legacyEvidence != null);
+            Contract.Assert(legacyEvidence.GetType() != typeof(EvidenceBase), "Attempt to wrap an EvidenceBase in a LegacyEvidenceWrapper");
+            Contract.Assert(legacyEvidence.GetType().IsSerializable, "legacyEvidence.GetType().IsSerializable");
 
             m_legacyEvidence = legacyEvidence;
         }
@@ -106,6 +113,10 @@ namespace System.Security.Policy
             return m_legacyEvidence.GetHashCode();
         }
 
+#pragma warning disable 618
+        [SecurityPermission(SecurityAction.Demand, SerializationFormatter = true)]
+#pragma warning restore 618
+        [SecuritySafeCritical]
         public override EvidenceBase Clone()
         {
             return base.Clone();
@@ -142,7 +153,7 @@ namespace System.Security.Policy
         {
             get
             {
-                Debug.Assert(m_legacyEvidenceList.Count > 0, "No items in LegacyEvidenceList, cannot tell what type they are");
+                Contract.Assert(m_legacyEvidenceList.Count > 0, "No items in LegacyEvidenceList, cannot tell what type they are");
 
                 ILegacyEvidenceAdapter adapter = m_legacyEvidenceList[0] as ILegacyEvidenceAdapter;
                 return adapter == null ? m_legacyEvidenceList[0].GetType() : adapter.EvidenceType;
@@ -151,10 +162,10 @@ namespace System.Security.Policy
 
         public void Add(EvidenceBase evidence)
         {
-            Debug.Assert(evidence != null);
-            Debug.Assert(m_legacyEvidenceList.Count == 0 || EvidenceType == evidence.GetType() || (evidence is LegacyEvidenceWrapper && (evidence as LegacyEvidenceWrapper).EvidenceType == EvidenceType),
+            Contract.Assert(evidence != null);
+            Contract.Assert(m_legacyEvidenceList.Count == 0 || EvidenceType == evidence.GetType() || (evidence is LegacyEvidenceWrapper && (evidence as LegacyEvidenceWrapper).EvidenceType == EvidenceType),
                             "LegacyEvidenceList must be homogeonous");
-            Debug.Assert(evidence.GetType() != typeof(LegacyEvidenceList),
+            Contract.Assert(evidence.GetType() != typeof(LegacyEvidenceList),
                             "Attempt to add a legacy evidence list to another legacy evidence list");
 
             m_legacyEvidenceList.Add(evidence);
@@ -170,6 +181,10 @@ namespace System.Security.Policy
             return m_legacyEvidenceList.GetEnumerator();
         }
 
+#pragma warning disable 618
+        [SecurityPermission(SecurityAction.Demand, SerializationFormatter = true)]
+#pragma warning restore 618
+        [SecuritySafeCritical]
         public override EvidenceBase Clone()
         {
             return base.Clone();

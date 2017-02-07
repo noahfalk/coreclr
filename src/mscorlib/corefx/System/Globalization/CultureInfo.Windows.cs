@@ -1,10 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
-
-#if ENABLE_WINRT
 using Internal.Runtime.Augments;
-#endif
 
 namespace System.Globalization
 {
@@ -18,18 +15,16 @@ namespace System.Globalization
         /// </remarks>
         private static CultureInfo GetUserDefaultCultureCacheOverride()
         {
-#if ENABLE_WINRT
             WinRTInteropCallbacks callbacks = WinRTInterop.UnsafeCallbacks;
             if (callbacks != null && callbacks.IsAppxModel())
             {
                 return (CultureInfo)callbacks.GetUserDefaultCulture();
             }
-#endif
 
             return null;
         }
 
-        internal static CultureInfo GetUserDefaultCulture()
+        private static CultureInfo GetUserDefaultCulture()
         {
             const uint LOCALE_SNAME = 0x0000005c;
             const string LOCALE_NAME_USER_DEFAULT = null;
@@ -49,7 +44,7 @@ namespace System.Globalization
 
             CultureInfo temp = GetCultureByName(strDefault, true);
 
-            temp._isReadOnly = true;
+            temp.m_isReadOnly = true;
 
             return temp;
         }

@@ -8,21 +8,28 @@
 ** 
 **
 **
-** Purpose: Get the underlying TypeInfo from a Type
+** Purpose: go from type to type info
 **
 **
 =============================================================================*/
+
 namespace System.Reflection
 {
+    using System.Reflection;
+
     public static class IntrospectionExtensions
     {
-	    public static TypeInfo GetTypeInfo(this Type type)
-        {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
-            
+	    public static TypeInfo GetTypeInfo(this Type type){
+            if(type == null){
+                throw new ArgumentNullException("type");
+            }
             var rcType=(IReflectableType)type;
-            return rcType.GetTypeInfo();
-        }
+            if(rcType==null){
+                return null;
+            }else{
+                return rcType.GetTypeInfo();
+            }
+        }   
     }
 }
+

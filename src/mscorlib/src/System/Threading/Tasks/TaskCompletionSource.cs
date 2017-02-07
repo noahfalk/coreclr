@@ -12,7 +12,6 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
@@ -48,6 +47,7 @@ namespace System.Threading.Tasks
     /// </remarks>
     /// <typeparam name="TResult">The type of the result value assocatied with this <see
     /// cref="TaskCompletionSource{TResult}"/>.</typeparam>
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     public class TaskCompletionSource<TResult>
     {
         private readonly Task<TResult> m_task;
@@ -156,7 +156,7 @@ namespace System.Threading.Tasks
         /// <exception cref="T:System.ObjectDisposedException">The <see cref="Task"/> was disposed.</exception>
         public bool TrySetException(Exception exception)
         {
-            if (exception == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.exception);
+            if (exception == null) throw new ArgumentNullException("exception");
 
             bool rval = m_task.TrySetException(exception);
             if (!rval && !m_task.IsCompleted) SpinUntilCompleted();
@@ -185,18 +185,18 @@ namespace System.Threading.Tasks
         /// <exception cref="T:System.ObjectDisposedException">The <see cref="Task"/> was disposed.</exception>
         public bool TrySetException(IEnumerable<Exception> exceptions)
         {
-            if (exceptions == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.exceptions);
+            if (exceptions == null) throw new ArgumentNullException("exceptions");
             
             List<Exception> defensiveCopy = new List<Exception>();
             foreach (Exception e in exceptions)
             {
                 if (e == null)
-                    ThrowHelper.ThrowArgumentException(ExceptionResource.TaskCompletionSourceT_TrySetException_NullException, ExceptionArgument.exceptions);
+                    throw new ArgumentException(Environment.GetResourceString("TaskCompletionSourceT_TrySetException_NullException"), "exceptions");
                 defensiveCopy.Add(e);
             }
 
             if (defensiveCopy.Count == 0)
-                ThrowHelper.ThrowArgumentException(ExceptionResource.TaskCompletionSourceT_TrySetException_NoExceptions, ExceptionArgument.exceptions);
+                throw new ArgumentException(Environment.GetResourceString("TaskCompletionSourceT_TrySetException_NoExceptions"), "exceptions");
 
             bool rval = m_task.TrySetException(defensiveCopy);
             if (!rval && !m_task.IsCompleted) SpinUntilCompleted();
@@ -209,9 +209,9 @@ namespace System.Threading.Tasks
         /// <remarks>Unlike the public methods, this method doesn't currently validate that its arguments are correct.</remarks>
         internal bool TrySetException(IEnumerable<ExceptionDispatchInfo> exceptions)
         {
-            Debug.Assert(exceptions != null);
+            Contract.Assert(exceptions != null);
 #if DEBUG
-            foreach(var edi in exceptions) Debug.Assert(edi != null, "Contents must be non-null");
+            foreach(var edi in exceptions) Contract.Assert(edi != null, "Contents must be non-null");
 #endif
 
             bool rval = m_task.TrySetException(exceptions);
@@ -238,11 +238,11 @@ namespace System.Threading.Tasks
         /// <exception cref="T:System.ObjectDisposedException">The <see cref="Task"/> was disposed.</exception>
         public void SetException(Exception exception)
         {
-            if (exception == null) ThrowHelper.ThrowArgumentNullException(ExceptionArgument.exception);
+            if (exception == null) throw new ArgumentNullException("exception");
 
             if (!TrySetException(exception))
             {
-                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.TaskT_TransitionToFinal_AlreadyCompleted);
+                throw new InvalidOperationException(Environment.GetResourceString("TaskT_TransitionToFinal_AlreadyCompleted"));
             }
         }
 
@@ -268,7 +268,7 @@ namespace System.Threading.Tasks
         {
             if (!TrySetException(exceptions))
             {
-                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.TaskT_TransitionToFinal_AlreadyCompleted);
+                throw new InvalidOperationException(Environment.GetResourceString("TaskT_TransitionToFinal_AlreadyCompleted"));
             }
         }
 
@@ -316,7 +316,7 @@ namespace System.Threading.Tasks
         public void SetResult(TResult result)
         {
             if (!TrySetResult(result))
-                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.TaskT_TransitionToFinal_AlreadyCompleted);
+                throw new InvalidOperationException(Environment.GetResourceString("TaskT_TransitionToFinal_AlreadyCompleted"));
         }
 
         /// <summary>
@@ -364,7 +364,7 @@ namespace System.Threading.Tasks
         public void SetCanceled()
         {
             if(!TrySetCanceled())
-                ThrowHelper.ThrowInvalidOperationException(ExceptionResource.TaskT_TransitionToFinal_AlreadyCompleted);
+                throw new InvalidOperationException(Environment.GetResourceString("TaskT_TransitionToFinal_AlreadyCompleted"));
         }
     }
 }

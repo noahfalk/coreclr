@@ -24,6 +24,7 @@ using System.Threading;
 
 namespace Microsoft.Win32.SafeHandles {
  
+    [System.Security.SecurityCritical]  // auto-generated_required
     public sealed class SafeWaitHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         // Called by P/Invoke marshaler
@@ -37,6 +38,7 @@ namespace Microsoft.Win32.SafeHandles {
             SetHandle(existingHandle);
         }
 
+        [System.Security.SecurityCritical]
         override protected bool ReleaseHandle()
         {
             return Win32Native.CloseHandle(handle);

@@ -1,17 +1,6 @@
 #include "platformdefines.cpp"
 #include <xplatform.h>
 
-inline char* CoStrDup(const char* str)
-{
-	size_t size = strlen(str) + 1;
-	char* dup = (char *)TP_CoTaskMemAlloc(size);
-    if (dup != nullptr)
-    {
-        strcpy_s(dup, size, str);
-    }
-    return dup;
-}
-
 const int NumArrElements = 2;
 struct InnerSequential
 {
@@ -30,7 +19,20 @@ void ChangeInnerSequential(InnerSequential* p)
 {
 	p->f1 = 77;
 	p->f2 = 77.0;
-	p->f3 = CoStrDup("changed string");
+
+	char const * lpstr = "changed string";
+	size_t size = sizeof(char) * (strlen(lpstr) + 1);
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc( size );
+	memset(temp, 0, size);
+	if(temp)
+	{
+		strcpy( (char*)temp, lpstr );
+		p->f3 = temp;
+	}
+	else
+	{
+		printf("Memory Allocated Failed!");
+	}
 }
 
 bool IsCorrectInnerSequential(InnerSequential* p)
@@ -39,7 +41,13 @@ bool IsCorrectInnerSequential(InnerSequential* p)
 		return false;
 	if(p->f2 != 1.0)
 		return false;
-	if(strcmp(p->f3, "") != 0)
+
+	char const * lpstr = "some string";
+	size_t size = sizeof(char) * (strlen(lpstr) + 1);
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc( size );
+	memset(temp, 0, size);
+
+	if( strcmp((char*)p->f3, temp) != 0 )
 		return false;
 
 	return true;
@@ -54,7 +62,6 @@ typedef unsigned short WORD;
 typedef short SHORT;
 typedef float FLOAT;
 typedef double DOUBLE;
-typedef long INT_PTR;
 #endif
 
 struct INNER2 // size = 12 bytes
@@ -67,7 +74,11 @@ void ChangeINNER2(INNER2* p)
 {
 	p->f1 = 77;
 	p->f2 = 77.0;
-	p->f3 = CoStrDup("changed string");
+	char const * temp = "changed string";
+	size_t len = strlen(temp);
+	LPCSTR str = (LPCSTR)TP_CoTaskMemAlloc( sizeof(char)*(len+1) );
+	strcpy((char*)str,temp);
+	p->f3 = str;
 }
 void PrintINNER2(INNER2* p, char const * name)
 {
@@ -121,7 +132,12 @@ void PrintInnerExplicit(InnerExplicit* p, char const * name)
 void ChangeInnerExplicit(InnerExplicit* p)
 {
 	p->f1 = 77;
-	p->f3 = CoStrDup("changed string");
+
+	char const * temp = "changed string";
+	size_t len = strlen(temp);
+	LPCSTR str = (LPCSTR)TP_CoTaskMemAlloc( sizeof(char)*(len+1) );
+	strcpy((char*)str,temp);
+	p->f3 = str;
 }
 
 struct InnerArraySequential
@@ -141,11 +157,25 @@ void PrintInnerArraySequential(InnerArraySequential* p, char const * name)
 
 void ChangeInnerArraySequential(InnerArraySequential* p)
 {
+	char const * lpstr = "changed string";
+	LPSTR temp;
 	for(int i = 0; i < NumArrElements; i++)
 	{
 		(p->arr)[i].f1 = 77;
 		(p->arr)[i].f2 = 77.0;
-		(p->arr)[i].f3 = CoStrDup("changed string");
+
+		size_t size = sizeof(char) * (strlen(lpstr) + 1);
+		temp = (LPSTR)TP_CoTaskMemAlloc( size );
+		memset(temp, 0, size);
+		if(temp)
+		{
+			strcpy( (char*)temp, lpstr );
+			(p->arr)[i].f3 = temp;
+		}
+		else
+		{
+			printf("Memory Allocated Failed!");
+		}
 	}
 }
 
@@ -169,14 +199,13 @@ union InnerArrayExplicit // size = 32 bytes
 	{
 		LONG64 _unused0;
 		LPCSTR f4;
-	} s; 
+	}; 
+
 };
 
 
 #ifdef WINDOWS
 	#ifdef _WIN64
-        #pragma warning(push) 
-        #pragma warning(disable: 4201) // nonstandard extension used: nameless struct/union
 		union OUTER3 // size = 32 bytes
 		{
 			struct InnerSequential arr[2];
@@ -186,7 +215,6 @@ union InnerArrayExplicit // size = 32 bytes
 				LPCSTR f4;
 			};
 		};
-        #pragma warning(pop)
 	#else
 		struct OUTER3 // size = 28 bytes
 		{
@@ -216,14 +244,22 @@ void PrintOUTER3(OUTER3* p, char const * name)
 }
 void ChangeOUTER3(OUTER3* p)
 {
+	char const * temp = "changed string";
+	size_t len = strlen(temp);
+	LPCSTR str = NULL;
 	for(int i = 0; i < NumArrElements; i++)
 	{
 		(p->arr)[i].f1 = 77;
 		(p->arr)[i].f2 = 77.0;
-		(p->arr)[i].f3 = CoStrDup("changed string");
+	
+		str = (LPCSTR)TP_CoTaskMemAlloc( sizeof(char)*(len+1) );
+		strcpy((char*)str,temp);
+		(p->arr)[i].f3 = str;
 	}
 
-	p->f4 = CoStrDup("changed string");
+	str = (LPCSTR)TP_CoTaskMemAlloc( sizeof(char)*(len+1) );
+	strcpy((char*)str,temp);
+	p->f4 = str;
 }
 bool IsCorrectOUTER3(OUTER3* p)
 {
@@ -257,8 +293,19 @@ void PrintCharSetAnsiSequential(CharSetAnsiSequential* p, char const * name)
 
 void ChangeCharSetAnsiSequential(CharSetAnsiSequential* p)
 {
-	p->f1 = CoStrDup("change string");
-	p->f2 = 'n';
+	char const * strSource = "change string";
+	size_t size = strlen(strSource) + 1;
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc(size);
+	if(temp != NULL)
+	{
+		strcpy((char*)temp,strSource);
+		p->f1 = temp;
+		p->f2 = 'n';
+	}
+	else
+	{
+		printf("Memory Allocated Failed!");
+	}
 }
 
 bool IsCorrectCharSetAnsiSequential(CharSetAnsiSequential* p)
@@ -278,11 +325,7 @@ struct CharSetUnicodeSequential
 };
 void PrintCharSetUnicodeSequential(CharSetUnicodeSequential* p, char const * name)
 {
-#ifdef _WIN32
-	wprintf(L"\t%S.f1 = %s\n", name, p->f1);
-#else
 	wprintf(L"\t%s.f1 = %S\n", name, p->f1);
-#endif
 	printf("\t%s.f2 = %c\n", name, p->f2);
 }
 
@@ -293,7 +336,7 @@ void ChangeCharSetUnicodeSequential(CharSetUnicodeSequential* p)
 #else
 	LPCWSTR strSource = u"change string";
 #endif
-	size_t len = wcslen(strSource);
+	int len = wcslen(strSource);
 	LPCWSTR temp = (LPCWSTR)TP_CoTaskMemAlloc(sizeof(WCHAR)*(len+1));
 	if(temp != NULL)
 	{
@@ -375,7 +418,7 @@ void ChangeNumberSequential(NumberSequential* p)
 
 bool IsCorrectNumberSequential(NumberSequential* p)
 {
-	if(p->i32 != (-0x7fffffff - 1) || p->ui32 != 0xffffffff || p->s1 != -0x8000 || p->us1 != 0xffff || p->b != 0 || 
+	if(p->i32 != -0x80000000 || p->ui32 != 0xffffffff || p->s1 != -0x8000 || p->us1 != 0xffff || p->b != 0 || 
 		p->sb != 0x7f ||p->i16 != -0x8000 || p->ui16 != 0xffff || p->i64 != -1234567890 ||
 		p->ui64 != 1234567890 || (p->sgl) != 32.0 || p->d != 3.2)
 	{
@@ -405,10 +448,17 @@ void ChangeS3(S3* p)
 {
 	p->flag = false;
 
-	/*TP_CoTaskMemFree((void *)p->str);*/
-	p->str = CoStrDup("change string");
-
-    for(int i = 1;i<257;i++)
+	char const * strSource = "change string";
+	int len = strlen(strSource);
+	
+	LPCSTR temp = (LPCSTR)TP_CoTaskMemAlloc((sizeof(char)*len) + 1);
+	if(temp != NULL)
+	{
+		/*TP_CoTaskMemFree((void *)p->str);*/
+		strcpy((char*)temp,strSource);		
+		p->str = temp;
+	}
+	for(int i = 1;i<257;i++)
 	{
 		p->vals[i-1] = i;
 	}
@@ -418,7 +468,12 @@ bool IsCorrectS3(S3* p)
 {
 	int iflag = 0;
 
-	if (!p->flag || strcmp(p->str, "") != 0)
+	char const * lpstr = "some string";
+	size_t size = sizeof(char) * (strlen(lpstr) + 1);
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc( size );
+	memset(temp, 0, size);
+
+	if(!p->flag || strcmp((char*)p->str, temp) != 0)
 		return false;
     for (int i = 0; i < 256; i++)
     {
@@ -459,16 +514,33 @@ void PrintS5(S5* str, char const * name)
 }
 void ChangeS5(S5* str)
 {
-	str->s4.name = CoStrDup("change string");
+	Enum1 eInstance = e2;
+	char const * strSource = "change string";	
+	int len = strlen(strSource);
+	LPCSTR temp = (LPCSTR)TP_CoTaskMemAlloc(sizeof(char)*(len+1));
+	if(temp != NULL)
+	{
+		strcpy((char*)temp,strSource);
+		str->s4.name = temp;
+	}
 	str->s4.age = 64;
-	str->ef = e2;
+	str->ef = eInstance;
 }
 bool IsCorrectS5(S5* str)
 {
-	if(str->s4.age != 32 || strcmp(str->s4.name, "") != 0)
+	Enum1 eInstance = e1;
+
+	char const * lpstr = "some string";
+	size_t size = sizeof(char) * (strlen(lpstr) + 1);
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc( size );
+	memset(temp, 0, size);
+
+	if(str->s4.age != 32 || strcmp((char*)str->s4.name, temp) != 0)
 		return false;
-	if(str->ef != e1)
+	if(str->ef != eInstance)
+	{
 		return false;
+	}
 	return true;
 }
 
@@ -527,13 +599,8 @@ struct StringStructSequentialUnicode // size = 8 bytes
 
 void PrintStringStructSequentialUnicode(StringStructSequentialUnicode* str, char const * name)
 {
-#ifdef _WIN32
-	wprintf(L"\t%S.first = %s\n", name, str->first);
-	wprintf(L"\t%S.last = %s\n", name, str->last);
-#else
 	wprintf(L"\t%s.first = %s\n", name, str->first);
 	wprintf(L"\t%s.last = %s\n", name, str->last);
-#endif
 }
 
 bool IsCorrectStringStructSequentialUnicode(StringStructSequentialUnicode* str)
@@ -607,7 +674,19 @@ bool IsCorrectS8(S8* str)
 
 void ChangeS8(S8* str)
 {
-	str->name = CoStrDup("world");
+	char const * lpstr = "world";
+	size_t size = sizeof(char) * (strlen(lpstr) + 1);
+	LPSTR temp = (LPSTR)TP_CoTaskMemAlloc( size );
+	memset(temp, 0, size);
+	if(temp)
+	{
+		strcpy( (char*)temp, lpstr );
+		str->name = temp;
+	}
+	else
+	{
+		printf("Memory Allocated Failed!");
+	}
 	str->gender = false;
 	str->jobNum = 1;
 	str->i32 = 256;
@@ -708,7 +787,7 @@ void ChangeU(U* p)
 	p->uiPtr = (LPVOID)(64);
 	p->s = 32767;
 	p->us = 0;
-	p->b = 255;
+	p->b = -1;
 	p->sb = -128;
 	p->l = -1234567890;
 	p->ul = 0;

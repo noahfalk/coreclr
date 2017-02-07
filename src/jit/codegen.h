@@ -48,6 +48,9 @@ public:
                                    unsigned* cnsPtr,
                                    bool      nogen = false);
 
+    // This should move to CodeGenClassic.h after genCreateAddrMode() is no longer dependent upon it
+    void genIncRegBy(regNumber reg, ssize_t ival, GenTreePtr tree, var_types dstType = TYP_INT, bool ovfl = false);
+
 private:
 #if defined(_TARGET_XARCH_) && !FEATURE_STACK_FP_X87
     // Bit masks used in negating a float or double number.
@@ -122,7 +125,7 @@ private:
 
     void genRangeCheck(GenTree* node);
 
-    void genLockedInstructions(GenTreeOp* node);
+    void genLockedInstructions(GenTree* node);
 
     //-------------------------------------------------------------------------
     // Register-related methods
@@ -249,8 +252,6 @@ protected:
     void genDefineTempLabel(BasicBlock* label);
 
     void genAdjustSP(ssize_t delta);
-
-    void genAdjustStackLevel(BasicBlock* block);
 
     void genExitCode(BasicBlock* block);
 
@@ -390,8 +391,6 @@ protected:
     // Save/Restore callee saved float regs to stack
     void genPreserveCalleeSavedFltRegs(unsigned lclFrameSize);
     void genRestoreCalleeSavedFltRegs(unsigned lclFrameSize);
-    // Generate VZeroupper instruction to avoid AVX/SSE transition penalty
-    void genVzeroupperIfNeeded(bool check256bitOnly = true);
 
 #endif // _TARGET_XARCH_ && FEATURE_STACK_FP_X87
 
@@ -491,26 +490,15 @@ protected:
     void genAmd64EmitterUnitTests();
 #endif
 
-    //-------------------------------------------------------------------------
-    //
-    // End prolog/epilog generation
-    //
-    //-------------------------------------------------------------------------
+//-------------------------------------------------------------------------
+//
+// End prolog/epilog generation
+//
+//-------------------------------------------------------------------------
 
-    void      genSinglePush();
-    void      genSinglePop();
-    regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
-    void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
-
-/*
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XX                                                                           XX
-XX                           Debugging Support                               XX
-XX                                                                           XX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-*/
+/*****************************************************************************/
+#ifdef DEBUGGING_SUPPORT
+/*****************************************************************************/
 
 #ifdef DEBUG
     void genIPmappingDisp(unsigned mappingNum, Compiler::IPmappingDsc* ipMapping);
@@ -743,6 +731,10 @@ protected:
     TrnslLocalVarInfo* genTrnslLocalVarInfo;
     unsigned           genTrnslLocalVarCount;
 #endif
+
+/*****************************************************************************/
+#endif // DEBUGGING_SUPPORT
+/*****************************************************************************/
 
 #ifndef LEGACY_BACKEND
 #include "codegenlinear.h"

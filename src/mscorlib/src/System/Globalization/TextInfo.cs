@@ -24,7 +24,6 @@ namespace System.Globalization {
     using System.Runtime.Serialization;
     using System.Runtime.Versioning;
     using System.Security.Permissions;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
 
@@ -36,12 +35,6 @@ namespace System.Globalization {
         //                        Internal Information                        //
         //--------------------------------------------------------------------//
 
-        private enum Tristate : byte
-        {
-            NotInitialized,
-            True,
-            False,
-        }
 
         //
         //  Variables.
@@ -79,7 +72,7 @@ namespace System.Globalization {
         [NonSerialized]private String           m_textInfoName;     // Name of the text info we're using (ie: m_cultureData.STEXTINFO)
         [NonSerialized]private IntPtr           m_dataHandle;       // Sort handle
         [NonSerialized]private IntPtr           m_handleOrigin;
-        [NonSerialized]private Tristate         m_IsAsciiCasingSameAsInvariant = Tristate.NotInitialized;
+        [NonSerialized]private bool?            m_IsAsciiCasingSameAsInvariant;
 
 
         // Invariant text info
@@ -107,6 +100,11 @@ namespace System.Globalization {
             this.m_cultureData = cultureData;
             this.m_cultureName = this.m_cultureData.CultureName;
             this.m_textInfoName = this.m_cultureData.STEXTINFO;
+#if !FEATURE_CORECLR
+            IntPtr handleOrigin;
+            this.m_dataHandle = CompareInfo.InternalInitSortHandle(m_textInfoName, out handleOrigin);
+            this.m_handleOrigin = handleOrigin;
+#endif
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -175,18 +173,30 @@ namespace System.Globalization {
                 // Get the text info name belonging to that culture
                 this.m_cultureData = CultureInfo.GetCultureInfo(m_cultureName).m_cultureData;
                 this.m_textInfoName = this.m_cultureData.STEXTINFO;
-            }
+#if !FEATURE_CORECLR
+                IntPtr handleOrigin;
+                this.m_dataHandle = CompareInfo.InternalInitSortHandle(m_textInfoName, out handleOrigin);
+                this.m_handleOrigin = handleOrigin;
+#endif
+            }            
         }
 
+        
         [OnDeserialized]
         private void OnDeserialized(StreamingContext ctx)
         {
             OnDeserialized();
-        }
-
+        }   
+        
         [OnSerializing]
         private void OnSerializing(StreamingContext ctx) 
-        {
+        { 
+#if !FEATURE_CORECLR
+            // Initialize the fields Whidbey expects:
+            // Whidbey expected this, so set it, but the value doesn't matter much
+            this.m_useUserOverride = false;
+#endif // FEATURE_CORECLR
+
             // Relabel our name since Whidbey expects it to be called customCultureName
             this.customCultureName = this.m_cultureName;
 
@@ -213,6 +223,7 @@ namespace System.Globalization {
             return (Invariant.GetCaseInsensitiveHashCode(s, forceRandomizedHashing, additionalEntropy));
         }
 
+        [System.Security.SecuritySafeCritical]
         internal static unsafe bool TryFastFindStringOrdinalIgnoreCase(int searchFlags, String source, int startIndex, String value, int count, ref int foundIndex)
         {
             return InternalTryFindStringOrdinalIgnoreCase(searchFlags, source, count, startIndex, value, value.Length, ref foundIndex);
@@ -220,6 +231,7 @@ namespace System.Globalization {
 
         // This function doesn't check arguments. Please do check in the caller.
         // The underlying unmanaged code will assert the sanity of arguments.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static unsafe int CompareOrdinalIgnoreCase(String str1, String str2)
         {
             // Compare the whole string and ignore case.
@@ -228,18 +240,19 @@ namespace System.Globalization {
 
         // This function doesn't check arguments. Please do check in the caller.
         // The underlying unmanaged code will assert the sanity of arguments.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static unsafe int CompareOrdinalIgnoreCaseEx(String strA, int indexA, String strB, int indexB, int lengthA, int lengthB )
         {
-            Debug.Assert(strA.Length >= indexA + lengthA,  "[TextInfo.CompareOrdinalIgnoreCaseEx] Caller should've validated strA.Length >= indexA + lengthA");
-            Debug.Assert(strB.Length >= indexB + lengthB, "[TextInfo.CompareOrdinalIgnoreCaseEx]  Caller should've validated strB.Length >= indexB + lengthB");
+            Contract.Assert(strA.Length >= indexA + lengthA,  "[TextInfo.CompareOrdinalIgnoreCaseEx] Caller should've validated strA.Length >= indexA + lengthA");
+            Contract.Assert(strB.Length >= indexB + lengthB, "[TextInfo.CompareOrdinalIgnoreCaseEx]  Caller should've validated strB.Length >= indexB + lengthB");
             return InternalCompareStringOrdinalIgnoreCase(strA, indexA, strB, indexB, lengthA, lengthB);
         }
 
         internal static int IndexOfStringOrdinalIgnoreCase(String source, String value, int startIndex, int count)
         {
-            Debug.Assert(source != null, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated source != null");
-            Debug.Assert(value != null, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated value != null");
-            Debug.Assert(startIndex + count <= source.Length, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex + count <= source.Length");
+            Contract.Assert(source != null, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated source != null");
+            Contract.Assert(value != null, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated value != null");
+            Contract.Assert(startIndex + count <= source.Length, "[TextInfo.IndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex + count <= source.Length");
 
             // We return 0 if both inputs are empty strings
             if (source.Length == 0 && value.Length == 0)
@@ -266,7 +279,7 @@ namespace System.Globalization {
             for (; startIndex <= maxStartIndex; startIndex++)
             {
                 // We should always have the same or more characters left to search than our actual pattern
-                Debug.Assert(end - startIndex >= value.Length);
+                Contract.Assert(end - startIndex >= value.Length);
                 // since this is an ordinal comparison, we can assume that the lengths must match
                 if (CompareOrdinalIgnoreCaseEx(source, startIndex, value, 0, value.Length, value.Length) == 0)
                 {
@@ -280,10 +293,10 @@ namespace System.Globalization {
 
         internal static int LastIndexOfStringOrdinalIgnoreCase(String source, String value, int startIndex, int count)
         {
-            Debug.Assert(source != null, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated source != null");
-            Debug.Assert(value != null, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated value != null");
-            Debug.Assert(startIndex - count+1 >= 0, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex - count+1 >= 0");
-            Debug.Assert(startIndex <= source.Length, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex <= source.Length");
+            Contract.Assert(source != null, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated source != null");
+            Contract.Assert(value != null, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated value != null");
+            Contract.Assert(startIndex - count+1 >= 0, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex - count+1 >= 0");
+            Contract.Assert(startIndex <= source.Length, "[TextInfo.LastIndexOfStringOrdinalIgnoreCase] Caller should've validated startIndex <= source.Length");
 
             // If value is Empty, the return value is startIndex
             if (value.Length == 0)
@@ -333,40 +346,35 @@ namespace System.Globalization {
         ////////////////////////////////////////////////////////////////////////
 
 
-        public virtual int ANSICodePage 
-        {
-            get 
-            {
+#if !FEATURE_CORECLR
+        public virtual int ANSICodePage {
+            get {
                 return (this.m_cultureData.IDEFAULTANSICODEPAGE);
             }
         }
 
  
-        public virtual int OEMCodePage 
-        {
-            get 
-            {
+        public virtual int OEMCodePage {
+            get {
                 return (this.m_cultureData.IDEFAULTOEMCODEPAGE);
             }
         }
 
 
-        public virtual int MacCodePage 
-        {
-            get 
-            {
+        public virtual int MacCodePage {
+            get {
                 return (this.m_cultureData.IDEFAULTMACCODEPAGE);
             }
         }
 
 
-        public virtual int EBCDICCodePage 
-        {
-            get 
-            {
+        public virtual int EBCDICCodePage {
+            get {
                 return (this.m_cultureData.IDEFAULTEBCDICCODEPAGE);
             }
         }
+#endif
+
 
         ////////////////////////////////////////////////////////////////////////
         //
@@ -443,7 +451,7 @@ namespace System.Globalization {
         [System.Runtime.InteropServices.ComVisible(false)]
         public static TextInfo ReadOnly(TextInfo textInfo) 
         {
-            if (textInfo == null)       { throw new ArgumentNullException(nameof(textInfo)); }
+            if (textInfo == null)       { throw new ArgumentNullException("textInfo"); }
             Contract.EndContractBlock();
             if (textInfo.IsReadOnly)    { return (textInfo); }
             
@@ -479,6 +487,7 @@ namespace System.Globalization {
 
         public virtual String ListSeparator 
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get 
             {
                 if (m_listSeparator == null) {
@@ -492,7 +501,7 @@ namespace System.Globalization {
             {
                 if (value == null) 
                 {
-                    throw new ArgumentNullException(nameof(value), Environment.GetResourceString("ArgumentNull_String"));
+                    throw new ArgumentNullException("value", Environment.GetResourceString("ArgumentNull_String"));
                 }
                 Contract.EndContractBlock();
                 VerifyWritable();
@@ -509,6 +518,7 @@ namespace System.Globalization {
         //
         ////////////////////////////////////////////////////////////////////////
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public unsafe virtual char ToLower(char c) 
         {
             if(IsAscii(c) && IsAsciiCasingSameAsInvariant)
@@ -518,9 +528,10 @@ namespace System.Globalization {
             return (InternalChangeCaseChar(this.m_dataHandle, this.m_handleOrigin, this.m_textInfoName, c, false));
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public unsafe virtual String ToLower(String str) 
         {
-            if (str == null) { throw new ArgumentNullException(nameof(str)); }
+            if (str == null) { throw new ArgumentNullException("str"); }
             Contract.EndContractBlock();
 
             return InternalChangeCaseString(this.m_dataHandle, this.m_handleOrigin, this.m_textInfoName, str, false);
@@ -545,6 +556,7 @@ namespace System.Globalization {
         //
         ////////////////////////////////////////////////////////////////////////
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public unsafe virtual char ToUpper(char c) 
         {
             if (IsAscii(c) && IsAsciiCasingSameAsInvariant)
@@ -555,9 +567,10 @@ namespace System.Globalization {
         }
 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public unsafe virtual String ToUpper(String str) 
         {
-            if (str == null) { throw new ArgumentNullException(nameof(str)); }
+            if (str == null) { throw new ArgumentNullException("str"); }
             Contract.EndContractBlock();
             return InternalChangeCaseString(this.m_dataHandle, this.m_handleOrigin, this.m_textInfoName, str, true);
         }
@@ -580,14 +593,14 @@ namespace System.Globalization {
         {
             get
             {
-                if (m_IsAsciiCasingSameAsInvariant == Tristate.NotInitialized)
+                if (m_IsAsciiCasingSameAsInvariant == null)
                 {
                     m_IsAsciiCasingSameAsInvariant =
                         CultureInfo.GetCultureInfo(m_textInfoName).CompareInfo.Compare("abcdefghijklmnopqrstuvwxyz",
                                                                              "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
-                                                                             CompareOptions.IgnoreCase) == 0 ? Tristate.True : Tristate.False;
+                                                                             CompareOptions.IgnoreCase) == 0;
                 }
-                return m_IsAsciiCasingSameAsInvariant == Tristate.True;
+                return (bool)m_IsAsciiCasingSameAsInvariant;
             }
         }
 
@@ -670,29 +683,25 @@ namespace System.Globalization {
         // titlecasing.  Windows 7 is expected to be the first release with this feature.  On the Macintosh side,
         // titlecasing is not available as of version 10.5 of the operating system.
         //
-        public unsafe String ToTitleCase(String str) 
-        {
-            if (str == null)  
-            {
-                throw new ArgumentNullException(nameof(str));
+#if !FEATURE_CORECLR
+        public unsafe String ToTitleCase(String str) {
+            if (str==null)  {
+                throw new ArgumentNullException("str");
             }
             Contract.EndContractBlock();
-            if (str.Length == 0) 
-            {
+            if (str.Length == 0) {
                 return (str);
             }
 
             StringBuilder result = new StringBuilder();
             String lowercaseData = null;
 
-            for (int i = 0; i < str.Length; i++) 
-            {
+            for (int i = 0; i < str.Length; i++) {
                 UnicodeCategory charType;
                 int charLen;
 
                 charType = CharUnicodeInfo.InternalGetUnicodeCategory(str, i, out charLen);
-                if (Char.CheckLetter(charType)) 
-                {
+                if (Char.CheckLetter(charType)) {
                     // Do the titlecasing for the first character of the word.
                     i = AddTitlecaseLetter(ref result, ref str, i, charLen) + 1;
                      
@@ -708,43 +717,30 @@ namespace System.Globalization {
                     //
                     bool hasLowerCase = (charType == UnicodeCategory.LowercaseLetter);
                     // Use a loop to find all of the other letters following this letter.
-                    while (i < str.Length) 
-                    {
+                    while (i < str.Length) {
                         charType = CharUnicodeInfo.InternalGetUnicodeCategory(str, i, out charLen);
-                        if (IsLetterCategory(charType)) 
-                        {
-                            if (charType == UnicodeCategory.LowercaseLetter) 
-                            {
+                        if (IsLetterCategory(charType)) {
+                            if (charType == UnicodeCategory.LowercaseLetter) {
                                 hasLowerCase = true;
                             }
                             i += charLen;
-                        } 
-                        else if (str[i] == '\'') 
-                        {
+                        } else if (str[i] == '\'') {
                             i++;
-                            if (hasLowerCase) 
-                            {
-                                if (lowercaseData == null) 
-                                {
+                            if (hasLowerCase) {
+                                if (lowercaseData==null) {
                                     lowercaseData = this.ToLower(str);
                                 }
                                 result.Append(lowercaseData, lowercaseStart, i - lowercaseStart);
-                            } 
-                            else 
-                            {
+                            } else {
                                 result.Append(str, lowercaseStart, i - lowercaseStart);
                             }
                             lowercaseStart = i;
                             hasLowerCase = true;
-                        } 
-                        else if (!IsWordSeparator(charType)) 
-                        {
+                        } else if (!IsWordSeparator(charType)) {
                             // This category is considered to be part of the word.
                             // This is any category that is marked as false in wordSeprator array.
                             i+= charLen;
-                        } 
-                        else 
-                        {
+                        } else {
                             // A word separator. Break out of the loop.
                             break;
                         }
@@ -752,30 +748,23 @@ namespace System.Globalization {
 
                     int count = i - lowercaseStart;
 
-                    if (count>0) 
-                    {
-                        if (hasLowerCase) 
-                        {
-                            if (lowercaseData == null) 
-                            {
+                    if (count>0) {
+                        if (hasLowerCase) {
+                            if (lowercaseData==null) {
                                 lowercaseData = this.ToLower(str);
                             }
                             result.Append(lowercaseData, lowercaseStart, count);
-                        } 
-                        else 
-                        {
+                        } else {
                             result.Append(str, lowercaseStart, count);
                         }
                     }
 
-                    if (i < str.Length) 
-                    {
+                    if (i < str.Length) {
                         // not a letter, just append it
                         i = AddNonLetter(ref result, ref str, i, charLen);
                     }
                 }
-                else 
-                {
+                else {
                     // not a letter, just append it
                     i = AddNonLetter(ref result, ref str, i, charLen);
                 }
@@ -783,38 +772,31 @@ namespace System.Globalization {
             return (result.ToString());
         }
 
-        private static int AddNonLetter(ref StringBuilder result, ref String input, int inputIndex, int charLen) 
-        {
-            Debug.Assert(charLen == 1 || charLen == 2, "[TextInfo.AddNonLetter] CharUnicodeInfo.InternalGetUnicodeCategory returned an unexpected charLen!");
-            if (charLen == 2) 
-            {
+        private static int AddNonLetter(ref StringBuilder result, ref String input, int inputIndex, int charLen) {
+            Contract.Assert(charLen == 1 || charLen == 2, "[TextInfo.AddNonLetter] CharUnicodeInfo.InternalGetUnicodeCategory returned an unexpected charLen!");
+            if (charLen == 2) {
                 // Surrogate pair
                 result.Append(input[inputIndex++]);
                 result.Append(input[inputIndex]);
             }
-            else 
-            {
+            else {
                 result.Append(input[inputIndex]);
             }                   
             return inputIndex;
         }
 
 
-        private int AddTitlecaseLetter(ref StringBuilder result, ref String input, int inputIndex, int charLen) 
-        {
-            Debug.Assert(charLen == 1 || charLen == 2, "[TextInfo.AddTitlecaseLetter] CharUnicodeInfo.InternalGetUnicodeCategory returned an unexpected charLen!");
+        private int AddTitlecaseLetter(ref StringBuilder result, ref String input, int inputIndex, int charLen) {
+            Contract.Assert(charLen == 1 || charLen == 2, "[TextInfo.AddTitlecaseLetter] CharUnicodeInfo.InternalGetUnicodeCategory returned an unexpected charLen!");
 
             // for surrogate pairs do a simple ToUpper operation on the substring
-            if (charLen == 2) 
-            {
+            if (charLen == 2) {
                 // Surrogate pair
                 result.Append( this.ToUpper(input.Substring(inputIndex, charLen)) );
                 inputIndex++;
             }
-            else 
-            {
-                switch (input[inputIndex]) 
-                {
+            else {
+                switch (input[inputIndex]) {
                     //
                     // For AppCompat, the Titlecase Case Mapping data from NDP 2.0 is used below.
                     case (char)0x01C4:  // DZ with Caron -> Dz with Caron
@@ -883,19 +865,19 @@ namespace System.Globalization {
             /* true  */ (1 << 28) | // OtherSymbol = 28,
             /* false */ (0 << 29);  // OtherNotAssigned = 29;
 
-        private static bool IsWordSeparator(UnicodeCategory category) 
-        {
+        private static bool IsWordSeparator(UnicodeCategory category) {
             return (wordSeparatorMask & (1 << (int)category)) != 0;
         }
 
-        private static bool IsLetterCategory(UnicodeCategory uc) 
-        {
+        private static bool IsLetterCategory(UnicodeCategory uc) {
             return (uc == UnicodeCategory.UppercaseLetter
                  || uc == UnicodeCategory.LowercaseLetter
                  || uc == UnicodeCategory.TitlecaseLetter
                  || uc == UnicodeCategory.ModifierLetter
                  || uc == UnicodeCategory.OtherLetter);
         }
+#endif
+
 
         // IsRightToLeft
         //
@@ -923,17 +905,19 @@ namespace System.Globalization {
         // is not null before calling this.  Currenlty, CaseInsensitiveHashCodeProvider
         // does that.
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal unsafe int GetCaseInsensitiveHashCode(String str)
         {
             return GetCaseInsensitiveHashCode(str, false, 0);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal unsafe int GetCaseInsensitiveHashCode(String str, bool forceRandomizedHashing, long additionalEntropy)
         {
             // Validate inputs
             if (str==null) 
             {
-                 throw new ArgumentNullException(nameof(str));
+                 throw new ArgumentNullException("str");
             }
             Contract.EndContractBlock();
 
@@ -942,19 +926,23 @@ namespace System.Globalization {
         }
 
         // Change case (ToUpper/ToLower) -- COMNlsInfo::InternalChangeCaseChar
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static unsafe extern char InternalChangeCaseChar(IntPtr handle, IntPtr handleOrigin, String localeName, char ch, bool isToUpper);
         
         // Change case (ToUpper/ToLower) -- COMNlsInfo::InternalChangeCaseString
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static unsafe extern String InternalChangeCaseString(IntPtr handle, IntPtr handleOrigin, String localeName, String str, bool isToUpper);
 
         // Get case insensitive hash -- ComNlsInfo::InternalGetCaseInsHash
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static unsafe extern int InternalGetCaseInsHash(IntPtr handle, IntPtr handleOrigin, String localeName, String str, bool forceRandomizedHashing, long additionalEntropy);
 
         // Call ::CompareStringOrdinal -- ComNlsInfo::InternalCompareStringOrdinalIgnoreCase
         // Start at indexes and compare for length characters (or remainder of string if length == -1)
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static unsafe extern int InternalCompareStringOrdinalIgnoreCase(String string1, int index1, String string2, int index2, int length1, int length2);
@@ -962,6 +950,7 @@ namespace System.Globalization {
         // ComNlsInfo::InternalTryFindStringOrdinalIgnoreCase attempts a faster IndexOf/LastIndexOf OrdinalIgnoreCase using a kernel function.
         // Returns true if FindStringOrdinal was handled, with foundIndex set to the target's index into the source
         // Returns false when FindStringOrdinal wasn't handled
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         [return: MarshalAs(UnmanagedType.Bool)]

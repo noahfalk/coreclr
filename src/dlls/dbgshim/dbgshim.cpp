@@ -392,7 +392,7 @@ public:
         int numTries = 0;
         HRESULT hr;
 
-        while (numTries < 25)
+        while (numTries < 10)
         {
             // EnumerateCLRs uses the OS API CreateToolhelp32Snapshot which can return ERROR_BAD_LENGTH or 
             // ERROR_PARTIAL_COPY. If we get either of those, we try wait 1/10th of a second try again (that
@@ -433,7 +433,7 @@ public:
         DWORD arrayLength = 0;
 
         // Wake up runtime(s)
-        HRESULT hr = EnumerateCLRs(m_processId, &handleArray, &stringArray, &arrayLength);
+        HRESULT hr = InternalEnumerateCLRs(&handleArray, &stringArray, &arrayLength);
         if (SUCCEEDED(hr))
         {
             WakeRuntimes(handleArray, arrayLength);
@@ -517,9 +517,7 @@ public:
         bool coreclrExists = false;
 
         HRESULT hr = InvokeStartupCallback(&coreclrExists);
-        // Because the target process is suspended on create, the toolhelp apis fail with the below errors even
-        // with the retry logic in InternalEnumerateCLRs.
-        if (SUCCEEDED(hr) || (hr == HRESULT_FROM_WIN32(ERROR_PARTIAL_COPY)) || (hr == HRESULT_FROM_WIN32(ERROR_BAD_LENGTH)))
+        if (SUCCEEDED(hr))
         {
             if (!coreclrExists && !m_canceled)
             {

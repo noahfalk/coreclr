@@ -16,6 +16,7 @@ set(VM_CROSSGEN_SOURCES
     ../comdelegate.cpp
     ../codeman.cpp
     ../compile.cpp
+    ../constrainedexecutionregion.cpp
     ../custommarshalerinfo.cpp
     ../domainfile.cpp
     ../baseassemblyspec.cpp
@@ -95,12 +96,6 @@ set(VM_CROSSGEN_SOURCES
     ../sha1.cpp
     ../crossgencompile.cpp
 )
-
-if(FEATURE_CER)
-    list(APPEND VM_CROSSGEN_SOURCES
-      ../constrainedexecutionregion.cpp
-        )
-endif(FEATURE_CER)
 
 if(FEATURE_READYTORUN)
     list(APPEND VM_CROSSGEN_SOURCES

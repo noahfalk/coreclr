@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8.12.2)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(TESTSOURCES
-  loadlibrarya.cpp
+  loadlibrarya.c
 )
 
 add_executable(paltest_loadlibrarya_test8
@@ -20,7 +20,7 @@ target_link_libraries(paltest_loadlibrarya_test8
 
 
 set(HELPERSOURCES
-  dlltest.cpp
+  dlltest.c
 )
 
 add_executable(paltest_loadlibrarya_test8_dlltest

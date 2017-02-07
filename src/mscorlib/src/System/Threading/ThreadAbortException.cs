@@ -39,6 +39,7 @@ namespace System.Threading
    
         public Object ExceptionState 
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {return Thread.CurrentThread.AbortReason;}
         }
     }

@@ -142,7 +142,7 @@
 #include "regdisp.h"
 #include "mscoree.h"
 #include "appdomainstack.h"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include "gcinfotypes.h"
 #include <clrhost.h>
 
@@ -1072,7 +1072,7 @@ class Thread: public IUnknown
     friend DWORD MapWin32FaultToCOMPlusException(EXCEPTION_RECORD *pExceptionRecord);
     friend void STDCALL OnHijackWorker(HijackArgs * pArgs);
 #ifdef PLATFORM_UNIX
-    friend void HandleGCSuspensionForInterruptedThread(CONTEXT *interruptedContext);
+    friend void PALAPI HandleGCSuspensionForInterruptedThread(CONTEXT *interruptedContext);
 #endif // PLATFORM_UNIX
 
 #endif // FEATURE_HIJACK
@@ -1739,9 +1739,9 @@ public:
 
     // on MP systems, each thread has its own allocation chunk so we can avoid
     // lock prefixes and expensive MP cache snooping stuff
-    gc_alloc_context        m_alloc_context;
+    alloc_context        m_alloc_context;
 
-    inline gc_alloc_context *GetAllocContext() { LIMITED_METHOD_CONTRACT; return &m_alloc_context; }
+    inline alloc_context *GetAllocContext() { LIMITED_METHOD_CONTRACT; return &m_alloc_context; }
 
     // This is the type handle of the first object in the alloc context at the time 
     // we fire the AllocationTick event. It's only for tooling purpose.
@@ -2796,8 +2796,7 @@ public:
         CONTRACTL_END;
         return (ObjectFromHandle(m_ExposedObject) != NULL) ;
     }
-
-#ifdef FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
+#ifndef FEATURE_CORECLR
     void GetSynchronizationContext(OBJECTREF *pSyncContextObj)
     {
         CONTRACTL
@@ -2815,8 +2814,7 @@ public:
         if (ExposedThreadObj != NULL)
             *pSyncContextObj = ExposedThreadObj->GetSynchronizationContext();
     }
-#endif // FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
-
+#endif //!FEATURE_CORECLR
 #ifdef FEATURE_COMPRESSEDSTACK    
     OBJECTREF GetCompressedStack()
     {
@@ -3386,7 +3384,7 @@ public:
         m_singleStepper.Disable();
     }
 
-    void ApplySingleStep(T_CONTEXT *pCtx)
+    void ApplySingleStep(CONTEXT *pCtx)
     {
         m_singleStepper.Apply(pCtx);
     }
@@ -3399,7 +3397,7 @@ public:
     // Fixup code called by our vectored exception handler to complete the emulation of single stepping
     // initiated by EnableSingleStep above. Returns true if the exception was indeed encountered during
     // stepping.
-    bool HandleSingleStep(T_CONTEXT *pCtx, DWORD dwExceptionCode)
+    bool HandleSingleStep(CONTEXT *pCtx, DWORD dwExceptionCode)
     {
         return m_singleStepper.Fixup(pCtx, dwExceptionCode);
     }
@@ -4886,7 +4884,7 @@ private:
 private:
     // When we create an object, or create an OBJECTREF, or create an Interior Pointer, or enter EE from managed
     // code, we will set this flag.
-    // Inside GCHeapUtilities::StressHeap, we only do GC if this flag is TRUE.  Then we reset it to zero.
+    // Inside GCHeap::StressHeap, we only do GC if this flag is TRUE.  Then we reset it to zero.
     BOOL m_fStressHeapCount;
 public:
     void EnableStressHeap()

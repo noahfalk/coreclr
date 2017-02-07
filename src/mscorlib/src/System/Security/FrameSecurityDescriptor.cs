@@ -12,7 +12,6 @@ namespace System.Security {
     using System.Globalization;
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.Versioning;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 #if !FEATURE_PAL
     using Microsoft.Win32.SafeHandles;
@@ -37,6 +36,18 @@ namespace System.Security {
         private PermissionSet       m_DeclarativeDenials;
         private PermissionSet       m_DeclarativeRestrictions;
 
+#if !FEATURE_PAL
+        // if this frame contains a call to any WindowsIdentity.Impersonate(), 
+        // we save the previous SafeTokenHandles here (in the next two fields)
+        // Used during exceptionstackwalks to revert impersonation before calling filters        
+        [System.Security.SecurityCritical] // auto-generated
+        [NonSerialized]
+        private SafeAccessTokenHandle     m_callerToken; 
+        [System.Security.SecurityCritical] // auto-generated
+        [NonSerialized]
+        private SafeAccessTokenHandle     m_impToken;                               
+#endif
+
         private bool                m_AssertFT;
         private bool                m_assertAllPossible;
 #pragma warning disable 169 
@@ -45,12 +56,16 @@ namespace System.Security {
 
  
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void IncrementOverridesCount();
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void DecrementOverridesCount();
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void IncrementAssertCount();
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void DecrementAssertCount();
 
@@ -90,12 +105,14 @@ namespace System.Security {
             // we store declarative actions in both fields, so check if they are different
             return (m_restriction != null);
         }
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetAssert(IPermission perm)
         {            
             m_assertions = CreateSingletonSet(perm);
             IncrementAssertCount();
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetAssert(PermissionSet permSet)
         {            
             m_assertions = permSet.Copy();
@@ -108,6 +125,7 @@ namespace System.Security {
             return (fDeclarative) ? m_DeclarativeAssertions : m_assertions;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetAssertAllPossible()
         {
             m_assertAllPossible = true;
@@ -123,12 +141,19 @@ namespace System.Security {
         // D E N Y
         //-----------------------------------------------------------+
     
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetDeny(IPermission perm)
         {
+#if FEATURE_CAS_POLICY
+            BCLDebug.Assert(AppDomain.CurrentDomain.IsLegacyCasPolicyEnabled, "Deny is only valid in legacy CAS mode");
+#endif // FEATURE_CAS_POLICY
+
             m_denials = CreateSingletonSet(perm);
             IncrementOverridesCount();
+
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetDeny(PermissionSet permSet)
         {
             m_denials = permSet.Copy();
@@ -144,12 +169,14 @@ namespace System.Security {
         // R E S T R I C T
         //-----------------------------------------------------------+
     
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetPermitOnly(IPermission perm)
         {
             m_restriction  = CreateSingletonSet(perm);
             IncrementOverridesCount();
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetPermitOnly(PermissionSet permSet)
         {
             // permSet must not be null
@@ -162,11 +189,22 @@ namespace System.Security {
             
             return (fDeclarative) ? m_DeclarativeRestrictions : m_restriction;
         }
-
+#if !FEATURE_PAL        
+        //-----------------------------------------------------------+
+        // SafeAccessTokenHandle (Impersonation + EH purposes)
+        //-----------------------------------------------------------+
+        [System.Security.SecurityCritical]  // auto-generated
+        internal void SetTokenHandles (SafeAccessTokenHandle callerToken, SafeAccessTokenHandle impToken)
+        {
+            m_callerToken = callerToken;
+            m_impToken = impToken;
+        }
+#endif
         //-----------------------------------------------------------+
         // R E V E R T
         //-----------------------------------------------------------+
     
+        [System.Security.SecurityCritical]  // auto-generated
         internal void RevertAssert()
         {
             if (m_assertions != null)
@@ -186,6 +224,7 @@ namespace System.Security {
             }
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal void RevertAssertAllPossible()
         {
             if (m_assertAllPossible)
@@ -195,6 +234,7 @@ namespace System.Security {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void RevertDeny()
         {
             if (HasImperativeDenials())
@@ -204,6 +244,7 @@ namespace System.Security {
             }
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal void RevertPermitOnly()
         {
             if (HasImperativeRestrictions())
@@ -213,6 +254,7 @@ namespace System.Security {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void RevertAll()
         {
             RevertAssert();
@@ -228,6 +270,7 @@ namespace System.Security {
 
  
         // This will get called when we hit a FSD while evaluating a demand on the call stack or compressedstack
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckDemand(CodeAccessPermission demand, PermissionToken permToken, RuntimeMethodHandleInternal rmh)
         {
             // imperative security
@@ -240,12 +283,13 @@ namespace System.Security {
             return fContinue;
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckDemand2(CodeAccessPermission demand, PermissionToken permToken, RuntimeMethodHandleInternal rmh, bool fDeclarative)
         {
             PermissionSet permSet;
             
             // If the demand is null, there is no need to continue
-            Debug.Assert(demand != null && !demand.CheckDemand(null), "Empty demands should have been filtered out by this point");
+            Contract.Assert(demand != null && !demand.CheckDemand(null), "Empty demands should have been filtered out by this point");
 
             // decode imperative
             if (GetPermitOnly(fDeclarative) != null)
@@ -353,6 +397,7 @@ namespace System.Security {
             return SecurityRuntime.StackContinue;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckSetDemand(PermissionSet demandSet,
                                                                    out PermissionSet alteredDemandSet,
                                                                    RuntimeMethodHandleInternal rmh)
@@ -384,6 +429,7 @@ namespace System.Security {
             return fContinue;
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         internal bool CheckSetDemand2(PermissionSet demandSet,
                                                                    out PermissionSet alteredDemandSet,
                                                                    RuntimeMethodHandleInternal rmh, bool fDeclarative)

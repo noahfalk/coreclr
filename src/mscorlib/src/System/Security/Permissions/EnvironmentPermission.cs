@@ -56,6 +56,7 @@ namespace System.Security.Permissions {
             return str;
         }
 
+        [SecuritySafeCritical]
         public override string ToString()
         {
             // SafeCritical: we're not storing path information in the strings, so exposing them out is fine ...
@@ -102,6 +103,7 @@ namespace System.Security.Permissions {
             AddPathList( flag, pathList );
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AddPathList( EnvironmentPermissionAccess flag, String pathList )
         {
             VerifyFlag( flag );
@@ -202,6 +204,7 @@ namespace System.Security.Permissions {
         //
         //------------------------------------------------------
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsSubsetOf(IPermission target)
         {
             if (target == null)
@@ -229,6 +232,7 @@ namespace System.Security.Permissions {
             }
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override IPermission Intersect(IPermission target)
         {
             if (target == null)
@@ -271,6 +275,7 @@ namespace System.Security.Permissions {
             return intersectPermission;
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override IPermission Union(IPermission other)
         {
             if (other == null)
@@ -329,8 +334,61 @@ namespace System.Security.Permissions {
                 }
     
             }
-            return copy;
+            return copy;   
         }
+       
+#if FEATURE_CAS_POLICY
+        public override SecurityElement ToXml()
+        {
+            SecurityElement esd = CodeAccessPermission.CreatePermissionElement( this, "System.Security.Permissions.EnvironmentPermission" );
+            if (!IsUnrestricted())
+            {
+                if (this.m_read != null && !this.m_read.IsEmpty())
+                {
+                    esd.AddAttribute( "Read", SecurityElement.Escape( m_read.ToString() ) );
+                }
+                if (this.m_write != null && !this.m_write.IsEmpty())
+                {
+                    esd.AddAttribute( "Write", SecurityElement.Escape( m_write.ToString() ) );
+                }
+            }
+            else
+            {
+                esd.AddAttribute( "Unrestricted", "true" );
+            }
+            return esd;
+        }
+
+        public override void FromXml(SecurityElement esd)
+        {
+            CodeAccessPermission.ValidateElement( esd, this );
+
+            String et;
+            
+            if (XMLUtil.IsUnrestricted(esd))
+            {
+                m_unrestricted = true;
+                return;
+            }
+
+            m_unrestricted = false;
+            m_read = null;
+            m_write = null;
+
+            et = esd.Attribute( "Read" );
+            if (et != null)
+            {
+                m_read = new EnvironmentStringExpressionSet( et );
+            }
+            
+            et = esd.Attribute( "Write" );
+            if (et != null)
+            {
+                m_write = new EnvironmentStringExpressionSet( et );
+            }
+    
+        }
+#endif // FEATURE_CAS_POLICY
 
         /// <internalonly/>
         int IBuiltInPermission.GetTokenIndex()

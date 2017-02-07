@@ -28,10 +28,14 @@ namespace System.Runtime.InteropServices {
         public ErrorWrapper(Object errorCode)
         {
             if (!(errorCode is int))
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeInt32"), nameof(errorCode));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeInt32"), "errorCode");
             m_ErrorCode = (int)errorCode;
         }        
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
+#pragma warning disable 618
+        [SecurityPermissionAttribute(SecurityAction.Demand, Flags=SecurityPermissionFlag.UnmanagedCode)]
+#pragma warning restore 618
         public ErrorWrapper(Exception e)
         {
             m_ErrorCode = Marshal.GetHRForException(e);

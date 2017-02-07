@@ -284,17 +284,21 @@ CorJitResult CILJit::compileMethod(
         return g_realJitCompiler->compileMethod(compHnd, methodInfo, flags, entryAddress, nativeSizeOfCode);
     }
 
-    JitFlags jitFlags;
+    CORJIT_FLAGS jitFlags = {0};
 
+    DWORD jitFlagsSize = 0;
 #if COR_JIT_EE_VERSION > 460
-    assert(flags == CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS);
-    CORJIT_FLAGS corJitFlags;
-    DWORD        jitFlagsSize = compHnd->getJitFlags(&corJitFlags, sizeof(corJitFlags));
-    assert(jitFlagsSize == sizeof(corJitFlags));
-    jitFlags.SetFromFlags(corJitFlags);
-#else  // COR_JIT_EE_VERSION <= 460
-    jitFlags.SetFromOldFlags(flags, 0);
-#endif // COR_JIT_EE_VERSION <= 460
+    if (flags == CORJIT_FLG_CALL_GETJITFLAGS)
+    {
+        jitFlagsSize = compHnd->getJitFlags(&jitFlags, sizeof(jitFlags));
+    }
+#endif
+
+    assert(jitFlagsSize <= sizeof(jitFlags));
+    if (jitFlagsSize == 0)
+    {
+        jitFlags.corJitFlags = flags;
+    }
 
     int                   result;
     void*                 methodCodePtr = nullptr;
@@ -381,31 +385,17 @@ void CILJit::getVersionIdentifier(GUID* versionIdentifier)
 /*****************************************************************************
  * Determine the maximum length of SIMD vector supported by this JIT.
  */
-
-#if COR_JIT_EE_VERSION > 460
-unsigned CILJit::getMaxIntrinsicSIMDVectorLength(CORJIT_FLAGS cpuCompileFlags)
-#else
 unsigned CILJit::getMaxIntrinsicSIMDVectorLength(DWORD cpuCompileFlags)
-#endif
 {
     if (g_realJitCompiler != nullptr)
     {
         return g_realJitCompiler->getMaxIntrinsicSIMDVectorLength(cpuCompileFlags);
     }
 
-    JitFlags jitFlags;
-
-#if COR_JIT_EE_VERSION > 460
-    jitFlags.SetFromFlags(cpuCompileFlags);
-#else  // COR_JIT_EE_VERSION <= 460
-    jitFlags.SetFromOldFlags(cpuCompileFlags, 0);
-#endif // COR_JIT_EE_VERSION <= 460
-
-#ifdef FEATURE_SIMD
-#ifdef _TARGET_XARCH_
+#ifdef _TARGET_AMD64_
 #ifdef FEATURE_AVX_SUPPORT
-    if (!jitFlags.IsSet(JitFlags::JIT_FLAG_PREJIT) && jitFlags.IsSet(JitFlags::JIT_FLAG_FEATURE_SIMD) &&
-        jitFlags.IsSet(JitFlags::JIT_FLAG_USE_AVX2))
+    if (((cpuCompileFlags & CORJIT_FLG_PREJIT) == 0) && ((cpuCompileFlags & CORJIT_FLG_FEATURE_SIMD) != 0) &&
+        ((cpuCompileFlags & CORJIT_FLG_USE_AVX2) != 0))
     {
         if (JitConfig.EnableAVX() != 0)
         {
@@ -414,10 +404,9 @@ unsigned CILJit::getMaxIntrinsicSIMDVectorLength(DWORD cpuCompileFlags)
     }
 #endif // FEATURE_AVX_SUPPORT
     return 16;
-#endif // _TARGET_XARCH_
-#else  // !FEATURE_SIMD
+#else  // !_TARGET_AMD64_
     return 0;
-#endif // !FEATURE_SIMD
+#endif // !_TARGET_AMD64_
 }
 
 void CILJit::setRealJit(ICorJitCompiler* realJitCompiler)
@@ -1389,7 +1378,7 @@ bool Compiler::eeRunWithErrorTrapImp(void (*function)(void*), void* param)
  *                      Utility functions
  */
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
 /*****************************************************************************/
 
@@ -1537,9 +1526,6 @@ const char* Compiler::eeGetClassName(CORINFO_CLASS_HANDLE clsHnd)
 
 const wchar_t* Compiler::eeGetCPString(size_t strHandle)
 {
-#ifdef FEATURE_PAL
-    return nullptr;
-#else
     char buff[512 + sizeof(CORINFO_String)];
 
     // make this bulletproof, so it works even if we are wrong.
@@ -1561,7 +1547,6 @@ const wchar_t* Compiler::eeGetCPString(size_t strHandle)
     }
 
     return (asString->chars);
-#endif // FEATURE_PAL
 }
 
 #endif // DEBUG

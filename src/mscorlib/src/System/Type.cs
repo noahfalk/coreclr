@@ -9,8 +9,8 @@
 //
 // ======================================================================================
 
-namespace System
-{
+namespace System {
+
     using System;
     using System.Reflection;
     using System.Threading;
@@ -154,6 +154,7 @@ namespace System
         //   param progID:     the progID of the class to retrieve
         //   returns:          the class object associated to the progID
         ////
+        [System.Security.SecurityCritical]  // auto-generated_required
         public static Type GetTypeFromProgID(String progID)
         {
                 return RuntimeType.GetTypeFromProgIDImpl(progID, null, false);
@@ -168,16 +169,19 @@ namespace System
         //   param progID:     the progID of the class to retrieve
         //   returns:          the class object associated to the progID
         ////
+        [System.Security.SecurityCritical]  // auto-generated_required
         public static Type GetTypeFromProgID(String progID, bool throwOnError)
         {
                 return RuntimeType.GetTypeFromProgIDImpl(progID, null, throwOnError);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public static Type GetTypeFromProgID(String progID, String server)
         {
                 return RuntimeType.GetTypeFromProgIDImpl(progID, server, false);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public static Type GetTypeFromProgID(String progID, String server, bool throwOnError)
         {
                 return RuntimeType.GetTypeFromProgIDImpl(progID, server, throwOnError);
@@ -190,21 +194,25 @@ namespace System
         //   param CLSID:      the CLSID of the class to retrieve
         //   returns:          the class object associated to the CLSID
         ////
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static Type GetTypeFromCLSID(Guid clsid)
         {
                 return RuntimeType.GetTypeFromCLSIDImpl(clsid, null, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static Type GetTypeFromCLSID(Guid clsid, bool throwOnError)
         {
                 return RuntimeType.GetTypeFromCLSIDImpl(clsid, null, throwOnError);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static Type GetTypeFromCLSID(Guid clsid, String server)
         {
                 return RuntimeType.GetTypeFromCLSIDImpl(clsid, server, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static Type GetTypeFromCLSID(Guid clsid, String server, bool throwOnError)
         {
                 return RuntimeType.GetTypeFromCLSIDImpl(clsid, server, throwOnError);
@@ -330,10 +338,12 @@ namespace System
         }
 
         // Given a class handle, this will return the class for that handle.
+        [System.Security.SecurityCritical]
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern RuntimeType GetTypeFromHandleUnsafe(IntPtr handle);
 
         [Pure]
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImpl(MethodImplOptions.InternalCall)]
         public static extern Type GetTypeFromHandle(RuntimeTypeHandle handle);
 
@@ -385,11 +395,11 @@ namespace System
         {               
            // Must provide some types (Type[0] for nothing)
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i=0;i<types.Length;i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetConstructorImpl(bindingAttr, binder, callConvention, types, modifiers);
         }
 
@@ -397,11 +407,11 @@ namespace System
         public ConstructorInfo GetConstructor(BindingFlags bindingAttr, Binder binder, Type[] types, ParameterModifier[] modifiers)
         {
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i=0;i<types.Length;i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetConstructorImpl(bindingAttr, binder, CallingConventions.Any, types, modifiers);
         }
 
@@ -454,13 +464,13 @@ namespace System
                                     ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i = 0; i < types.Length; i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetMethodImpl(name, bindingAttr, binder, callConvention, types, modifiers);
         }
 
@@ -471,46 +481,46 @@ namespace System
                                     ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i = 0; i < types.Length; i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetMethodImpl(name, bindingAttr, binder, CallingConventions.Any, types, modifiers);
         }
 
         public MethodInfo GetMethod(String name, Type[] types, ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i=0;i<types.Length;i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetMethodImpl(name, Type.DefaultLookup, null, CallingConventions.Any, types, modifiers);
         }
 
         public MethodInfo GetMethod(String name,Type[] types)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             for (int i=0;i<types.Length;i++)
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             return GetMethodImpl(name, Type.DefaultLookup, null, CallingConventions.Any, types, null);
         }
 
         public MethodInfo GetMethod(String name, BindingFlags bindingAttr)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
             return GetMethodImpl(name, bindingAttr, null, CallingConventions.Any, null, null);
         }
@@ -518,7 +528,7 @@ namespace System
         public MethodInfo GetMethod(String name)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
             return GetMethodImpl(name, Type.DefaultLookup, null, CallingConventions.Any, null, null);
         }
@@ -574,7 +584,7 @@ namespace System
         public virtual Type[] FindInterfaces(TypeFilter filter,Object filterCriteria)
         {
             if (filter == null)
-                throw new ArgumentNullException(nameof(filter));
+                throw new ArgumentNullException("filter");
             Contract.EndContractBlock();
             Type[] c = GetInterfaces();
             int cnt = 0;
@@ -621,9 +631,9 @@ namespace System
                         Type returnType, Type[] types, ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,bindingAttr,binder,returnType,types,modifiers);
         }
@@ -631,9 +641,9 @@ namespace System
         public PropertyInfo GetProperty(String name, Type returnType, Type[] types,ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,Type.DefaultLookup,null,returnType,types,modifiers);
         }
@@ -641,7 +651,7 @@ namespace System
         public PropertyInfo GetProperty(String name, BindingFlags bindingAttr)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,bindingAttr,null,null,null,null);
         }
@@ -649,9 +659,9 @@ namespace System
         public PropertyInfo GetProperty(String name, Type returnType, Type[] types)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,Type.DefaultLookup,null,returnType,types,null);
         }
@@ -659,9 +669,9 @@ namespace System
         public PropertyInfo GetProperty(String name, Type[] types)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,Type.DefaultLookup,null,null,types,null);
         }
@@ -669,9 +679,9 @@ namespace System
         public PropertyInfo GetProperty(String name, Type returnType)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (returnType == null)
-                throw new ArgumentNullException(nameof(returnType));
+                throw new ArgumentNullException("returnType");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,Type.DefaultLookup,null,returnType,null,null);
         }
@@ -679,9 +689,9 @@ namespace System
         internal PropertyInfo GetProperty(String name, BindingFlags bindingAttr, Type returnType)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             if (returnType == null)
-                throw new ArgumentNullException(nameof(returnType));
+                throw new ArgumentNullException("returnType");
             Contract.EndContractBlock();
             return GetPropertyImpl(name, bindingAttr, null, returnType, null, null);
         }
@@ -689,7 +699,7 @@ namespace System
         public PropertyInfo GetProperty(String name)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
             return GetPropertyImpl(name,Type.DefaultLookup,null,null,null,null);
         }
@@ -706,7 +716,8 @@ namespace System
         {
             return GetProperties(Type.DefaultLookup);
         }
-
+#if	!FEATURE_CORECLR
+#endif	
         // GetNestedTypes()
         // This set of method will return any nested types that are found inside
         //  of the type.
@@ -717,6 +728,9 @@ namespace System
 
         abstract public Type[] GetNestedTypes(BindingFlags bindingAttr);
 
+#if	!FEATURE_CORECLR
+        // GetNestedType()
+#endif
         public Type GetNestedType(String name)
         {
             return GetNestedType(name,Type.DefaultLookup);
@@ -1036,6 +1050,7 @@ namespace System
 
         public bool IsInterface {
             [Pure]
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 RuntimeType rt = this as RuntimeType;
@@ -1061,7 +1076,11 @@ namespace System
             get {return ((GetAttributeFlagsImpl() & TypeAttributes.Sealed) != 0);}
         }       
         
+#if FEATURE_CORECLR
+         public bool IsEnum {
+#else
          public virtual bool IsEnum {
+#endif
              [Pure]
              get
              {
@@ -1286,15 +1305,14 @@ namespace System
 
     
         // Protected routine to determine if this class is contextful
-        protected virtual bool IsContextfulImpl()
-        {
-            return false;
+        protected virtual bool IsContextfulImpl(){
+            return typeof(ContextBoundObject).IsAssignableFrom(this);
         }
+    
 
         // Protected routine to determine if this class is marshaled by ref
-        protected virtual bool IsMarshalByRefImpl()
-        {
-            return false;
+        protected virtual bool IsMarshalByRefImpl(){
+            return typeof(MarshalByRefObject).IsAssignableFrom(this);
         }
 
         internal virtual bool HasProxyAttributeImpl()
@@ -1344,7 +1362,7 @@ namespace System
             return rootElementType;
         }
 
-#region Enum methods
+        #region Enum methods
 
         // Default implementations of GetEnumNames, GetEnumValues, and GetEnumUnderlyingType
         // Subclass of types can override these methods.
@@ -1447,7 +1465,7 @@ namespace System
         public virtual bool IsEnumDefined(object value)
         {
             if (value == null)
-                throw new ArgumentNullException(nameof(value));
+                throw new ArgumentNullException("value");
 
             if (!IsEnum)
                 throw new ArgumentException(Environment.GetResourceString("Arg_MustBeEnum"), "enumType");
@@ -1495,7 +1513,7 @@ namespace System
         public virtual string GetEnumName(object value)
         {
             if (value == null)
-                throw new ArgumentNullException(nameof(value));
+                throw new ArgumentNullException("value");
 
             if (!IsEnum)
                 throw new ArgumentException(Environment.GetResourceString("Arg_MustBeEnum"), "enumType");
@@ -1504,7 +1522,7 @@ namespace System
             Type valueType = value.GetType();
 
             if (!(valueType.IsEnum || Type.IsIntegerType(valueType)))
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeEnumBaseTypeOrEnum"), nameof(value));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeEnumBaseTypeOrEnum"), "value");
 
             Array values = GetEnumRawConstantValues();
             int index = BinarySearch(values, value);
@@ -1543,7 +1561,7 @@ namespace System
                     t == typeof(char) ||
                     t == typeof(bool));
         }
-#endregion
+        #endregion
 
         public virtual bool IsSecurityCritical { [Pure] get { throw new NotImplementedException(); } }
 
@@ -1725,7 +1743,7 @@ namespace System
         // types.
         public static Type[] GetTypeArray(Object[] args) {
             if (args == null)
-                throw new ArgumentNullException(nameof(args));
+                throw new ArgumentNullException("args");
             Contract.EndContractBlock();
             Type[] cls = new Type[args.Length];
             for (int i = 0;i < cls.Length;i++)
@@ -1748,7 +1766,11 @@ namespace System
 
         // _Type.Equals(Type)
         [Pure]
+#if !FEATURE_CORECLR
         public virtual bool Equals(Type o)
+#else
+        public bool Equals(Type o)
+#endif
         {
             if ((object)o == null)
                 return false;
@@ -1756,10 +1778,12 @@ namespace System
             return (Object.ReferenceEquals(this.UnderlyingSystemType, o.UnderlyingSystemType));
         }
 
+        [System.Security.SecuritySafeCritical]
         [Pure]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern bool operator ==(Type left, Type right);
 
+        [System.Security.SecuritySafeCritical]
         [Pure]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern bool operator !=(Type left, Type right);
@@ -1789,6 +1813,30 @@ namespace System
         {
             return base.GetType();
         }
+
+#if !FEATURE_CORECLR
+        void _Type.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Type.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Type.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        // If you implement this method, make sure to include _Type.Invoke in VM\DangerousAPIs.h and 
+        // include _Type in SystemDomain::IsReflectionInvocationMethod in AppDomain.cpp.
+        void _Type.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
 
         // private convenience data
         private const BindingFlags DefaultLookup = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public;

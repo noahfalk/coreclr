@@ -4,7 +4,7 @@
 //
 
 #include <stdint.h>
-#include "icushim.h"
+#include <unicode/uidna.h>
 
 const uint32_t AllowUnassigned = 0x1;
 const uint32_t UseStd3AsciiRules = 0x2;

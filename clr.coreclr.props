@@ -8,6 +8,7 @@
     <FeatureAppdomainResourceMonitoring>true</FeatureAppdomainResourceMonitoring>
     <FeatureArrayStubAsIL Condition="('$(TargetArch)' == 'arm') or ('$(TargetArch)' == 'amd64') or ('$(TargetArch)' == 'arm64')">true</FeatureArrayStubAsIL>
     <FeatureStubsAsIL Condition="'$(TargetArch)' == 'arm64'">true</FeatureStubsAsIL>
+    <FeatureBclFormatting>true</FeatureBclFormatting>
     <FeatureCollectibleTypes>true</FeatureCollectibleTypes>
     <FeatureCominteropApartmentSupport>true</FeatureCominteropApartmentSupport>
     <FeatureCoreclr>true</FeatureCoreclr>
@@ -20,7 +21,6 @@
     <FeatureDbiOopDebugging_HostOneCoreamd64 Condition="'$(TargetArch)' == 'amd64'">true</FeatureDbiOopDebugging_HostOneCoreamd64>
     <FeatureEventTrace>true</FeatureEventTrace>
     <FeatureExceptionDispatchInfo>true</FeatureExceptionDispatchInfo>
-    <FeatureExceptionNotifications>true</FeatureExceptionNotifications>
     <FeatureFrameworkInternal>true</FeatureFrameworkInternal>
     <FeatureHijack>true</FeatureHijack>
     <FeatureInteropDebugging Condition="('$(TargetArch)' == 'i386') or ('$(TargetArch)' == 'amd64')">true</FeatureInteropDebugging>
@@ -32,8 +32,8 @@
     <FeatureMergeCultureSupportAndEngine>true</FeatureMergeCultureSupportAndEngine>
     <FeatureMergeJitAndEngine>true</FeatureMergeJitAndEngine>
     <FeatureMulticoreJIT>true</FeatureMulticoreJIT>
+    <FeatureNormIdnaOnly>true</FeatureNormIdnaOnly>
     <FeaturePrejit>true</FeaturePrejit>
-    <FeatureSpanOfT Condition="'$(UseLegacyCompiler)'!='true'">true</FeatureSpanOfT>
     <FeatureStandaloneSn>true</FeatureStandaloneSn>
     <FeatureStrongnameDelaySigningAllowed>true</FeatureStrongnameDelaySigningAllowed>
     <FeatureStrongnameMigration>true</FeatureStrongnameMigration>
@@ -50,7 +50,6 @@
     <FeatureUseAsmGCWriteBarriers>true</FeatureUseAsmGCWriteBarriers>
     <!-- Setting this to "false" works only for workstation GC, not server. -->
     <FeatureSymDiff>true</FeatureSymDiff>
-    <FeatureSynchronizationContextWait>true</FeatureSynchronizationContextWait>
     <FeatureReadyToRun Condition="'$(TargetArch)'!='arm64'">true</FeatureReadyToRun>
 
     <FeatureCoreSystem>true</FeatureCoreSystem>
@@ -61,7 +60,6 @@
     <FeatureCominteropWinRTManagedActivation>true</FeatureCominteropWinRTManagedActivation>
     <FeatureHostAssemblyResolver>true</FeatureHostAssemblyResolver>
     <FeatureLazyCOWPages Condition="('$(TargetArch)' == 'i386') or ('$(TargetArch)' == 'arm')">true</FeatureLazyCOWPages>
-    <FeatureLegacyNetCFDbgHostControl>true</FeatureLegacyNetCFDbgHostControl>
     <FeatureRandomizedStringHashing>true</FeatureRandomizedStringHashing>
     <!-- The rejit feature is available only on supported architectures (x86 & x64) -->
     <FeatureReJIT Condition="('$(TargetArch)' == 'i386') or ('$(TargetArch)' == 'amd64')">true</FeatureReJIT>

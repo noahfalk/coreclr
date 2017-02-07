@@ -655,7 +655,7 @@ HRESULT CLRTestHookManager::GC(int generation)
     CONTRACTL_END;
 
     _ASSERTE(GetThread()==NULL || !GetThread()->PreemptiveGCDisabled());
-    GCHeapUtilities::GetGCHeap()->GarbageCollect(generation);
+    GCHeap::GetGCHeap()->GarbageCollect(generation);
     FinalizerThread::FinalizerThreadWait();
     return S_OK;
 }

@@ -28,7 +28,6 @@
 
 #ifdef _MSC_VER
 // These don't seem useful, so turning them off is no big deal
-#pragma warning(disable : 4065) // "switch statement contains 'default' but no 'case' labels" (happens due to #ifdefs)
 #pragma warning(disable : 4510) // can't generate default constructor
 #pragma warning(disable : 4511) // can't generate copy constructor
 #pragma warning(disable : 4512) // can't generate assignment constructor
@@ -210,7 +209,6 @@
 
 #include "corhdr.h"
 #include "corjit.h"
-#include "jitee.h"
 
 #define __OPERATOR_NEW_INLINE 1 // indicate that I will define these
 #define __PLACEMENT_NEW_INLINE  // don't bring in the global placement new, it is easy to make a mistake
@@ -260,15 +258,6 @@ struct CLRConfig
 #define FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY_ARG(x)
 #define FEATURE_UNIX_AMD64_STRUCT_PASSING_ONLY(x)
 #endif // defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
-
-#if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING) || (defined(_TARGET_X86_) && !defined(LEGACY_BACKEND))
-#define FEATURE_PUT_STRUCT_ARG_STK 1
-#define PUT_STRUCT_ARG_STK_ONLY_ARG(x) , x
-#define PUT_STRUCT_ARG_STK_ONLY(x) x
-#else // !(defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)|| (defined(_TARGET_X86_) && !defined(LEGACY_BACKEND)))
-#define PUT_STRUCT_ARG_STK_ONLY_ARG(x)
-#define PUT_STRUCT_ARG_STK_ONLY(x)
-#endif // !(defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)|| (defined(_TARGET_X86_) && !defined(LEGACY_BACKEND)))
 
 #if defined(UNIX_AMD64_ABI)
 #define UNIX_AMD64_ABI_ONLY_ARG(x) , x
@@ -388,6 +377,17 @@ typedef ptrdiff_t ssize_t;
 
 /*****************************************************************************/
 
+// Debugging support is ON by default. Can be turned OFF by
+// adding /DDEBUGGING_SUPPORT=0 on the command line.
+
+#ifndef DEBUGGING_SUPPORT
+#define DEBUGGING_SUPPORT
+#elif !DEBUGGING_SUPPORT
+#undef DEBUGGING_SUPPORT
+#endif
+
+/*****************************************************************************/
+
 // Late disassembly is OFF by default. Can be turned ON by
 // adding /DLATE_DISASM=1 on the command line.
 // Always OFF in the non-debug version
@@ -465,8 +465,6 @@ typedef ptrdiff_t ssize_t;
 #define MEASURE_NODE_SIZE 0   // Collect stats about GenTree node allocations.
 #define MEASURE_PTRTAB_SIZE 0 // Collect stats about GC pointer table allocations.
 #define EMITTER_STATS 0       // Collect stats on the emitter.
-#define NODEBASH_STATS 0      // Collect stats on changed gtOper values in GenTree's.
-#define COUNT_AST_OPERS 0     // Display use counts for GenTree operators.
 
 #define VERBOSE_SIZES 0  // Always display GC info sizes. If set, DISPLAY_SIZES must also be set.
 #define VERBOSE_VERIFY 0 // Dump additional information when verifying code. Useful to debug verification bugs.
@@ -474,30 +472,9 @@ typedef ptrdiff_t ssize_t;
 #ifdef DEBUG
 #define MEASURE_MEM_ALLOC 1 // Collect memory allocation stats.
 #define LOOP_HOIST_STATS 1  // Collect loop hoisting stats.
-#define TRACK_LSRA_STATS 1  // Collect LSRA stats
 #else
 #define MEASURE_MEM_ALLOC 0 // You can set this to 1 to get memory stats in retail, as well
 #define LOOP_HOIST_STATS 0  // You can set this to 1 to get loop hoist stats in retail, as well
-#define TRACK_LSRA_STATS 0  // You can set this to 1 to get LSRA stats in retail, as well
-#endif
-
-// Timing calls to clr.dll is only available under certain conditions.
-#ifndef FEATURE_JIT_METHOD_PERF
-#define MEASURE_CLRAPI_CALLS 0 // Can't time these calls without METHOD_PERF.
-#endif
-#ifdef DEBUG
-#define MEASURE_CLRAPI_CALLS 0 // No point in measuring DEBUG code.
-#endif
-#if !defined(_HOST_X86_) && !defined(_HOST_AMD64_)
-#define MEASURE_CLRAPI_CALLS 0 // Cycle counters only hooked up on x86/x64.
-#endif
-#if !defined(_MSC_VER) && !defined(__clang__)
-#define MEASURE_CLRAPI_CALLS 0 // Only know how to do this with VC and Clang.
-#endif
-
-// If none of the above set the flag to 0, it's available.
-#ifndef MEASURE_CLRAPI_CALLS
-#define MEASURE_CLRAPI_CALLS 0 // Set to 1 to measure time in ICorJitInfo calls.
 #endif
 
 /*****************************************************************************/
@@ -699,13 +676,17 @@ inline unsigned int unsigned_abs(int x)
 #ifdef _TARGET_64BIT_
 inline size_t unsigned_abs(ssize_t x)
 {
+#ifndef FEATURE_PAL
     return ((size_t)abs(x));
+#else  // !FEATURE_PAL
+    return ((size_t)labs(x));
+#endif // !FEATURE_PAL
 }
 #endif // _TARGET_64BIT_
 
 /*****************************************************************************/
 
-#if CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
 class Histogram
 {
@@ -826,7 +807,7 @@ extern int jitNativeCode(CORINFO_METHOD_HANDLE methodHnd,
                          CORINFO_METHOD_INFO*  methodInfo,
                          void**                methodCodePtr,
                          ULONG*                methodCodeSize,
-                         JitFlags*             compileFlags,
+                         CORJIT_FLAGS*         compileFlags,
                          void*                 inlineInfoPtr);
 
 #ifdef _HOST_64BIT_

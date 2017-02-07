@@ -227,23 +227,23 @@ public:
 
     LONG AddRef()
     {
-        LONG newRefCount = InterlockedIncrement(&m_refCount);
-        _ASSERTE(newRefCount > 0);
-        return newRefCount;
+        InterlockedIncrement(&m_refCount);
+        _ASSERTE(m_refCount > 0);
+        return m_refCount;
     }
 
     LONG Release()
     {
-        LONG newRefCount = InterlockedDecrement(&m_refCount);
-        _ASSERTE(newRefCount >= 0);
+        LONG result = InterlockedDecrement(&m_refCount);
+        _ASSERTE(m_refCount >= 0);
 
-        if (newRefCount == 0)
+        if (m_refCount == 0)
         {
             TRACE_FREE(this);
             DeleteInteropSafeExecutable(this);
         }
 
-        return newRefCount;
+        return result;
     }
 
     // "PatchBypass" must be the first field of this class for alignment to be correct.

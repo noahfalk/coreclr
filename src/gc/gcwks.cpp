@@ -11,7 +11,6 @@
 #include "gc.h"
 #include "gcscan.h"
 #include "gcdesc.h"
-#include "softwarewritewatch.h"
 
 #ifdef SERVER_GC
 #undef SERVER_GC

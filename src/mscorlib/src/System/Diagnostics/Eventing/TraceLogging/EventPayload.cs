@@ -4,7 +4,6 @@
 
 using System.Collections.Generic;
 using System.Collections;
-using System.Diagnostics;
 
 #if !ES_BUILD_AGAINST_DOTNET_V35
 using Contract = System.Diagnostics.Contracts.Contract;
@@ -27,7 +26,7 @@ namespace System.Diagnostics.Tracing
     {
         internal EventPayload(List<string> payloadNames, List<object> payloadValues) 
         {
-            Debug.Assert(payloadNames.Count == payloadValues.Count);
+            Contract.Assert(payloadNames.Count == payloadValues.Count);
 
             m_names = payloadNames;
             m_values = payloadValues;
@@ -41,7 +40,7 @@ namespace System.Diagnostics.Tracing
             get
             {
                 if (key == null)
-                    throw new System.ArgumentNullException(nameof(key));
+                    throw new System.ArgumentNullException("key");
 
                 int position = 0;
                 foreach(var name in m_names)
@@ -84,7 +83,7 @@ namespace System.Diagnostics.Tracing
         public bool ContainsKey(string key)
         {
             if (key == null)
-                throw new System.ArgumentNullException(nameof(key));
+                throw new System.ArgumentNullException("key");
 
             foreach (var item in m_names)
             {
@@ -130,7 +129,7 @@ namespace System.Diagnostics.Tracing
         public bool TryGetValue(string key, out object value)
         {
             if (key == null)
-                throw new System.ArgumentNullException(nameof(key));
+                throw new System.ArgumentNullException("key");
 
             int position = 0;
             foreach (var name in m_names)

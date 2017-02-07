@@ -49,7 +49,7 @@ namespace System.Collections.ObjectModel
                 }
                 
                 if (index < 0 || index >= items.Count) {
-                    ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                    ThrowHelper.ThrowArgumentOutOfRangeException();
                 }
 
                 SetItem(index, value);
@@ -118,7 +118,7 @@ namespace System.Collections.ObjectModel
             }
 
             if (index < 0 || index >= items.Count) {
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRangeException();
             }
 
             RemoveItem(index);
@@ -183,7 +183,7 @@ namespace System.Collections.ObjectModel
             }
             
             if (index < 0 ) {
-                ThrowHelper.ThrowIndexArgumentOutOfRange_NeedNonNegNumException();
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
             }
 
             if (array.Length - index < Count) {
@@ -204,7 +204,7 @@ namespace System.Collections.ObjectModel
                 Type targetType = array.GetType().GetElementType(); 
                 Type sourceType = typeof(T);
                 if(!(targetType.IsAssignableFrom(sourceType) || sourceType.IsAssignableFrom(targetType))) {
-                    ThrowHelper.ThrowArgumentException_Argument_InvalidArrayType();
+                    ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidArrayType);
                 }
 
                 //
@@ -213,7 +213,7 @@ namespace System.Collections.ObjectModel
                 //
                 object[] objects = array as object[];
                 if( objects == null) {
-                    ThrowHelper.ThrowArgumentException_Argument_InvalidArrayType();
+                    ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidArrayType);
                 }
 
                 int count = items.Count;
@@ -223,7 +223,7 @@ namespace System.Collections.ObjectModel
                     }
                 }
                 catch(ArrayTypeMismatchException) {
-                    ThrowHelper.ThrowArgumentException_Argument_InvalidArrayType();
+                    ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidArrayType);
                 }
             }            
         }

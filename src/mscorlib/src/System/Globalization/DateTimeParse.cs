@@ -35,6 +35,16 @@ namespace System {
 
         internal static MatchNumberDelegate m_hebrewNumberParser = new MatchNumberDelegate(DateTimeParse.MatchHebrewDigits);
 
+#if !FEATURE_CORECLR
+        [SecuritySafeCritical]
+        internal static bool GetAmPmParseFlag()
+        {
+            return DateTime.EnableAmPmParseAdjustment();
+        }
+
+        internal static bool enableAmPmParseAdjustment = GetAmPmParseFlag();
+#endif
+
         internal static DateTime ParseExact(String s, String format, DateTimeFormatInfo dtfi, DateTimeStyles style) {
             DateTimeResult result = new DateTimeResult();       // The buffer to store the parsing result.
             result.Init();
@@ -87,11 +97,11 @@ namespace System {
 
         internal static bool TryParseExact(String s, String format, DateTimeFormatInfo dtfi, DateTimeStyles style, ref DateTimeResult result) {
             if (s == null) {
-                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, nameof(s));
+                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, "s");
                 return false;
             }
             if (format == null) {
-                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, nameof(format));
+                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, "format");
                 return false;
             }
             if (s.Length == 0) {
@@ -104,7 +114,7 @@ namespace System {
                 return false;
             }
 
-            Debug.Assert(dtfi != null, "dtfi == null");
+            Contract.Assert(dtfi != null, "dtfi == null");
 
             return DoStrictParse(s, format, style, dtfi, ref result);
         }
@@ -168,11 +178,11 @@ namespace System {
         internal static bool TryParseExactMultiple(String s, String[] formats,
                                                 DateTimeFormatInfo dtfi, DateTimeStyles style, ref DateTimeResult result) {
             if (s == null) {
-                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, nameof(s));
+                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, "s");
                 return false;
             }
             if (formats == null) {
-                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, nameof(formats));
+                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, "formats");
                 return false;
             }
 
@@ -186,7 +196,7 @@ namespace System {
                 return false;
             }
 
-            Debug.Assert(dtfi != null, "dtfi == null");
+            Contract.Assert(dtfi != null, "dtfi == null");
 
             //
             // Do a loop through the provided formats and see if we can parse succesfully in
@@ -536,8 +546,8 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 // Wrong number of digits
                 return false;
             }
-            Debug.Assert(hourOffset >= 0 && hourOffset <= 99, "hourOffset >= 0 && hourOffset <= 99");
-            Debug.Assert(minuteOffset >= 0 && minuteOffset <= 99, "minuteOffset >= 0 && minuteOffset <= 99");
+            Contract.Assert(hourOffset >= 0 && hourOffset <= 99, "hourOffset >= 0 && hourOffset <= 99");
+            Contract.Assert(minuteOffset >= 0 && minuteOffset <= 99, "minuteOffset >= 0 && minuteOffset <= 99");
             if (minuteOffset < 0 || minuteOffset >= 60) {
                 return false;
             }
@@ -581,6 +591,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
         // This is the lexer. Check the character at the current index, and put the found token in dtok and
         // some raw date/time information in raw.
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         private static Boolean Lex(DS dps, ref __DTString str, ref DateTimeToken dtok, ref DateTimeRawInfo raw, ref DateTimeResult result, ref DateTimeFormatInfo dtfi, DateTimeStyles styles)
         {
 
@@ -750,7 +761,11 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                                 raw.timeMark = (sep == TokenType.SEP_Am ? TM.AM : TM.PM);
                                 dtok.dtt = DTT.NumAmpm;
                                 // Fix AM/PM parsing case, e.g. "1/10 5 AM"
-                                if (dps == DS.D_NN)
+                                if (dps == DS.D_NN 
+#if !FEATURE_CORECLR
+                                    && enableAmPmParseAdjustment
+#endif
+                                )
                                 {
                                     if (!ProcessTerminaltState(DS.DX_NN, ref result, ref styles, ref raw, dtfi))
                                     {
@@ -1061,6 +1076,16 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                         return (false);
                     }
 
+#if !FEATURE_CORECLR                    
+                    // If DateTimeParseIgnorePunctuation is defined, we want to have the V1.1 behavior of just
+                    // ignoring any unrecognized punctuation and moving on to the next character
+                    if (Environment.GetCompatibilityFlag(CompatibilityFlag.DateTimeParseIgnorePunctuation) && ((result.flags & ParseFlags.CaptureOffset) == 0)) {
+                        str.GetNext();
+                        LexTraceExit("0210 (success)", dps);
+                        return true;
+                    }
+#endif // FEATURE_CORECLR
+                    
                     if ((str.m_current == '-' || str.m_current == '+') && ((result.flags & ParseFlags.TimeZoneUsed) == 0)) {
                         Int32 originalIndex = str.Index;
                         if (ParseTimeZone(ref str, ref result.timeZoneOffset)) {
@@ -1071,7 +1096,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                         else {
                             // Time zone parse attempt failed. Fall through to punctuation handling.
                             str.Index = originalIndex;
-                        }
+                        }                                                
                     }
                     
                     // Visual Basic implements string to date conversions on top of DateTime.Parse:
@@ -1079,7 +1104,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                     //
                     if (VerifyValidPunctuation(ref str)) {
                         LexTraceExit("0230 (success)", dps);
-                        return true;
+                        return true;                                
                     }
 
                     result.SetFailure(ParseFailureKind.Format, "Format_BadDateTime", null);
@@ -1911,7 +1936,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
 
         private static Boolean GetTimeOfNN(DateTimeFormatInfo dtfi, ref DateTimeResult result, ref DateTimeRawInfo raw)
         {
-            Debug.Assert(raw.numCount >= 2, "raw.numCount >= 2");
+            Contract.Assert(raw.numCount >= 2, "raw.numCount >= 2");
             if ((result.flags & ParseFlags.HaveTime) != 0) {
                 // Multiple times in the input string
                 result.SetFailure(ParseFailureKind.Format, "Format_BadDateTime", null);
@@ -1931,7 +1956,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 result.SetFailure(ParseFailureKind.Format, "Format_BadDateTime", null);
                 return false;
             }
-            Debug.Assert(raw.numCount >= 3, "raw.numCount >= 3");
+            Contract.Assert(raw.numCount >= 3, "raw.numCount >= 3");
             result.Hour = raw.GetNumber(0);
             result.Minute   = raw.GetNumber(1);
             result.Second   = raw.GetNumber(2);
@@ -2291,9 +2316,10 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
         //
         // This is the real method to do the parsing work.
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static bool TryParse(String s, DateTimeFormatInfo dtfi, DateTimeStyles styles, ref DateTimeResult result) {
             if (s == null) {
-                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, nameof(s));
+                result.SetFailure(ParseFailureKind.ArgumentNull, "ArgumentNull_String", null, "s");
                 return false;
             }
             if (s.Length == 0) {
@@ -2301,7 +2327,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 return false;
             }
 
-            Debug.Assert(dtfi != null, "dtfi == null");
+            Contract.Assert(dtfi != null, "dtfi == null");
 
 #if _LOGGING
             DTFITrace(dtfi);
@@ -2522,15 +2548,17 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 // no adjustment is required in most cases
                 return DateTimeOffsetTimeZonePostProcessing(ref result, styles);
             }
+#if FEATURE_CORECLR // on CoreCLR DateTime is also restricted to +- 14:00, just like DateTimeOffset
             else {
                 Int64 offsetTicks = result.timeZoneOffset.Ticks;
-
+            
                 // the DateTime offset must be within +- 14:00 hours.
                 if (offsetTicks < DateTimeOffset.MinOffset || offsetTicks > DateTimeOffset.MaxOffset) {
                     result.SetFailure(ParseFailureKind.Format, "Format_OffsetOutOfRange", null);
                     return false;
                 }
             }
+#endif // FEATURE_CORECLR
 
             // The flags AssumeUniveral and AssumeLocal only apply when the input does not have a time zone
             if ((result.flags & ParseFlags.TimeZoneUsed) == 0) {
@@ -2564,7 +2592,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 }
                 else {
                     // No time zone and no Assume flags, so DateTimeKind.Unspecified is fine
-                    Debug.Assert(result.parsedDate.Kind == DateTimeKind.Unspecified, "result.parsedDate.Kind == DateTimeKind.Unspecified");
+                    Contract.Assert(result.parsedDate.Kind == DateTimeKind.Unspecified, "result.parsedDate.Kind == DateTimeKind.Unspecified");
                     return true;
                 }
             }
@@ -2854,9 +2882,9 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
         }
 
         internal static bool ParseDigits(ref __DTString str, int minDigitLen, int maxDigitLen, out int result) {
-            Debug.Assert(minDigitLen > 0, "minDigitLen > 0");
-            Debug.Assert(maxDigitLen < 9, "maxDigitLen < 9");
-            Debug.Assert(minDigitLen <= maxDigitLen, "minDigitLen <= maxDigitLen");
+            Contract.Assert(minDigitLen > 0, "minDigitLen > 0");
+            Contract.Assert(maxDigitLen < 9, "maxDigitLen < 9");
+            Contract.Assert(minDigitLen <= maxDigitLen, "minDigitLen <= maxDigitLen");
             result = 0;
             int startingIndex = str.Index;
             int tokenLength = 0;
@@ -4123,7 +4151,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
                 case ParseFailureKind.FormatBadDateTimeCalendar:
                     return new FormatException(Environment.GetResourceString(result.failureMessageID, result.calendar));
                 default:
-                    Debug.Assert(false, "Unkown DateTimeParseFailure: " + result);
+                    Contract.Assert(false, "Unkown DateTimeParseFailure: " + result);
                     return null;
 
             }
@@ -4345,7 +4373,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
         }
 
         internal bool Advance(int count) {
-            Debug.Assert(Index + count <= len, "__DTString::Advance: Index + count <= len");
+            Contract.Assert(Index + count <= len, "__DTString::Advance: Index + count <= len");
             Index += count;
             if (Index < len) {
                 m_current = Value[Index];
@@ -4356,6 +4384,7 @@ new DS[] { DS.ERROR, DS.TX_NNN,  DS.TX_NNN,  DS.TX_NNN,  DS.ERROR,   DS.ERROR,  
 
 
         // Used by DateTime.Parse() to get the next token.
+        [System.Security.SecurityCritical]  // auto-generated
         internal void GetRegularToken(out TokenType tokenType, out int tokenValue, DateTimeFormatInfo dtfi) {
             tokenValue = 0;
             if (Index >= len) {
@@ -4435,6 +4464,7 @@ Start:
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal TokenType GetSeparatorToken(DateTimeFormatInfo dtfi, out int indexBeforeSeparator, out char charBeforeSeparator) {
             indexBeforeSeparator = Index;
             charBeforeSeparator = m_current;
@@ -4638,7 +4668,7 @@ Start:
         // Get the current character.
         //
         internal char GetChar() {
-            Debug.Assert(Index >= 0 && Index < len, "Index >= 0 && Index < len");
+            Contract.Assert(Index >= 0 && Index < len, "Index >= 0 && Index < len");
             return (Value[Index]);
         }
 
@@ -4646,8 +4676,8 @@ Start:
         // Convert the current character to a digit, and return it.
         //
         internal int GetDigit() {
-            Debug.Assert(Index >= 0 && Index < len, "Index >= 0 && Index < len");
-            Debug.Assert(DateTimeParse.IsDigit(Value[Index]), "IsDigit(Value[Index])");
+            Contract.Assert(Index >= 0 && Index < len, "Index >= 0 && Index < len");
+            Contract.Assert(DateTimeParse.IsDigit(Value[Index]), "IsDigit(Value[Index])");
             return (Value[Index] - '0');
         }
 
@@ -4780,7 +4810,7 @@ Start:
                         return sub;
                     }
                     int number = ch - '0';
-                    Debug.Assert(number >= 0 && number <= 9, "number >= 0 && number <= 9");
+                    Contract.Assert(number >= 0 && number <= 9, "number >= 0 && number <= 9");
                     sub.value = sub.value * 10 + number;
                 }
                 else {
@@ -4799,8 +4829,8 @@ Start:
         }
 
         internal void ConsumeSubString(DTSubString sub) {
-            Debug.Assert(sub.index == Index, "sub.index == Index");
-            Debug.Assert(sub.index + sub.length <= len, "sub.index + sub.length <= len");
+            Contract.Assert(sub.index == Index, "sub.index == Index");
+            Contract.Assert(sub.index + sub.length <= len, "sub.index + sub.length <= len");
             Index = sub.index + sub.length;
             if (Index < len) {
                 m_current = Value[Index];
@@ -4845,6 +4875,7 @@ Start:
     //
     internal
     unsafe struct DateTimeRawInfo {
+        [SecurityCritical]
         private  int* num;
         internal int numCount;
         internal int month;
@@ -4858,6 +4889,7 @@ Start:
 
         internal bool timeZone;
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void Init(int * numberBuffer) {
             month      = -1;
             year       = -1;
@@ -4867,9 +4899,11 @@ Start:
             fraction = -1;
             num = numberBuffer;
         }
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal unsafe void AddNumber(int value) {
             num[numCount++] = value;
         }
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal unsafe int GetNumber(int index) {
             return num[index];
         }

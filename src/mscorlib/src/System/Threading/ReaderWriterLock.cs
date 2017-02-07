@@ -25,12 +25,14 @@ namespace System.Threading {
     using System.Runtime.Versioning;
     using System.Diagnostics.Contracts;
 
+    [HostProtection(Synchronization=true, ExternalThreading=true)]
     [ComVisible(true)]
     public sealed class ReaderWriterLock: CriticalFinalizerObject
     {
         /*
          * Constructor
          */
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public ReaderWriterLock()
         {
             PrivateInitialize();
@@ -39,6 +41,7 @@ namespace System.Threading {
         /*
          * Destructor
          */
+        [System.Security.SecuritySafeCritical]  // auto-generated
         ~ReaderWriterLock()
         {
             PrivateDestruct();
@@ -49,6 +52,7 @@ namespace System.Threading {
          * by the current thread
          */
         public bool IsReaderLockHeld {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             get {
                 return(PrivateGetIsReaderLockHeld());
@@ -60,6 +64,7 @@ namespace System.Threading {
          * by the current thread
          */
         public bool IsWriterLockHeld {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             get {
                 return(PrivateGetIsWriterLockHeld());
@@ -72,6 +77,7 @@ namespace System.Threading {
          * meaningful results
          */
         public int WriterSeqNum {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return(PrivateGetWriterSeqNum());
                 }
@@ -81,20 +87,23 @@ namespace System.Threading {
          * Acquires reader lock. The thread will block if a different
          * thread has writer lock.
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void AcquireReaderLockInternal(int millisecondsTimeout);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AcquireReaderLock(int millisecondsTimeout)
         {
             AcquireReaderLockInternal(millisecondsTimeout);
         }
 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AcquireReaderLock(TimeSpan timeout)
         {
             long tm = (long)timeout.TotalMilliseconds;
             if (tm < -1 || tm > (long) Int32.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             AcquireReaderLockInternal((int)tm);
         }
         
@@ -104,19 +113,22 @@ namespace System.Threading {
          * has reader lock. Use UpgardeToWriterLock when you are not
          * sure if the thread has reader lock
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void AcquireWriterLockInternal(int millisecondsTimeout);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AcquireWriterLock(int millisecondsTimeout)
         {
             AcquireWriterLockInternal(millisecondsTimeout);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void AcquireWriterLock(TimeSpan timeout)
         {
             long tm = (long)timeout.TotalMilliseconds;
             if (tm < -1 || tm > (long) Int32.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             AcquireWriterLockInternal((int)tm);
         }
         
@@ -124,10 +136,12 @@ namespace System.Threading {
         /*
          * Releases reader lock. 
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         private extern void ReleaseReaderLockInternal();
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         public void ReleaseReaderLock()
         {
@@ -137,10 +151,12 @@ namespace System.Threading {
         /*
          * Releases writer lock. 
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         private extern void ReleaseWriterLockInternal();
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         public void ReleaseWriterLock()
         {
@@ -152,6 +168,7 @@ namespace System.Threading {
          * reader, it is possible that the reader lock was 
          * released before writer lock was acquired.
          */
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public LockCookie UpgradeToWriterLock(int millisecondsTimeout)
         {
             LockCookie result = new LockCookie ();
@@ -159,6 +176,7 @@ namespace System.Threading {
             return result;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void FCallUpgradeToWriterLock(ref LockCookie result, int millisecondsTimeout);
 
@@ -166,7 +184,7 @@ namespace System.Threading {
         {
             long tm = (long)timeout.TotalMilliseconds;
             if (tm < -1 || tm > (long) Int32.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             return UpgradeToWriterLock((int)tm);
         }
         
@@ -174,9 +192,11 @@ namespace System.Threading {
          * Restores the lock status of the thread to the one it was
          * in when it called UpgradeToWriterLock. 
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void DowngradeFromWriterLockInternal(ref LockCookie lockCookie);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void DowngradeFromWriterLock(ref LockCookie lockCookie)
         {
             DowngradeFromWriterLockInternal(ref lockCookie);
@@ -186,6 +206,7 @@ namespace System.Threading {
          * Releases the lock irrespective of the number of times the thread
          * acquired the lock
          */
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public LockCookie ReleaseLock()
         {
             LockCookie result = new LockCookie ();
@@ -193,6 +214,7 @@ namespace System.Threading {
             return result;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void FCallReleaseLock(ref LockCookie result);
         
@@ -200,9 +222,11 @@ namespace System.Threading {
          * Restores the lock status of the thread to the one it was
          * in when it called ReleaseLock. 
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void RestoreLockInternal(ref LockCookie lockCookie);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void RestoreLock(ref LockCookie lockCookie)
         {
             RestoreLockInternal(ref lockCookie);
@@ -212,6 +236,7 @@ namespace System.Threading {
          * Internal helper that returns TRUE if the reader lock is held
          * by the current thread
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         private extern bool PrivateGetIsReaderLockHeld();
@@ -220,6 +245,7 @@ namespace System.Threading {
          * Internal helper that returns TRUE if the writer lock is held
          * by the current thread
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
         private extern bool PrivateGetIsWriterLockHeld();
@@ -229,6 +255,7 @@ namespace System.Threading {
          * number. The caller should be a reader or writer for getting 
          * meaningful results
          */
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern int PrivateGetWriterSeqNum();
         
@@ -237,14 +264,17 @@ namespace System.Threading {
          * sequence number was obtained. The caller should be
          * a reader or writer for getting meaningful results
          */
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public extern bool AnyWritersSince(int seqNum);
     
         // Initialize state kept inside the lock
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void PrivateInitialize();
 
         // Destruct resource associated with the lock
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern void PrivateDestruct();
 

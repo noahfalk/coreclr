@@ -64,7 +64,6 @@ extern "C" HRESULT __cdecl StubRareDisableHR(Thread *pThread);
 #endif // FEATURE_COMINTEROP
 extern "C" VOID __cdecl StubRareDisableTHROW(Thread *pThread, Frame *pFrame);
 
-#ifndef FEATURE_ARRAYSTUB_AS_IL
 extern "C" VOID __cdecl ArrayOpStubNullException(void);
 extern "C" VOID __cdecl ArrayOpStubRangeException(void);
 extern "C" VOID __cdecl ArrayOpStubTypeMismatchException(void);
@@ -79,13 +78,10 @@ EXCEPTION_HELPERS(ArrayOpStubNullException);
 EXCEPTION_HELPERS(ArrayOpStubRangeException);
 EXCEPTION_HELPERS(ArrayOpStubTypeMismatchException);
 #undef EXCEPTION_HELPERS
-#endif // !_TARGET_AMD64_
-#endif // !FEATURE_ARRAYSTUB_AS_IL
 
-#if defined(_TARGET_AMD64_)
-#if defined(_DEBUG)
+#if defined(_DEBUG) 
 extern "C" VOID __cdecl DebugCheckStubUnwindInfo();
-#endif // _DEBUG
+#endif
 #endif // _TARGET_AMD64_
 
 // Presumably this code knows what it is doing with TLS.  If we are hiding these
@@ -2539,7 +2535,7 @@ VOID StubLinkerCPU::X86EmitCurrentAppDomainFetch(X86Reg dstreg, unsigned preserv
 #endif // FEATURE_IMPLICIT_TLS
 }
 
-#if defined(_TARGET_X86_)
+#ifdef _TARGET_X86_
 
 #ifdef PROFILING_SUPPORTED
 VOID StubLinkerCPU::EmitProfilerComCallProlog(TADDR pFrameVptr, X86Reg regFrame)
@@ -2628,7 +2624,6 @@ VOID StubLinkerCPU::EmitProfilerComCallEpilog(TADDR pFrameVptr, X86Reg regFrame)
 #endif // PROFILING_SUPPORTED
 
 
-#ifndef FEATURE_STUBS_AS_IL
 //========================================================================
 //  Prolog for entering managed code from COM
 //  pushes the appropriate frame ptr
@@ -2855,7 +2850,6 @@ void StubLinkerCPU::EmitComMethodStubEpilog(TADDR pFrameVptr,
     EmitLabel(rgRareLabels[0]);  // label for rare setup thread
     EmitRareSetup(rgRejoinLabels[0], /*fThrow*/ TRUE); // emit rare setup thread
 }
-#endif // !FEATURE_STUBS_AS_IL
 
 //---------------------------------------------------------------
 // Emit code to store the setup current Thread structure in eax.
@@ -2888,7 +2882,6 @@ VOID StubLinkerCPU::EmitSetup(CodeLabel *pForwardRef)
     switch (mode)
     {
         case TLSACCESS_WNT: 
-#ifndef FEATURE_PAL
             {
                 unsigned __int32 tlsofs = offsetof(TEB, TlsSlots) + (idx * sizeof(void*));
 
@@ -2896,9 +2889,6 @@ VOID StubLinkerCPU::EmitSetup(CodeLabel *pForwardRef)
                 EmitBytes(code, sizeof(code));
                 Emit32(tlsofs);
             }
-#else  // !FEATURE_PAL
-            _ASSERTE("TLSACCESS_WNT mode is not supported");
-#endif // !FEATURE_PAL
             break;
 
         case TLSACCESS_GENERIC:
@@ -2929,6 +2919,7 @@ VOID StubLinkerCPU::EmitSetup(CodeLabel *pForwardRef)
     X86EmitDebugTrashReg(kECX);
     X86EmitDebugTrashReg(kEDX);
 #endif
+
 }
 
 VOID StubLinkerCPU::EmitRareSetup(CodeLabel *pRejoinPoint, BOOL fThrow)
@@ -4833,9 +4824,8 @@ VOID StubLinkerCPU::EmitSecureDelegateInvoke(UINT_PTR hash)
     // Epilog
     EmitMethodStubEpilog(numStackBytes, SecureDelegateFrame::GetOffsetOfTransitionBlock());
 }
-#endif // !CROSSGEN_COMPILE && !FEATURE_STUBS_AS_IL
 
-#if !defined(CROSSGEN_COMPILE) && !defined(FEATURE_ARRAYSTUB_AS_IL)
+#ifndef FEATURE_ARRAYSTUB_AS_IL
 
 // Little helper to generate code to move nbytes bytes of non Ref memory
 
@@ -5778,9 +5768,8 @@ COPY_VALUE_CLASS:
 #pragma warning(pop)
 #endif
 
-#endif // !CROSSGEN_COMPILE && !FEATURE_ARRAYSTUB_AS_IL
+#endif // FEATURE_ARRAYSTUB_AS_IL
 
-#if !defined(CROSSGEN_COMPILE) && !defined(FEATURE_STUBS_AS_IL)
 //===========================================================================
 // Emits code to break into debugger
 VOID StubLinkerCPU::EmitDebugBreak()
@@ -5852,9 +5841,9 @@ Thread* __stdcall CreateThreadBlockReturnHr(ComMethodFrame *pFrame)
 #pragma warning(pop)
 #endif
 
-#endif // FEATURE_COMINTEROP && _TARGET_X86_
+#endif // defined(FEATURE_COMINTEROP) && defined(_TARGET_X86_)
 
-#endif // !CROSSGEN_COMPILE && !FEATURE_STUBS_AS_IL
+#endif // !defined(CROSSGEN_COMPILE) && !defined(FEATURE_STUBS_AS_IL)
 
 #endif // !DACCESS_COMPILE
 

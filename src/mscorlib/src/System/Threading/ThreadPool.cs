@@ -29,14 +29,15 @@
 namespace System.Threading
 {
     using System.Security;
+    using System.Runtime.Remoting;
     using System.Security.Permissions;
     using System;
     using Microsoft.Win32;
     using System.Runtime.CompilerServices;
     using System.Runtime.ConstrainedExecution;
     using System.Runtime.InteropServices;
+    using System.Runtime.Versioning;
     using System.Collections.Generic;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using System.Diagnostics.CodeAnalysis;
     using System.Diagnostics.Tracing;
@@ -45,17 +46,19 @@ namespace System.Threading
     {
         //Per-appDomain quantum (in ms) for which the thread keeps processing
         //requests in the current domain.
-        public const uint TP_QUANTUM = 30U;
+        public static uint tpQuantum = 30U;
 
-        public static readonly int processorCount = Environment.ProcessorCount;
+        public static int processorCount = Environment.ProcessorCount;
 
-        public static readonly bool tpHosted = ThreadPool.IsThreadPoolHosted(); 
+        public static bool tpHosted = ThreadPool.IsThreadPoolHosted(); 
 
         public static volatile bool vmTpInitialized;
         public static bool enableWorkerTracking;
 
-        public static readonly ThreadPoolWorkQueue workQueue = new ThreadPoolWorkQueue();
+        [SecurityCritical]
+        public static ThreadPoolWorkQueue workQueue = new ThreadPoolWorkQueue();
 
+        [System.Security.SecuritySafeCritical] // static constructors should be safe to call
         static ThreadPoolGlobals()
         {
         }
@@ -170,7 +173,7 @@ namespace System.Threading
                             //
                             m_headIndex = m_headIndex & m_mask;
                             m_tailIndex = tail = m_tailIndex & m_mask;
-                            Debug.Assert(m_headIndex <= m_tailIndex);
+                            Contract.Assert(m_headIndex <= m_tailIndex);
                         }
                     }
                     finally
@@ -232,7 +235,7 @@ namespace System.Threading
                     IThreadPoolWorkItem unused;
                     if (LocalPop(out unused))
                     {
-                        Debug.Assert(unused == obj);
+                        Contract.Assert(unused == obj);
                         return true;
                     }
                     return false;
@@ -431,23 +434,23 @@ namespace System.Threading
                 upper = (i >> 16) & SixteenBits;
                 lower = i & SixteenBits;
 
-                Debug.Assert(upper >= lower);
-                Debug.Assert(upper <= nodes.Length);
-                Debug.Assert(lower <= nodes.Length);
-                Debug.Assert(upper >= 0);
-                Debug.Assert(lower >= 0);
+                Contract.Assert(upper >= lower);
+                Contract.Assert(upper <= nodes.Length);
+                Contract.Assert(lower <= nodes.Length);
+                Contract.Assert(upper >= 0);
+                Contract.Assert(lower >= 0);
             }
 
             bool CompareExchangeIndexes(ref int prevUpper, int newUpper, ref int prevLower, int newLower)
             {
-                Debug.Assert(newUpper >= newLower);
-                Debug.Assert(newUpper <= nodes.Length);
-                Debug.Assert(newLower <= nodes.Length);
-                Debug.Assert(newUpper >= 0);
-                Debug.Assert(newLower >= 0);
-                Debug.Assert(newUpper >= prevUpper);
-                Debug.Assert(newLower >= prevLower);
-                Debug.Assert(newUpper == prevUpper ^ newLower == prevLower);
+                Contract.Assert(newUpper >= newLower);
+                Contract.Assert(newUpper <= nodes.Length);
+                Contract.Assert(newLower <= nodes.Length);
+                Contract.Assert(newUpper >= 0);
+                Contract.Assert(newLower >= 0);
+                Contract.Assert(newUpper >= prevUpper);
+                Contract.Assert(newLower >= prevLower);
+                Contract.Assert(newUpper == prevUpper ^ newLower == prevLower);
 
                 int oldIndexes = (prevUpper << 16) | (prevLower & SixteenBits);
                 int newIndexes = (newUpper << 16) | (newLower & SixteenBits);
@@ -460,7 +463,7 @@ namespace System.Threading
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
             public QueueSegment()
             {
-                Debug.Assert(QueueSegmentLength <= SixteenBits);
+                Contract.Assert(QueueSegmentLength <= SixteenBits);
                 nodes = new IThreadPoolWorkItem[QueueSegmentLength];
             }
 
@@ -483,7 +486,7 @@ namespace System.Threading
                 // with a busy-wait loop, waiting for the element to become non-null.  This implies
                 // that we can never store null nodes in this data structure.
                 //
-                Debug.Assert(null != node);
+                Contract.Assert(null != node);
 
                 int upper, lower;
                 GetIndexes(out upper, out lower);
@@ -495,7 +498,7 @@ namespace System.Threading
 
                     if (CompareExchangeIndexes(ref upper, upper + 1, ref lower, lower))
                     {
-                        Debug.Assert(Volatile.Read(ref nodes[upper]) == null);
+                        Contract.Assert(Volatile.Read(ref nodes[upper]) == null);
                         Volatile.Write(ref nodes[upper], node);
                         return true;
                     }
@@ -543,7 +546,7 @@ namespace System.Threading
         internal volatile QueueSegment queueTail;
         internal bool loggingEnabled;
 
-        internal static readonly SparseArray<WorkStealingQueue> allThreadQueues = new SparseArray<WorkStealingQueue>(16);
+        internal static SparseArray<WorkStealingQueue> allThreadQueues = new SparseArray<WorkStealingQueue>(16);
 
         private volatile int numOutstandingThreadRequests = 0;
       
@@ -553,6 +556,7 @@ namespace System.Threading
             loggingEnabled = FrameworkEventSource.Log.IsEnabled(EventLevel.Verbose, FrameworkEventSource.Keywords.ThreadPool|FrameworkEventSource.Keywords.ThreadTransfer);
         }
 
+        [SecurityCritical]
         public ThreadPoolWorkQueueThreadLocals EnsureCurrentThreadHasQueue()
         {
             if (null == ThreadPoolWorkQueueThreadLocals.threadLocals)
@@ -560,6 +564,7 @@ namespace System.Threading
             return ThreadPoolWorkQueueThreadLocals.threadLocals;
         }
 
+        [SecurityCritical]
         internal void EnsureThreadRequested()
         {
             //
@@ -580,6 +585,7 @@ namespace System.Threading
             }
         }
 
+        [SecurityCritical]
         internal void MarkThreadRequestSatisfied()
         {
             //
@@ -600,6 +606,7 @@ namespace System.Threading
             }
         }
 
+        [SecurityCritical]
         public void Enqueue(IThreadPoolWorkItem callback, bool forceGlobal)
         {
             ThreadPoolWorkQueueThreadLocals tl = null;
@@ -632,6 +639,7 @@ namespace System.Threading
             EnsureThreadRequested();
         }
 
+        [SecurityCritical]
         internal bool LocalFindAndPop(IThreadPoolWorkItem callback)
         {
             ThreadPoolWorkQueueThreadLocals tl = ThreadPoolWorkQueueThreadLocals.threadLocals;
@@ -641,6 +649,7 @@ namespace System.Threading
             return tl.workStealingQueue.LocalFindAndPop(callback);
         }
 
+        [SecurityCritical]
         public void Dequeue(ThreadPoolWorkQueueThreadLocals tl, out IThreadPoolWorkItem callback, out bool missedSteal)
         {
             callback = null;
@@ -648,7 +657,7 @@ namespace System.Threading
             WorkStealingQueue wsq = tl.workStealingQueue;
 
             if (wsq.LocalPop(out callback))
-                Debug.Assert(null != callback);
+                Contract.Assert(null != callback);
 
             if (null == callback)
             {
@@ -657,7 +666,7 @@ namespace System.Threading
                 {
                     if (tail.TryDequeue(out callback))
                     {
-                        Debug.Assert(null != callback);
+                        Contract.Assert(null != callback);
                         break;
                     }
 
@@ -687,7 +696,7 @@ namespace System.Threading
                         otherQueue != wsq &&
                         otherQueue.TrySteal(out callback, ref missedSteal))
                     {
-                        Debug.Assert(null != callback);
+                        Contract.Assert(null != callback);
                         break;
                     }
                     c--;
@@ -695,11 +704,12 @@ namespace System.Threading
             }
         }
 
+        [SecurityCritical]
         static internal bool Dispatch()
         {
             var workQueue = ThreadPoolGlobals.workQueue;
             //
-            // The clock is ticking!  We have ThreadPoolGlobals.TP_QUANTUM milliseconds to get some work done, and then
+            // The clock is ticking!  We have ThreadPoolGlobals.tpQuantum milliseconds to get some work done, and then
             // we need to return to the VM.
             //
             int quantumStartTime = Environment.TickCount;
@@ -733,7 +743,7 @@ namespace System.Threading
                 //
                 // Loop until our quantum expires.
                 //
-                while ((Environment.TickCount - quantumStartTime) < ThreadPoolGlobals.TP_QUANTUM)
+                while ((Environment.TickCount - quantumStartTime) < ThreadPoolGlobals.tpQuantum)
                 {
                     //
                     // Dequeue and EnsureThreadRequested must be protected from ThreadAbortException.  
@@ -845,7 +855,7 @@ namespace System.Threading
             }
 
             // we can never reach this point, but the C# compiler doesn't know that, because it doesn't know the ThreadAbortException will be reraised above.
-            Debug.Assert(false);
+            Contract.Assert(false);
             return true;
         }
     }
@@ -854,6 +864,7 @@ namespace System.Threading
     internal sealed class ThreadPoolWorkQueueThreadLocals
     {
         [ThreadStatic]
+        [SecurityCritical]
         public static ThreadPoolWorkQueueThreadLocals threadLocals;
 
         public readonly ThreadPoolWorkQueue workQueue;
@@ -867,6 +878,7 @@ namespace System.Threading
             ThreadPoolWorkQueue.allThreadQueues.Add(workStealingQueue);
         }
 
+        [SecurityCritical]
         private void CleanUp()
         {
             if (null != workStealingQueue)
@@ -883,7 +895,7 @@ namespace System.Threading
                             IThreadPoolWorkItem cb = null;
                             if (workStealingQueue.LocalPop(out cb))
                             {
-                                Debug.Assert(null != cb);
+                                Contract.Assert(null != cb);
                                 workQueue.Enqueue(cb, true);
                             }
                             else
@@ -898,6 +910,7 @@ namespace System.Threading
             }
         }
 
+        [SecuritySafeCritical]
         ~ThreadPoolWorkQueueThreadLocals()
         {
             // Since the purpose of calling CleanUp is to transfer any pending workitems into the global
@@ -914,6 +927,7 @@ namespace System.Threading
     {
         private static IntPtr InvalidHandle
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 return Win32Native.INVALID_HANDLE_VALUE;
@@ -924,6 +938,9 @@ namespace System.Threading
         private bool bReleaseNeeded = false;
         private volatile int m_lock = 0;
 
+        #if FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical] // auto-generated
+        #endif
         internal RegisteredWaitHandleSafe()
         {
             registeredWaitHandle = InvalidHandle;
@@ -939,6 +956,7 @@ namespace System.Threading
             registeredWaitHandle = handle;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         internal void SetWaitObject(WaitHandle waitObject)
         {
@@ -957,6 +975,7 @@ namespace System.Threading
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         internal bool Unregister(
              WaitHandle     waitObject          // object to be notified when all callbacks to delegates have completed
@@ -1014,6 +1033,7 @@ namespace System.Threading
             return (registeredWaitHandle != InvalidHandle && registeredWaitHandle != IntPtr.Zero);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         ~RegisteredWaitHandleSafe()
         {
             // if the app has already unregistered the wait, there is nothing to cleanup
@@ -1064,15 +1084,21 @@ namespace System.Threading
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void WaitHandleCleanupNative(IntPtr handle);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool UnregisterWaitNative(IntPtr handle, SafeHandle waitObject);
     }
 
 [System.Runtime.InteropServices.ComVisible(true)]
+#if FEATURE_REMOTING    
     public sealed class RegisteredWaitHandle : MarshalByRefObject {
+#else // FEATURE_REMOTING
+    public sealed class RegisteredWaitHandle {
+#endif // FEATURE_REMOTING
         private RegisteredWaitHandleSafe internalRegisteredWait;
     
         internal RegisteredWaitHandle()
@@ -1085,12 +1111,14 @@ namespace System.Threading
            internalRegisteredWait.SetHandle(handle);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void SetWaitObject(WaitHandle waitObject)
         {
            internalRegisteredWait.SetWaitObject(waitObject);
         }
 
     
+[System.Security.SecuritySafeCritical]  // auto-generated
 [System.Runtime.InteropServices.ComVisible(true)]
         // This is the only public method on this class
         public bool Unregister(
@@ -1115,6 +1143,7 @@ namespace System.Threading
     //
     internal static class _ThreadPoolWaitCallback
     {
+        [System.Security.SecurityCritical]
         static internal bool PerformWaitCallback()
         {
             return ThreadPoolWorkQueue.Dispatch();
@@ -1132,12 +1161,15 @@ namespace System.Threading
     //
     internal interface IThreadPoolWorkItem
     {
+        [SecurityCritical]
         void ExecuteWorkItem();
+        [SecurityCritical]
         void MarkAborted(ThreadAbortException tae);
     }
 
     internal sealed class QueueUserWorkItemCallback : IThreadPoolWorkItem
     {
+        [System.Security.SecuritySafeCritical]
         static QueueUserWorkItemCallback() {}
 
         private WaitCallback callback;
@@ -1149,7 +1181,7 @@ namespace System.Threading
 
         ~QueueUserWorkItemCallback()
         {
-            Debug.Assert(
+            Contract.Assert(
                 executed != 0 || Environment.HasShutdownStarted || AppDomain.CurrentDomain.IsFinalizingForUnload(), 
                 "A QueueUserWorkItemCallback was never called!");
         }
@@ -1157,12 +1189,13 @@ namespace System.Threading
         void MarkExecuted(bool aborted)
         {
             GC.SuppressFinalize(this);
-            Debug.Assert(
+            Contract.Assert(
                 0 == Interlocked.Exchange(ref executed, 1) || aborted,
                 "A QueueUserWorkItemCallback was called twice!");
         }
 #endif
 
+        [SecurityCritical]
         internal QueueUserWorkItemCallback(WaitCallback waitCallback, Object stateObj, ExecutionContext ec)
         {
             callback = waitCallback;
@@ -1170,6 +1203,7 @@ namespace System.Threading
             context = ec;
         }
 
+        [SecurityCritical]
         void IThreadPoolWorkItem.ExecuteWorkItem()
         {
 #if DEBUG
@@ -1188,6 +1222,7 @@ namespace System.Threading
             }
         }
 
+        [SecurityCritical]
         void IThreadPoolWorkItem.MarkAborted(ThreadAbortException tae)
         {
 #if DEBUG
@@ -1197,19 +1232,22 @@ namespace System.Threading
 #endif
         }
 
+        [System.Security.SecurityCritical]
         static internal ContextCallback ccb = new ContextCallback(WaitCallback_Context);
 
+        [System.Security.SecurityCritical]
         static private void WaitCallback_Context(Object state)
         {
             QueueUserWorkItemCallback obj = (QueueUserWorkItemCallback)state;
             WaitCallback wc = obj.callback as WaitCallback;
-            Debug.Assert(null != wc);
+            Contract.Assert(null != wc);
             wc(obj.state);
         }
     }
 
     internal sealed class QueueUserWorkItemCallbackDefaultContext : IThreadPoolWorkItem
     {
+        [System.Security.SecuritySafeCritical]
         static QueueUserWorkItemCallbackDefaultContext() { }
 
         private WaitCallback callback;
@@ -1220,7 +1258,7 @@ namespace System.Threading
 
         ~QueueUserWorkItemCallbackDefaultContext()
         {
-            Debug.Assert(
+            Contract.Assert(
                 executed != 0 || Environment.HasShutdownStarted || AppDomain.CurrentDomain.IsFinalizingForUnload(),
                 "A QueueUserWorkItemCallbackDefaultContext was never called!");
         }
@@ -1228,18 +1266,20 @@ namespace System.Threading
         void MarkExecuted(bool aborted)
         {
             GC.SuppressFinalize(this);
-            Debug.Assert(
+            Contract.Assert(
                 0 == Interlocked.Exchange(ref executed, 1) || aborted,
                 "A QueueUserWorkItemCallbackDefaultContext was called twice!");
         }
 #endif
 
+        [SecurityCritical]
         internal QueueUserWorkItemCallbackDefaultContext(WaitCallback waitCallback, Object stateObj)
         {
             callback = waitCallback;
             state = stateObj;
         }
 
+        [SecurityCritical]
         void IThreadPoolWorkItem.ExecuteWorkItem()
         {
 #if DEBUG
@@ -1248,6 +1288,7 @@ namespace System.Threading
             ExecutionContext.Run(ExecutionContext.PreAllocatedDefault, ccb, this, true);
         }
 
+        [SecurityCritical]
         void IThreadPoolWorkItem.MarkAborted(ThreadAbortException tae)
         {
 #if DEBUG
@@ -1257,13 +1298,15 @@ namespace System.Threading
 #endif
         }
 
+        [System.Security.SecurityCritical]
         static internal ContextCallback ccb = new ContextCallback(WaitCallback_Context);
 
+        [System.Security.SecurityCritical]
         static private void WaitCallback_Context(Object state)
         {
             QueueUserWorkItemCallbackDefaultContext obj = (QueueUserWorkItemCallbackDefaultContext)state;
             WaitCallback wc = obj.callback as WaitCallback;
-            Debug.Assert(null != wc);
+            Contract.Assert(null != wc);
             obj.callback = null;
             wc(obj.state);
         }
@@ -1271,14 +1314,18 @@ namespace System.Threading
 
     internal class _ThreadPoolWaitOrTimerCallback
     {
+        [System.Security.SecuritySafeCritical]
         static _ThreadPoolWaitOrTimerCallback() {}
 
         WaitOrTimerCallback _waitOrTimerCallback;
         ExecutionContext _executionContext;
         Object _state;
+        [System.Security.SecurityCritical]
         static private ContextCallback _ccbt = new ContextCallback(WaitOrTimerCallback_Context_t);
+        [System.Security.SecurityCritical]
         static private ContextCallback _ccbf = new ContextCallback(WaitOrTimerCallback_Context_f);
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal _ThreadPoolWaitOrTimerCallback(WaitOrTimerCallback waitOrTimerCallback, Object state, bool compressStack, ref StackCrawlMark stackMark)
         {
             _waitOrTimerCallback = waitOrTimerCallback;
@@ -1293,11 +1340,13 @@ namespace System.Threading
             }
         }
         
+        [System.Security.SecurityCritical]
         static private void WaitOrTimerCallback_Context_t(Object state)
         {
             WaitOrTimerCallback_Context(state, true);
         }
 
+        [System.Security.SecurityCritical]
         static private void WaitOrTimerCallback_Context_f(Object state)
         {
             WaitOrTimerCallback_Context(state, false);
@@ -1310,10 +1359,11 @@ namespace System.Threading
         }
             
         // call back helper
+        [System.Security.SecurityCritical]  // auto-generated
         static internal void PerformWaitOrTimerCallback(Object state, bool timedOut)
         {
             _ThreadPoolWaitOrTimerCallback helper = (_ThreadPoolWaitOrTimerCallback)state; 
-            Debug.Assert(helper != null, "Null state passed to PerformWaitOrTimerCallback!");
+            Contract.Assert(helper != null, "Null state passed to PerformWaitOrTimerCallback!");
             // call directly if it is an unsafe call OR EC flow is suppressed
             if (helper._executionContext == null)
             {
@@ -1334,6 +1384,7 @@ namespace System.Threading
 
     }
 
+    [System.Security.SecurityCritical]
     [CLSCompliant(false)]
     [System.Runtime.InteropServices.ComVisible(true)]
     unsafe public delegate void IOCompletionCallback(uint errorCode, // Error code
@@ -1341,34 +1392,55 @@ namespace System.Threading
                                        NativeOverlapped* pOVERLAP // ptr to OVERLAP structure
                                        );   
 
+    [HostProtection(Synchronization=true, ExternalThreading=true)]
     public static class ThreadPool
     {
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #else
+        [System.Security.SecuritySafeCritical]
+        #endif
+#pragma warning disable 618
+        [SecurityPermissionAttribute(SecurityAction.Demand, ControlThread = true)]
+#pragma warning restore 618
         public static bool SetMaxThreads(int workerThreads, int completionPortThreads)
         {
             return SetMaxThreadsNative(workerThreads, completionPortThreads);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void GetMaxThreads(out int workerThreads, out int completionPortThreads)
         {
             GetMaxThreadsNative(out workerThreads, out completionPortThreads);
         }
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #else
+        [System.Security.SecuritySafeCritical]
+        #endif
+#pragma warning disable 618
+        [SecurityPermissionAttribute(SecurityAction.Demand, ControlThread = true)]
+#pragma warning restore 618
         public static bool SetMinThreads(int workerThreads, int completionPortThreads)
         {
             return SetMinThreadsNative(workerThreads, completionPortThreads);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void GetMinThreads(out int workerThreads, out int completionPortThreads)
         {
             GetMinThreadsNative(out workerThreads, out completionPortThreads);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void GetAvailableThreads(out int workerThreads, out int completionPortThreads)
         {
             GetAvailableThreadsNative(out workerThreads, out completionPortThreads);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [CLSCompliant(false)]
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable            
         public static RegisteredWaitHandle RegisterWaitForSingleObject(  // throws RegisterWaitException
@@ -1383,6 +1455,7 @@ namespace System.Threading
             return RegisterWaitForSingleObject(waitObject,callBack,state,millisecondsTimeOutInterval,executeOnlyOnce,ref stackMark,true);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         [CLSCompliant(false)]
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle UnsafeRegisterWaitForSingleObject(  // throws RegisterWaitException
@@ -1398,6 +1471,7 @@ namespace System.Threading
         }
 
 
+        [System.Security.SecurityCritical]  // auto-generated
         private static RegisteredWaitHandle RegisterWaitForSingleObject(  // throws RegisterWaitException
              WaitHandle             waitObject,
              WaitOrTimerCallback    callBack,
@@ -1408,6 +1482,12 @@ namespace System.Threading
              bool               compressStack
              )
         {
+#if FEATURE_REMOTING
+            if (RemotingServices.IsTransparentProxy(waitObject))
+                throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_WaitOnTransparentProxy"));
+            Contract.EndContractBlock();
+#endif            
+
             RegisteredWaitHandle registeredWaitHandle = new RegisteredWaitHandle();
 
             if (callBack != null)
@@ -1428,12 +1508,13 @@ namespace System.Threading
             }
             else
             {
-                throw new ArgumentNullException(nameof(WaitOrTimerCallback));
+                throw new ArgumentNullException("WaitOrTimerCallback");
             }
             return registeredWaitHandle;
         }
 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle RegisterWaitForSingleObject(  // throws RegisterWaitException
              WaitHandle             waitObject,
@@ -1444,12 +1525,13 @@ namespace System.Threading
              )
         {
             if (millisecondsTimeOutInterval < -1)
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("millisecondsTimeOutInterval", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             Contract.EndContractBlock();
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)millisecondsTimeOutInterval,executeOnlyOnce,ref stackMark,true);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable            
         public static RegisteredWaitHandle UnsafeRegisterWaitForSingleObject(  // throws RegisterWaitException
              WaitHandle             waitObject,
@@ -1460,12 +1542,13 @@ namespace System.Threading
              )
         {
             if (millisecondsTimeOutInterval < -1)
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("millisecondsTimeOutInterval", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             Contract.EndContractBlock();
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)millisecondsTimeOutInterval,executeOnlyOnce,ref stackMark,false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle RegisterWaitForSingleObject(  // throws RegisterWaitException
             WaitHandle          waitObject,
@@ -1476,12 +1559,13 @@ namespace System.Threading
         )
         {
             if (millisecondsTimeOutInterval < -1)
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("millisecondsTimeOutInterval", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             Contract.EndContractBlock();
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)millisecondsTimeOutInterval,executeOnlyOnce,ref stackMark,true);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle UnsafeRegisterWaitForSingleObject(  // throws RegisterWaitException
             WaitHandle          waitObject,
@@ -1492,12 +1576,13 @@ namespace System.Threading
         )
         {
             if (millisecondsTimeOutInterval < -1)
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeOutInterval), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("millisecondsTimeOutInterval", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             Contract.EndContractBlock();
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)millisecondsTimeOutInterval,executeOnlyOnce,ref stackMark,false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle RegisterWaitForSingleObject(
                           WaitHandle            waitObject,
@@ -1509,13 +1594,14 @@ namespace System.Threading
         {
             long tm = (long)timeout.TotalMilliseconds;
             if (tm < -1)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             if (tm > (long) Int32.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_LessEqualToIntegerMaxVal"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_LessEqualToIntegerMaxVal"));
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)tm,executeOnlyOnce,ref stackMark,true);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static RegisteredWaitHandle UnsafeRegisterWaitForSingleObject(
                           WaitHandle            waitObject,
@@ -1527,13 +1613,14 @@ namespace System.Threading
         {
             long tm = (long)timeout.TotalMilliseconds;
             if (tm < -1)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegOrNegative1"));
             if (tm > (long) Int32.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(timeout), Environment.GetResourceString("ArgumentOutOfRange_LessEqualToIntegerMaxVal"));
+                throw new ArgumentOutOfRangeException("timeout", Environment.GetResourceString("ArgumentOutOfRange_LessEqualToIntegerMaxVal"));
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
             return RegisterWaitForSingleObject(waitObject,callBack,state,(UInt32)tm,executeOnlyOnce,ref stackMark,false);
         }
             
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable    
         public static bool QueueUserWorkItem(           
              WaitCallback           callBack,     // NOTE: we do not expose options that allow the callback to be queued as an APC
@@ -1544,6 +1631,7 @@ namespace System.Threading
             return QueueUserWorkItemHelper(callBack,state,ref stackMark,true);
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static bool QueueUserWorkItem(           
              WaitCallback           callBack     // NOTE: we do not expose options that allow the callback to be queued as an APC
@@ -1553,6 +1641,7 @@ namespace System.Threading
             return QueueUserWorkItemHelper(callBack,null,ref stackMark,true);
         }
     
+        [System.Security.SecurityCritical]  // auto-generated_required
         [MethodImplAttribute(MethodImplOptions.NoInlining)] // Methods containing StackCrawlMark local var has to be marked non-inlineable
         public static bool UnsafeQueueUserWorkItem(
              WaitCallback           callBack,     // NOTE: we do not expose options that allow the callback to be queued as an APC
@@ -1566,6 +1655,7 @@ namespace System.Threading
         //ThreadPool has per-appdomain managed queue of work-items. The VM is
         //responsible for just scheduling threads into appdomains. After that
         //work-items are dispatched from the managed queue.
+        [System.Security.SecurityCritical]  // auto-generated
         private static bool QueueUserWorkItemHelper(WaitCallback callBack, Object state, ref StackCrawlMark stackMark, bool compressStack )
         {
             bool success =  true;
@@ -1600,14 +1690,15 @@ namespace System.Threading
             }
             else
             {
-                throw new ArgumentNullException(nameof(WaitCallback));
+                throw new ArgumentNullException("WaitCallback");
             }
             return success;
         }
 
+        [SecurityCritical]
         internal static void UnsafeQueueCustomWorkItem(IThreadPoolWorkItem workItem, bool forceGlobal)
         {
-            Debug.Assert(null != workItem);
+            Contract.Assert(null != workItem);
             EnsureVMInitialized();
 
             //
@@ -1621,15 +1712,17 @@ namespace System.Threading
         }
 
         // This method tries to take the target callback out of the current thread's queue.
+        [SecurityCritical]
         internal static bool TryPopCustomWorkItem(IThreadPoolWorkItem workItem)
         {
-            Debug.Assert(null != workItem);
+            Contract.Assert(null != workItem);
             if (!ThreadPoolGlobals.vmTpInitialized)
                 return false; //Not initialized, so there's no way this workitem was ever queued.
             return ThreadPoolGlobals.workQueue.LocalFindAndPop(workItem);
         }
 
         // Get all workitems.  Called by TaskScheduler in its debugger hooks.
+        [SecurityCritical]
         internal static IEnumerable<IThreadPoolWorkItem> GetQueuedWorkItems()
         {
             return EnumerateQueuedWorkItems(ThreadPoolWorkQueue.allThreadQueues.Current, ThreadPoolGlobals.workQueue.queueTail);
@@ -1673,11 +1766,13 @@ namespace System.Threading
             }
         }
 
+        [SecurityCritical]
         internal static IEnumerable<IThreadPoolWorkItem> GetLocallyQueuedWorkItems()
         {
             return EnumerateQueuedWorkItems(new ThreadPoolWorkQueue.WorkStealingQueue[] { ThreadPoolWorkQueueThreadLocals.threadLocals.workStealingQueue }, null);
         }
 
+        [SecurityCritical]
         internal static IEnumerable<IThreadPoolWorkItem> GetGloballyQueuedWorkItems()
         {
             return EnumerateQueuedWorkItems(null, ThreadPoolGlobals.workQueue.queueTail);
@@ -1705,34 +1800,41 @@ namespace System.Threading
 
         // This is the method the debugger will actually call, if it ends up calling
         // into ThreadPool directly.  Tests can use this to simulate a debugger, as well.
+        [SecurityCritical]
         internal static object[] GetQueuedWorkItemsForDebugger()
         {
             return ToObjectArray(GetQueuedWorkItems());
         }
 
+        [SecurityCritical]
         internal static object[] GetGloballyQueuedWorkItemsForDebugger()
         {
             return ToObjectArray(GetGloballyQueuedWorkItems());
         }
 
+        [SecurityCritical]
         internal static object[] GetLocallyQueuedWorkItemsForDebugger()
         {
             return ToObjectArray(GetLocallyQueuedWorkItems());
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         internal static extern bool RequestWorkerThread();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         unsafe private static extern bool PostQueuedCompletionStatus(NativeOverlapped* overlapped);
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         [CLSCompliant(false)]
         unsafe public static bool UnsafeQueueNativeOverlapped(NativeOverlapped* overlapped)
         {
             return PostQueuedCompletionStatus(overlapped);
         }
 
+        [SecurityCritical]
         private static void EnsureVMInitialized()
         {
             if (!ThreadPoolGlobals.vmTpInitialized)
@@ -1744,27 +1846,35 @@ namespace System.Threading
 
         // Native methods: 
     
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool SetMinThreadsNative(int workerThreads, int completionPortThreads);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool SetMaxThreadsNative(int workerThreads, int completionPortThreads);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void GetMinThreadsNative(out int workerThreads, out int completionPortThreads);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void GetMaxThreadsNative(out int workerThreads, out int completionPortThreads);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void GetAvailableThreadsNative(out int workerThreads, out int completionPortThreads);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern bool NotifyWorkItemComplete();
 
+        [System.Security.SecurityCritical]
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void ReportThreadStatus(bool isWorking);
 
+        [System.Security.SecuritySafeCritical]
         internal static void NotifyWorkItemProgress()
         {
             if (!ThreadPoolGlobals.vmTpInitialized)
@@ -1772,16 +1882,20 @@ namespace System.Threading
             NotifyWorkItemProgressNative();
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void NotifyWorkItemProgressNative();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern bool IsThreadPoolHosted();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void InitializeVMTp(ref bool enableWorkerTracking);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern IntPtr RegisterWaitForSingleObjectNative(  
              WaitHandle             waitHandle,
@@ -1793,19 +1907,30 @@ namespace System.Threading
              bool                   compressStack   
              );
 
-
+#if !FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [Obsolete("ThreadPool.BindHandle(IntPtr) has been deprecated.  Please use ThreadPool.BindHandle(SafeHandle) instead.", false)]
+        [SecurityPermissionAttribute( SecurityAction.Demand, Flags = SecurityPermissionFlag.UnmanagedCode)]
         public static bool BindHandle(
              IntPtr osHandle
              )
         {
             return BindIOCompletionCallbackNative(osHandle);
         }
+#endif
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #else
+        [System.Security.SecuritySafeCritical]
+        #endif        
+#pragma warning disable 618
+        [SecurityPermissionAttribute(SecurityAction.Demand, Flags = SecurityPermissionFlag.UnmanagedCode)]
+#pragma warning restore 618
         public static bool BindHandle(SafeHandle osHandle)
         {
             if (osHandle == null)
-                throw new ArgumentNullException(nameof(osHandle));
+                throw new ArgumentNullException("osHandle");
             
             bool ret = false;
             bool mustReleaseSafeHandle = false;
@@ -1821,6 +1946,7 @@ namespace System.Threading
             return ret;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
         private static extern bool BindIOCompletionCallbackNative(IntPtr fileHandle);

@@ -64,6 +64,7 @@ $(_XunitEpilog)
 
 ]]>
       </_XunitWrapperGen>
+      <XunitVersionCompiled>2.1.0</XunitVersionCompiled>
       <XunitWrapperGenCsProj>
         <![CDATA[
 <?xml version="1.0" encoding="utf-8"?>
@@ -119,6 +120,7 @@ $(_XunitEpilog)
     <ProjectLockJson>%24(TestWrappersPackagesConfigFileDirectory)project.lock.json</ProjectLockJson>
   </PropertyGroup>
   <Import Project="$(SourceDir)dir.targets" />
+  <Import Project="$(ProjectDir)helix.targets" />
   <PropertyGroup>
      <OutDir>$(XunitTestBinBase)\$(Category)\</OutDir>
   </PropertyGroup>
@@ -305,7 +307,31 @@ namespace $([System.String]::Copy($(Category)).Replace(".","_").Replace("\","").
   </Target>
 
   <Target Name="CreateAllWrappers" DependsOnTargets="GetListOfTestCmds;FindCmdDirectories">
-    <MSBuild Projects="$(MSBuildProjectFile)" Targets="CreateXunitWrapper;BuildXunitWrapper" Properties="_CMDDIR=%(TestDirectories.Identity)" />
+    <MSBuild Projects="$(MSBuildProjectFile)" Targets="CreateXunitWrapper" Properties="_CMDDIR=%(TestDirectories.Identity)" />
+
+    <!--
+      Contents of a project.json that will be restored once with errors turned off. This works
+      around the package being incompatible with dotnet restore. Only the package contents are
+      required so the compatibility errors can be ignored.
+    -->
+    <PropertyGroup>
+      <XunitRunnerRestoreGenConfig>{ "dependencies": { "xunit.runner.msbuild": "$(XunitPackageVersion)" }, "frameworks": { "net45": {} } }</XunitRunnerRestoreGenConfig>
+      <XunitRunnerRestoreProjectDir>$(BaseOutputPath)\tempRestoreProject</XunitRunnerRestoreProjectDir>
+      <XunitRunnerRestoreProjectJsonPath>$(XunitRunnerRestoreProjectDir)\project.json</XunitRunnerRestoreProjectJsonPath>
+    </PropertyGroup>
+    
+    <MakeDir Directories="$(XunitRunnerRestoreProjectDir)" />
+    <WriteLinesToFile File="$(XunitRunnerRestoreProjectJsonPath)"
+                      Lines="$(XunitRunnerRestoreGenConfig)"
+                      Overwrite="true" />
+    
+    <Exec Command="$(DnuRestoreCommand) &quot;$(XunitRunnerRestoreProjectJsonPath)&quot;"
+          StandardOutputImportance="Low"
+          CustomErrorRegularExpression="^Unable to resolve .*"
+          IgnoreExitCode="true" 
+          IgnoreStandardErrorWarningFormat="true" />
+
+    <MSBuild Projects="$(MSBuildProjectFile)" Targets="BuildXunitWrapper" Properties="_CMDDIR=%(TestDirectories.Identity)" />
   </Target>
 
   <Target Name="GetListOfTestCmds">
@@ -321,28 +347,6 @@ namespace $([System.String]::Copy($(Category)).Replace(".","_").Replace("\","").
     <MSBuild Projects="$(MSBuildProjectFile)"
              Targets="CopyDependecyToCoreRoot"
              Properties="Language=C#" />
-  </Target>
-
-  <Target Name="CreateNonWindowsTestOverlay">
-    <MSBuild Projects="$(MSBuildProjectFile)"
-             Targets="CopyNonWindowsDependecyToCoreRoot"
-             Properties="Language=C#;NonWindowsRuntimeId=$(NonWindowsRuntimeId)" />
-  </Target>
-
-  <Target Name="BinPlaceRef">
-    <!-- Copy mscorlib.dll from TargetingPack to bin/Product/ref, if we're building against packages -->
-    <MSBuild Projects="$(MSBuildProjectFile)"
-             Targets="CopyDependencyToRef"
-             Properties="Language=C#"
-             Condition=" '$(BuildTestsAgainstPackages)'=='true' " />
-  </Target>
-
-  <Target Name="BinPlaceProduct">
-    <!-- Copy test dependencies to bin/Product, if we're building against packages -->
-    <MSBuild Projects="$(MSBuildProjectFile)"
-             Targets="CopyDependencyToProduct"
-             Properties="Language=C#"
-             Condition=" '$(BuildTestsAgainstPackages)'=='true' " />
   </Target>
 
   <!-- All the test projects need to add dependency to currently built runtime as they require that to run. 

@@ -20,13 +20,16 @@ namespace System
     using System.Runtime.Versioning;
     using System.Runtime.CompilerServices;
 
+    [System.Security.SecurityCritical]
     internal class AppDomainPauseManager
     {
+        [System.Security.SecurityCritical]
         public AppDomainPauseManager()
         {
             isPaused = false;
         }
 
+        [System.Security.SecurityCritical]
         static AppDomainPauseManager()
         {
         }
@@ -34,19 +37,22 @@ namespace System
         static readonly AppDomainPauseManager instance = new AppDomainPauseManager();
         internal static AppDomainPauseManager Instance
         {
+            [System.Security.SecurityCritical]
             get { return instance; }
         }
 
         // FAS: IAppDomainPauseConsumer interface implementation
         // currently there is nothing we do here as the implementation
         // of updating pause times have been moved to native CorHost2
+        [System.Security.SecurityCritical]
         public void Pausing()
         {
         }
 
+        [System.Security.SecurityCritical]
         public void Paused()
         {
-            Debug.Assert(!isPaused);
+            Contract.Assert(!isPaused);
 
             if(ResumeEvent == null)
                 ResumeEvent = new ManualResetEvent(false);
@@ -61,13 +67,15 @@ namespace System
             isPaused = true;
         }
 
+        [System.Security.SecurityCritical]
         public void Resuming()
         {
-            Debug.Assert(isPaused);
+            Contract.Assert(isPaused);
             isPaused = false;
             ResumeEvent.Set();
         }
 
+        [System.Security.SecurityCritical]
         public void Resumed()
         {
             Timer.Resume();
@@ -77,12 +85,15 @@ namespace System
 
         internal static bool IsPaused
         {
+            [System.Security.SecurityCritical]
             get { return isPaused; }
         }
 
         internal static ManualResetEvent ResumeEvent
         {
+            [System.Security.SecurityCritical]
             get; 
+            [System.Security.SecurityCritical]
             set;
         }
     }

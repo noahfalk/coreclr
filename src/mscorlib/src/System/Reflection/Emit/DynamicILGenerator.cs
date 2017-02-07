@@ -9,6 +9,7 @@ namespace System.Reflection.Emit
 
     using System;
     using System.Globalization;
+    using TextWriter = System.IO.TextWriter;
     using System.Diagnostics.SymbolStore;
     using System.Runtime.InteropServices;
     using System.Reflection;
@@ -16,7 +17,6 @@ namespace System.Reflection.Emit
     using System.Collections.Generic;
     using System.Security.Permissions;
     using System.Threading;
-    using System.Diagnostics;
     using System.Diagnostics.CodeAnalysis;
     using System.Diagnostics.Contracts;
     using System.Security;
@@ -36,6 +36,7 @@ namespace System.Reflection.Emit
         }
 
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void GetCallableMethod(RuntimeModule module, DynamicMethod dm)
         {
             dm.m_methodHandle = ModuleHandle.GetDynamicMethod(dm,
@@ -61,7 +62,7 @@ namespace System.Reflection.Emit
         {
             LocalBuilder localBuilder;
             if (localType == null)
-                throw new ArgumentNullException(nameof(localType));
+                throw new ArgumentNullException("localType");
             Contract.EndContractBlock();
 
             RuntimeType rtType = localType as RuntimeType;
@@ -86,10 +87,11 @@ namespace System.Reflection.Emit
         // Token resolution calls
         //
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override void Emit(OpCode opcode, MethodInfo meth)
         {
             if (meth == null)
-                throw new ArgumentNullException(nameof(meth));
+                throw new ArgumentNullException("meth");
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -99,7 +101,7 @@ namespace System.Reflection.Emit
             {
                 RuntimeMethodInfo rtMeth = meth as RuntimeMethodInfo;
                 if (rtMeth == null)
-                    throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), nameof(meth));
+                    throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), "meth");
 
                 RuntimeType declaringType = rtMeth.GetRuntimeType();
                 if (declaringType != null && (declaringType.IsGenericType || declaringType.IsArray))
@@ -146,12 +148,12 @@ namespace System.Reflection.Emit
         public override void Emit(OpCode opcode, ConstructorInfo con)
         {
             if (con == null)
-                throw new ArgumentNullException(nameof(con));
+                throw new ArgumentNullException("con");
             Contract.EndContractBlock();
 
             RuntimeConstructorInfo rtConstructor = con as RuntimeConstructorInfo;
             if (rtConstructor == null)
-                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), nameof(con));
+                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), "con");
 
             RuntimeType declaringType = rtConstructor.GetRuntimeType();
             int token;
@@ -174,7 +176,7 @@ namespace System.Reflection.Emit
         public override void Emit(OpCode opcode, Type type)
         {
             if (type == null)
-                throw new ArgumentNullException(nameof(type));
+                throw new ArgumentNullException("type");
             Contract.EndContractBlock();
 
             RuntimeType rtType = type as RuntimeType;
@@ -191,12 +193,12 @@ namespace System.Reflection.Emit
         public override void Emit(OpCode opcode, FieldInfo field)
         {
             if (field == null)
-                throw new ArgumentNullException(nameof(field));
+                throw new ArgumentNullException("field");
             Contract.EndContractBlock();
 
             RuntimeFieldInfo runtimeField = field as RuntimeFieldInfo;
             if (runtimeField == null)
-                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeFieldInfo"), nameof(field));
+                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeFieldInfo"), "field");
 
             int token;
             if (field.DeclaringType == null)
@@ -212,7 +214,7 @@ namespace System.Reflection.Emit
         public override void Emit(OpCode opcode, String str)
         {
             if (str == null)
-                throw new ArgumentNullException(nameof(str));
+                throw new ArgumentNullException("str");
             Contract.EndContractBlock();
 
             int tempVal = GetTokenForString(str);
@@ -226,6 +228,7 @@ namespace System.Reflection.Emit
         // Signature related calls (vararg, calli)
         //
         //
+        [System.Security.SecuritySafeCritical] // overrides SC
         public override void EmitCalli(OpCode opcode,
                                        CallingConventions callingConvention,
                                        Type returnType,
@@ -304,19 +307,20 @@ namespace System.Reflection.Emit
             PutInteger4(token);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override void EmitCall(OpCode opcode, MethodInfo methodInfo, Type[] optionalParameterTypes)
         {
             if (methodInfo == null)
-                throw new ArgumentNullException(nameof(methodInfo));
+                throw new ArgumentNullException("methodInfo");
 
             if (!(opcode.Equals(OpCodes.Call) || opcode.Equals(OpCodes.Callvirt) || opcode.Equals(OpCodes.Newobj)))
-                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), nameof(opcode));
+                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), "opcode");
 
             if (methodInfo.ContainsGenericParameters)
-                throw new ArgumentException(Environment.GetResourceString("Argument_GenericsInvalid"), nameof(methodInfo));
+                throw new ArgumentException(Environment.GetResourceString("Argument_GenericsInvalid"), "methodInfo");
 
             if (methodInfo.DeclaringType != null && methodInfo.DeclaringType.ContainsGenericParameters)
-                throw new ArgumentException(Environment.GetResourceString("Argument_GenericsInvalid"), nameof(methodInfo));
+                throw new ArgumentException(Environment.GetResourceString("Argument_GenericsInvalid"), "methodInfo");
             Contract.EndContractBlock();
 
             int tk;
@@ -347,7 +351,7 @@ namespace System.Reflection.Emit
         public override void Emit(OpCode opcode, SignatureHelper signature)
         {
             if (signature == null)
-                throw new ArgumentNullException(nameof(signature));
+                throw new ArgumentNullException("signature");
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -361,7 +365,7 @@ namespace System.Reflection.Emit
             // SignatureHelper.
             if (opcode.StackBehaviourPop == StackBehaviour.Varpop)
             {
-                Debug.Assert(opcode.Equals(OpCodes.Calli),
+                Contract.Assert(opcode.Equals(OpCodes.Calli),
                                 "Unexpected opcode encountered for StackBehaviour VarPop.");
                 // Pop the arguments..
                 stackchange -= signature.ArgumentCount;
@@ -417,7 +421,7 @@ namespace System.Reflection.Emit
             {
                 // execute this branch if previous clause is Catch or Fault
                 if (exceptionType == null)
-                    throw new ArgumentNullException(nameof(exceptionType));
+                    throw new ArgumentNullException("exceptionType");
 
                 if (rtType == null)
                     throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeType"));
@@ -478,6 +482,7 @@ namespace System.Reflection.Emit
             throw new NotSupportedException(Environment.GetResourceString("InvalidOperation_NotAllowedInDynamicMethod"));
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private int GetMemberRefToken(MethodBase methodInfo, Type[] optionalParameterTypes)
         {
             Type[] parameterTypes;
@@ -489,7 +494,7 @@ namespace System.Reflection.Emit
             DynamicMethod dm = methodInfo as DynamicMethod;
 
             if (rtMeth == null && dm == null)
-                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), nameof(methodInfo));
+                throw new ArgumentException(Environment.GetResourceString("Argument_MustBeRuntimeMethodInfo"), "methodInfo");
 
             ParameterInfo[] paramInfo = methodInfo.GetParametersNoCopy();
             if (paramInfo != null && paramInfo.Length != 0)
@@ -514,24 +519,29 @@ namespace System.Reflection.Emit
                 return GetTokenForVarArgMethod(dm, sig);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal override SignatureHelper GetMemberRefSignature(
                                                 CallingConventions call,
                                                 Type returnType,
                                                 Type[] parameterTypes,
                                                 Type[] optionalParameterTypes)
         {
-            SignatureHelper sig = SignatureHelper.GetMethodSigHelper(call, returnType);
-            if (parameterTypes != null)
-            {
-                foreach (Type t in parameterTypes)
-                    sig.AddArgument(t);
-            }
+            int cParams;
+            int i;
+            SignatureHelper sig;
+            if (parameterTypes == null)
+                cParams = 0;
+            else
+                cParams = parameterTypes.Length;
+            sig = SignatureHelper.GetMethodSigHelper(call, returnType);
+            for (i = 0; i < cParams; i++)
+                sig.AddArgument(parameterTypes[i]);
             if (optionalParameterTypes != null && optionalParameterTypes.Length != 0)
             {
                 // add the sentinel
                 sig.AddSentinel();
-                foreach (Type t in optionalParameterTypes)
-                    sig.AddArgument(t);
+                for (i = 0; i < optionalParameterTypes.Length; i++)
+                    sig.AddArgument(optionalParameterTypes[i]);
             }
             return sig;
         }
@@ -694,6 +704,9 @@ namespace System.Reflection.Emit
             m_method.m_resolver = this;
         }
 
+#if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+#endif
         internal DynamicResolver(DynamicILInfo dynamicILInfo)
         {
             m_stackSize = dynamicILInfo.MaxStackSize;
@@ -761,6 +774,7 @@ namespace System.Reflection.Emit
         {
             internal RuntimeMethodHandleInternal m_methodHandle;
 
+            [System.Security.SecuritySafeCritical]  // auto-generated
             ~DestroyScout()
             {
                 if (m_methodHandle.IsNullHandle())
@@ -873,6 +887,7 @@ namespace System.Reflection.Emit
             return m_exceptionHeader;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe void GetEHInfo(int excNumber, void* exc)
         {
             CORINFO_EH_CLAUSE* exception = (CORINFO_EH_CLAUSE*)exc;
@@ -907,6 +922,7 @@ namespace System.Reflection.Emit
         }
 #endif // FEATURE_COMPRESSEDSTACK
 
+        [System.Security.SecurityCritical]
         internal override void ResolveToken(int token, out IntPtr typeHandle, out IntPtr methodHandle, out IntPtr fieldHandle)
         {
             typeHandle = new IntPtr();
@@ -987,6 +1003,9 @@ namespace System.Reflection.Emit
     }
 
 
+#if FEATURE_CORECLR
+[System.Security.SecurityCritical] // auto-generated
+#endif
     [System.Runtime.InteropServices.ComVisible(true)]
     public class DynamicILInfo
     {
@@ -1013,6 +1032,7 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Internal Methods
+        [System.Security.SecurityCritical]  // auto-generated
         internal void GetCallableMethod(RuntimeModule module, DynamicMethod dm)
         {
             dm.m_methodHandle = ModuleHandle.GetDynamicMethod(dm,
@@ -1044,14 +1064,15 @@ namespace System.Reflection.Emit
             m_maxStackSize = maxStackSize;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         public unsafe void SetCode(byte* code, int codeSize, int maxStackSize)
         {
             if (codeSize < 0)
-                throw new ArgumentOutOfRangeException(nameof(codeSize), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("codeSize", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
 
             if (codeSize > 0 && code == null)
-                throw new ArgumentNullException(nameof(code));
+                throw new ArgumentNullException("code");
             Contract.EndContractBlock();
 
             m_code = new byte[codeSize];
@@ -1069,14 +1090,15 @@ namespace System.Reflection.Emit
             m_exceptions = (exceptions != null) ? (byte[])exceptions.Clone() : EmptyArray<Byte>.Value;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         public unsafe void SetExceptions(byte* exceptions, int exceptionsSize)
         {
             if (exceptionsSize < 0)
-                throw new ArgumentOutOfRangeException(nameof(exceptionsSize), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("exceptionsSize", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
 
             if (exceptionsSize > 0 && exceptions == null)
-                throw new ArgumentNullException(nameof(exceptions));
+                throw new ArgumentNullException("exceptions");
             Contract.EndContractBlock();
 
             m_exceptions = new byte[exceptionsSize];
@@ -1093,14 +1115,15 @@ namespace System.Reflection.Emit
             m_localSignature = (localSignature != null) ? (byte[])localSignature.Clone() : EmptyArray<Byte>.Value;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         public unsafe void SetLocalSignature(byte* localSignature, int signatureSize)
         {
             if (signatureSize < 0)
-                throw new ArgumentOutOfRangeException(nameof(signatureSize), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("signatureSize", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
 
             if (signatureSize > 0 && localSignature == null)
-                throw new ArgumentNullException(nameof(localSignature));
+                throw new ArgumentNullException("localSignature");
             Contract.EndContractBlock();
 
             m_localSignature = new byte[signatureSize];
@@ -1113,6 +1136,7 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Public Scope Methods
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public int GetTokenFor(RuntimeMethodHandle method)
         {
             return DynamicScope.GetTokenFor(method);
@@ -1198,6 +1222,7 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Public Methods
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public int GetTokenFor(RuntimeMethodHandle method)
         {
             IRuntimeMethodInfo methodReal = method.GetMethodInfo();

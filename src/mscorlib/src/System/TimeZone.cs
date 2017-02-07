@@ -26,8 +26,10 @@ namespace System {
     using System.Globalization;
 
     [Serializable]
-    [System.Runtime.InteropServices.ComVisible(true)]
+[System.Runtime.InteropServices.ComVisible(true)]
+#if FEATURE_CORECLR
     [Obsolete("System.TimeZone has been deprecated.  Please investigate the use of System.TimeZoneInfo instead.")]
+#endif
     public abstract class TimeZone {
         private static volatile TimeZone currentTimeZone = null;
 

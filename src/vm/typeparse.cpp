@@ -364,7 +364,7 @@ HRESULT __stdcall TypeName::GetAssemblyName(BSTR* pszAssemblyName)
     return hr;
 }
 
-#if!defined(CROSSGEN_COMPILE)
+#if !defined(FEATURE_CORECLR) && !defined(CROSSGEN_COMPILE)
 SAFEHANDLE TypeName::GetSafeHandle()
 {
     CONTRACTL
@@ -588,7 +588,7 @@ void QCALLTYPE TypeName::QGetAssemblyName(TypeName * pTypeName, QCall::StringHan
 
     END_QCALL;
 }
-#endif//!CROSSGEN_COMPILE
+#endif //!FEATURE_CORECLR && !CROSSGEN_COMPILE
 
 //
 // TypeName::TypeNameParser
@@ -1926,7 +1926,7 @@ DomainAssembly * LoadDomainAssembly(
         {
             Exception *ex = GET_EXCEPTION();
 
-            // Let non-File-not-found exceptions propagate
+            // Let non-File-not-found execeptions propagate
             if (EEFileLoadException::GetFileLoadKind(ex->GetHR()) != kFileNotFoundException)
                 EX_RETHROW;
         }

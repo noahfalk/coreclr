@@ -27,12 +27,14 @@ namespace System.Globalization {
         internal String m_bodyName;
         internal uint   m_flags;
     
+        [SecurityCritical]
         unsafe internal CodePageDataItem(int dataIndex) {
             m_dataIndex = dataIndex;
             m_uiFamilyCodePage = EncodingTable.codePageDataPtr[dataIndex].uiFamilyCodePage;
             m_flags = EncodingTable.codePageDataPtr[dataIndex].flags;
         }
 
+        [System.Security.SecurityCritical]
         unsafe internal static String CreateString(sbyte* pStrings, uint index)
         {
             if (pStrings[0] == '|') // |str1|str2|str3
@@ -60,7 +62,7 @@ namespace System.Globalization {
                     }
                 }
 
-                throw new ArgumentException(null, nameof(pStrings));
+                throw new ArgumentException("pStrings");
             }
             else
             {
@@ -69,6 +71,7 @@ namespace System.Globalization {
         }
 
         unsafe public String WebName {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (m_webName==null) {
                     m_webName = CreateString(EncodingTable.codePageDataPtr[m_dataIndex].Names, 0);
@@ -84,6 +87,7 @@ namespace System.Globalization {
         }
     
         unsafe public String HeaderName {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (m_headerName==null) {
                     m_headerName = CreateString(EncodingTable.codePageDataPtr[m_dataIndex].Names, 1);
@@ -93,6 +97,7 @@ namespace System.Globalization {
         }
     
         unsafe public String BodyName {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (m_bodyName==null) {
                     m_bodyName = CreateString(EncodingTable.codePageDataPtr[m_dataIndex].Names, 2);

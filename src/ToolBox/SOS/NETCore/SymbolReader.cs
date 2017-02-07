@@ -28,16 +28,13 @@ namespace SOS
         {
             public IntPtr points;
             public int size;
-            public IntPtr locals;
-            public int localsSize;
-
         }
 
         /// <summary>
         /// Read memory callback
         /// </summary>
         /// <returns>number of bytes read or 0 for error</returns>
-        internal unsafe delegate int ReadMemoryDelegate(ulong address, byte* buffer, int count);
+        internal unsafe delegate int ReadMemoryDelegate(IntPtr address, byte* buffer, int count);
 
         private sealed class OpenedReader : IDisposable
         {
@@ -61,7 +58,7 @@ namespace SOS
         /// </summary>
         private class TargetStream : Stream
         {
-            readonly ulong _address;
+            readonly IntPtr _address;
             readonly ReadMemoryDelegate _readMemory;
 
             public override long Position { get; set; }
@@ -70,7 +67,7 @@ namespace SOS
             public override bool CanRead { get { return true; } }
             public override bool CanWrite { get { return false; } }
 
-            public TargetStream(ulong address, int size, ReadMemoryDelegate readMemory)
+            public TargetStream(IntPtr address, int size, ReadMemoryDelegate readMemory)
                 : base()
             {
                 _address = address;
@@ -89,7 +86,7 @@ namespace SOS
                 {
                     fixed (byte* p = &buffer[offset])
                     {
-                        int read  = _readMemory(_address + (ulong)Position, p, count);
+                        int read  = _readMemory(new IntPtr(_address.ToInt64() + Position), p, count);
                         Position += read;
                         return read;
                     }
@@ -129,19 +126,6 @@ namespace SOS
         }
 
         /// <summary>
-        /// Quick fix for Path.GetFileName which incorrectly handles Windows-style paths on Linux
-        /// </summary>
-        /// <param name="pathName"> File path to be processed </param>
-        /// <returns>Last component of path</returns>
-        private static string GetFileName(string pathName)
-        {
-            int pos = pathName.LastIndexOfAny(new char[] { '/', '\\'});
-            if (pos < 0)
-                return pathName;
-            return pathName.Substring(pos + 1);
-        }
-
-        /// <summary>
         /// Checks availability of debugging information for given assembly.
         /// </summary>
         /// <param name="assemblyPath">
@@ -157,18 +141,18 @@ namespace SOS
         /// <param name="inMemoryPdbAddress">in memory PDB address or zero</param>
         /// <param name="inMemoryPdbSize">in memory PDB size</param>
         /// <returns>Symbol reader handle or zero if error</returns>
-        internal static IntPtr LoadSymbolsForModule(string assemblyPath, bool isFileLayout, ulong loadedPeAddress, int loadedPeSize, 
-            ulong inMemoryPdbAddress, int inMemoryPdbSize, ReadMemoryDelegate readMemory)
+        internal static IntPtr LoadSymbolsForModule(string assemblyPath, bool isFileLayout, IntPtr loadedPeAddress, int loadedPeSize, 
+            IntPtr inMemoryPdbAddress, int inMemoryPdbSize, ReadMemoryDelegate readMemory)
         {
             try
             {
                 TargetStream peStream = null;
-                if (assemblyPath == null && loadedPeAddress != 0)
+                if (assemblyPath == null && loadedPeAddress != IntPtr.Zero)
                 {
                     peStream = new TargetStream(loadedPeAddress, loadedPeSize, readMemory);
                 }
                 TargetStream pdbStream = null;
-                if (inMemoryPdbAddress != 0)
+                if (inMemoryPdbAddress != IntPtr.Zero)
                 {
                     pdbStream = new TargetStream(inMemoryPdbAddress, inMemoryPdbSize, readMemory);
                 }
@@ -223,7 +207,7 @@ namespace SOS
 
             try
             {
-                string fileName = GetFileName(filePath);
+                string fileName = Path.GetFileName(filePath);
                 foreach (MethodDebugInformationHandle methodDebugInformationHandle in reader.MethodDebugInformation)
                 {
                     MethodDebugInformation methodDebugInfo = reader.GetMethodDebugInformation(methodDebugInformationHandle);
@@ -231,7 +215,7 @@ namespace SOS
                     foreach (SequencePoint point in sequencePoints)
                     {
                         string sourceName = reader.GetString(reader.GetDocument(point.Document).Name);
-                        if (point.StartLine == lineNumber && GetFileName(sourceName) == fileName)
+                        if (point.StartLine == lineNumber && Path.GetFileName(sourceName) == fileName)
                         {
                             methodToken = MetadataTokens.GetToken(methodDebugInformationHandle.ToDefinitionHandle());
                             ilOffset = point.Offset;
@@ -394,48 +378,7 @@ namespace SOS
             }
             return false;
         }
-        internal static bool GetLocalsInfoForMethod(string assemblyPath, int methodToken, out List<string> locals)
-        {
-            locals = null;
 
-            OpenedReader openedReader = GetReader(assemblyPath, isFileLayout: true, peStream: null, pdbStream: null);
-            if (openedReader == null)
-                return false;
-
-            using (openedReader)
-            {
-                try
-                {
-                    Handle handle = MetadataTokens.Handle(methodToken);
-                    if (handle.Kind != HandleKind.MethodDefinition)
-                        return false;
-
-                    locals = new List<string>();
-
-                    MethodDebugInformationHandle methodDebugHandle =
-                        ((MethodDefinitionHandle)handle).ToDebugInformationHandle();
-                    LocalScopeHandleCollection localScopes = openedReader.Reader.GetLocalScopes(methodDebugHandle);
-                    foreach (LocalScopeHandle scopeHandle in localScopes)
-                    {
-                        LocalScope scope = openedReader.Reader.GetLocalScope(scopeHandle);
-                        LocalVariableHandleCollection localVars = scope.GetLocalVariables();
-                        foreach (LocalVariableHandle varHandle in localVars)
-                        {
-                            LocalVariable localVar = openedReader.Reader.GetLocalVariable(varHandle);
-                            if (localVar.Attributes == LocalVariableAttributes.DebuggerHidden)
-                                continue;
-                            locals.Add(openedReader.Reader.GetString(localVar.Name));
-                        }
-                    }
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-            return true;
-
-        }
         /// <summary>
         /// Returns source name, line numbers and IL offsets for given method token.
         /// </summary>
@@ -446,44 +389,23 @@ namespace SOS
         /// <remarks>used by the gdb JIT support (not SOS). Does not support in-memory PEs or PDBs</remarks>
         internal static bool GetInfoForMethod(string assemblyPath, int methodToken, ref MethodDebugInfo debugInfo)
         {
-            try
+            List<DebugInfo> points = null;
+
+            if (!GetDebugInfoForMethod(assemblyPath, methodToken, out points))
             {
-                List<DebugInfo> points = null;
-                List<string> locals = null;
-
-                if (!GetDebugInfoForMethod(assemblyPath, methodToken, out points))
-                {
-                    return false;
-                }
-
-                if (!GetLocalsInfoForMethod(assemblyPath, methodToken, out locals))
-                {
-                    return false;
-                }
-                var structSize = Marshal.SizeOf<DebugInfo>();
-
-                debugInfo.size = points.Count;
-                var ptr = debugInfo.points;
-
-                foreach (var info in points)
-                {
-                    Marshal.StructureToPtr(info, ptr, false);
-                    ptr = (IntPtr)(ptr.ToInt64() + structSize);
-                }
-                debugInfo.localsSize = locals.Count;
-                debugInfo.locals = Marshal.AllocHGlobal(debugInfo.localsSize * Marshal.SizeOf<IntPtr>());
-                IntPtr ptrLocals = debugInfo.locals;
-                foreach (string s in locals)
-                {
-                    Marshal.WriteIntPtr(ptrLocals, Marshal.StringToHGlobalUni(s));
-                    ptrLocals += Marshal.SizeOf<IntPtr>();
-                }
-                return true;
+                return false;
             }
-            catch
+            var structSize = Marshal.SizeOf<DebugInfo>();
+
+            debugInfo.size = points.Count;
+            var ptr = debugInfo.points;
+
+            foreach (var info in points)
             {
+                Marshal.StructureToPtr(info, ptr, false);
+                ptr = (IntPtr)(ptr.ToInt64() + structSize);
             }
-            return false;
+            return true;
         }
 
         /// <summary>
@@ -517,10 +439,12 @@ namespace SOS
 
                     foreach (SequencePoint point in sequencePoints)
                     {
+                        if (point.StartLine == 0 || point.StartLine == SequencePoint.HiddenLine)
+                            continue;
 
                         DebugInfo debugInfo = new DebugInfo();
                         debugInfo.lineNumber = point.StartLine;
-                        debugInfo.fileName = GetFileName(openedReader.Reader.GetString(openedReader.Reader.GetDocument(point.Document).Name));
+                        debugInfo.fileName = openedReader.Reader.GetString(openedReader.Reader.GetDocument(point.Document).Name);
                         debugInfo.ilOffset = point.Offset;
                         points.Add(debugInfo);
                     }
@@ -678,7 +602,7 @@ namespace SOS
                 {
                     try
                     {
-                        pdbPath = Path.Combine(Path.GetDirectoryName(assemblyPath), GetFileName(pdbPath));
+                        pdbPath = Path.Combine(Path.GetDirectoryName(assemblyPath), Path.GetFileName(pdbPath));
                     }
                     catch
                     {

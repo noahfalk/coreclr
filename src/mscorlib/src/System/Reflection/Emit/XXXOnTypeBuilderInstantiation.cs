@@ -11,7 +11,6 @@ namespace System.Reflection.Emit
     using System.Collections;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     internal sealed class MethodOnTypeBuilderInstantiation : MethodInfo
@@ -31,7 +30,7 @@ namespace System.Reflection.Emit
         #region Constructor
         internal MethodOnTypeBuilderInstantiation(MethodInfo method, TypeBuilderInstantiation type)
         {
-            Debug.Assert(method is MethodBuilder || method is RuntimeMethodInfo);
+            Contract.Assert(method is MethodBuilder || method is RuntimeMethodInfo);
 
             m_method = method;
             m_type = type;
@@ -61,7 +60,7 @@ namespace System.Reflection.Emit
                     return mb.MetadataTokenInternal;
                 else
                 {
-                    Debug.Assert(m_method is RuntimeMethodInfo);
+                    Contract.Assert(m_method is RuntimeMethodInfo);
                     return m_method.MetadataToken;
                 }
             }
@@ -123,7 +122,7 @@ namespace System.Reflection.Emit
         #region Constructor
         internal ConstructorOnTypeBuilderInstantiation(ConstructorInfo constructor, TypeBuilderInstantiation type)
         {
-            Debug.Assert(constructor is ConstructorBuilder || constructor is RuntimeConstructorInfo);
+            Contract.Assert(constructor is ConstructorBuilder || constructor is RuntimeConstructorInfo);
 
             m_ctor = constructor;
             m_type = type;
@@ -158,7 +157,7 @@ namespace System.Reflection.Emit
                     return cb.MetadataTokenInternal;
                 else
                 {
-                    Debug.Assert(m_ctor is RuntimeConstructorInfo);
+                    Contract.Assert(m_ctor is RuntimeConstructorInfo);
                     return m_ctor.MetadataToken;
                 }
             }
@@ -232,7 +231,7 @@ namespace System.Reflection.Emit
         #region Constructor
         internal FieldOnTypeBuilderInstantiation(FieldInfo field, TypeBuilderInstantiation type)
         {
-            Debug.Assert(field is FieldBuilder || field is RuntimeFieldInfo);
+            Contract.Assert(field is FieldBuilder || field is RuntimeFieldInfo);
 
             m_field = field;
             m_type = type;
@@ -259,7 +258,7 @@ namespace System.Reflection.Emit
                     return fb.MetadataTokenInternal;
                 else
                 {
-                    Debug.Assert(m_field is RuntimeFieldInfo);
+                    Contract.Assert(m_field is RuntimeFieldInfo);
                     return m_field.MetadataToken;
                 }
             }

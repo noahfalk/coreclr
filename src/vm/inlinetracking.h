@@ -229,4 +229,77 @@ private:
 
 typedef DPTR(PersistentInlineTrackingMap) PTR_PersistentInlineTrackingMap;
 
+// This is a R2R encoding variation for the map
+//
+// It has several differences from the NGEN encoding. NGEN refers to methods outside the current assembly via module index + foreign module's token
+// but R2R can't take those fragile dependencies. Instead we refer to all methods via MethodDef tokens in the current assembly's metadata. This
+// is sufficient for everything we need to track now but in the future we may need to upgrade to a more expressive encoding. Currently NonVersionable
+// attributed methods may be inlined but will not be tracked. This shows up as a known limitation in the profiler APIs that expose this data.
+//
+// The format changes from NGEN:
+//  a) The InlineIndex uses the full 32bit MethodDef token as the key. This key is lossless, and thus collision free.
+//  b) InlineeModuleZapIndex is omitted because the module is always the current one being compiled.
+//  c) InlinerModuleZapIndex is similarly omitted.
+//  d) (b) and (c) together imply there is at most one entry in the inlineeIndex for any given key
+//  e) A trivial header is now explicitly described
+//  
+//
+// The resulting serialized format is a sequence of blobs:
+// 1) Header (4 byte aligned)
+//       short   MajorVersion - currently set to 1, increment on breaking change
+//       short   MinorVersion - currently set to 0, increment on non-breaking format addition
+//       int     SizeOfInlineIndex
+// 
+// 2) InlineIndex - Immediately following header. This is a sorted (by InlineeRecord.key) array of InlineeRecords, given a method token (32 bits)
+//                  we use binary search to find if this method has ever been inlined in R2R code of this image. Each record has m_offset, which is
+//                  an offset inside InlinersBuffer, it has more data on where the method got inlined. There is at most one InlineeRecord with the 
+//                  same key.
+//
+// 3) InlinersBuffer - Located immediately following the InlineIndex (Header RVA + sizeof(Header) + header.SizeOfInlineIndex)
+//                  This is a byte array compressed by NibbleWriter. At any valid offset taken from InlineeRecord from InlineeIndex, there is a 
+//                  compressed chunk  of this format: 
+//                  [N - # of following inliners] [#1 inliner method RID] ... [#N inliner method RID]
+//                  [1..N inliner RID] are the sorted diff compressed method RIDs interpreted as MethodDefs in this assembly's metadata, 
+//                  Those methods directly or indirectly inlined code from inlinee method specified by InlineeRecord.
+//                  Since all the RIDs are sorted we'are actually able to save some space by using diffs instead of values, because NibbleWriter 
+//                  is good at saving small numbers.
+//                  For example for RIDs: 5, 6, 19, 25, 30, we'll write: 5, 1 (=6-5), 13 (=19-6), 6 (=25-19), 5 (=30-25)
+//
+// InlineeIndex
+// +-----+-----+---------------------------------------+-----+-----+
+// |  -  |  -  | m_key {MethodDefToken); m_offset      |  -  |  -  |  
+// +-----+-----+---------------------------------|-----+-----+-----+
+//                                               |
+//                    +--------------------------+
+//                    |
+// InlinersBuffer    \-/
+// +-----------------+------------------------+------+------+--------+------+-------------+
+// |  -     -     -  | SavedInlinersCount (N) | rid1 | rid2 | ...... | ridN |  -   -   -  |
+// +-----------------+------------------------+------+------+--------+------+-------------+
+//
+
+class PersistentInlineTrackingMapR2R
+{
+private:
+    PTR_Module m_module;
+
+    PTR_InlineeRecord m_inlineeIndex;
+    DWORD m_inlineeIndexSize;
+
+    PTR_BYTE m_inlinersBuffer;
+    DWORD m_inlinersBufferSize;
+
+public:
+
+    PersistentInlineTrackingMapR2R(Module *module)
+        : m_module(dac_cast<PTR_Module>(module))
+    {
+        LIMITED_METHOD_CONTRACT;
+        _ASSERTE(module != NULL);
+    }
+
+    COUNT_T GetInliners(PTR_Module inlineeOwnerMod, mdMethodDef inlineeTkn, COUNT_T inlinersSize, MethodInModule inliners[], BOOL *incompleteData);
+
+};
+
 #endif //INLINETRACKING_H_

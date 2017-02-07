@@ -16,12 +16,12 @@ namespace System.Reflection.Emit
     using System.Collections.Generic;
     using System.Security.Permissions;
     using System.Runtime.InteropServices;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
+    [HostProtection(MayLeakOnAbort = true)]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_MethodBuilder))]
-    [System.Runtime.InteropServices.ComVisible(true)]
+[System.Runtime.InteropServices.ComVisible(true)]
     public sealed class MethodBuilder : MethodInfo, _MethodBuilder
     {
         #region Private Data Members
@@ -90,16 +90,16 @@ namespace System.Reflection.Emit
             ModuleBuilder mod, TypeBuilder type, bool bIsGlobalMethod)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
 
             if (name.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), nameof(name));
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), "name");
 
             if (name[0] == '\0')
-                throw new ArgumentException(Environment.GetResourceString("Argument_IllegalName"), nameof(name));
+                throw new ArgumentException(Environment.GetResourceString("Argument_IllegalName"), "name");
 
             if (mod == null)
-                throw new ArgumentNullException(nameof(mod));
+                throw new ArgumentNullException("mod");
             Contract.EndContractBlock();
 
             if (parameterTypes != null)
@@ -107,7 +107,7 @@ namespace System.Reflection.Emit
                 foreach(Type t in parameterTypes)
                 {
                     if (t == null)
-                        throw new ArgumentNullException(nameof(parameterTypes));
+                        throw new ArgumentNullException("parameterTypes");
                 }
             }
 
@@ -196,13 +196,14 @@ namespace System.Reflection.Emit
             m_module.CheckContext(types);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void CreateMethodBodyHelper(ILGenerator il)
         {
             // Sets the IL of the method.  An ILGenerator is passed as an argument and the method
             // queries this instance to get all of the information which it needs.
             if (il == null)
             {
-                throw new ArgumentNullException(nameof(il));
+                throw new ArgumentNullException("il");
             }
             Contract.EndContractBlock();
 
@@ -366,7 +367,7 @@ namespace System.Reflection.Emit
             }
             else
             {
-                Debug.Assert(false, "We should never get here!");
+                Contract.Assert(false, "We should never get here!");
                 return null;
             }
         }
@@ -388,6 +389,7 @@ namespace System.Reflection.Emit
             return m_mdMethodFixups;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal SignatureHelper GetMethodSignature()
         {
             if (m_parameterTypes == null)
@@ -478,6 +480,7 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Object Overrides
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool Equals(Object obj) {
             if (!(obj is MethodBuilder)) {
                 return false;
@@ -502,6 +505,7 @@ namespace System.Reflection.Emit
             return this.m_strName.GetHashCode();
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override String ToString()
         {
             StringBuilder sb = new StringBuilder(1000);
@@ -595,17 +599,17 @@ namespace System.Reflection.Emit
 
         public override bool IsSecurityCritical
         {
-            get { return true; }
+            get { throw new NotSupportedException(Environment.GetResourceString("NotSupported_DynamicModule")); }
         }
 
         public override bool IsSecuritySafeCritical
         {
-            get { return false; }
+            get { throw new NotSupportedException(Environment.GetResourceString("NotSupported_DynamicModule")); }
         }
 
         public override bool IsSecurityTransparent
         {
-            get { return false; }
+            get { throw new NotSupportedException(Environment.GetResourceString("NotSupported_DynamicModule")); }
         }
         #endregion
 
@@ -689,10 +693,10 @@ namespace System.Reflection.Emit
         public GenericTypeParameterBuilder[] DefineGenericParameters (params string[] names)
         {
             if (names == null)
-                throw new ArgumentNullException(nameof(names));
+                throw new ArgumentNullException("names");
 
             if (names.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), nameof(names));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), "names");
             Contract.EndContractBlock();
 
             if (m_inst != null)
@@ -700,7 +704,7 @@ namespace System.Reflection.Emit
 
             for (int i = 0; i < names.Length; i ++)
                 if (names[i] == null)
-                    throw new ArgumentNullException(nameof(names));
+                    throw new ArgumentNullException("names");
 
             if (m_tkMethod.Token != 0)
                 throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_MethodBuilderBaked"));
@@ -717,6 +721,7 @@ namespace System.Reflection.Emit
         #endregion
 
         #region Public Members
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public MethodToken GetToken()
         {
             // We used to always "tokenize" a MethodBuilder when it is constructed. After change list 709498
@@ -762,15 +767,16 @@ namespace System.Reflection.Emit
                 m_containingType.m_lastTokenizedMethod = i;
             }
 
-            Debug.Assert(currentMethod == this, "We should have found this method in m_containingType.m_listMethods");
-            Debug.Assert(currentToken.Token != 0, "The token should not be 0");
+            Contract.Assert(currentMethod == this, "We should have found this method in m_containingType.m_listMethods");
+            Contract.Assert(currentToken.Token != 0, "The token should not be 0");
 
             return currentToken;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private MethodToken GetTokenNoLock()
         {
-            Debug.Assert(m_tkMethod.Token == 0, "m_tkMethod should not have been initialized");
+            Contract.Assert(m_tkMethod.Token == 0, "m_tkMethod should not have been initialized");
 
             int sigLength;
             byte[] sigBytes = GetMethodSignature().InternalGetSignature(out sigLength);
@@ -835,6 +841,7 @@ namespace System.Reflection.Emit
         }
 
        
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public ParameterBuilder DefineParameter(int position, ParameterAttributes attributes, String strParamName)
         {
             if (position < 0)
@@ -851,6 +858,7 @@ namespace System.Reflection.Emit
             return new ParameterBuilder(this, position, attributes, strParamName);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [Obsolete("An alternate API is available: Emit the MarshalAs custom attribute instead. http://go.microsoft.com/fwlink/?linkid=14202")]
         public void SetMarshal(UnmanagedMarshal unmanagedMarshal)
         {
@@ -907,15 +915,55 @@ namespace System.Reflection.Emit
             m_symCustomAttrs.Add(new SymCustomAttr(name, data));
         }
 
+#if FEATURE_CAS_POLICY
+        [System.Security.SecuritySafeCritical]  // auto-generated
+        public void AddDeclarativeSecurity(SecurityAction action, PermissionSet pset)
+        {
+            if (pset == null)
+                throw new ArgumentNullException("pset");
+            Contract.EndContractBlock();
+
+            ThrowIfGeneric ();
+
+#pragma warning disable 618
+            if (!Enum.IsDefined(typeof(SecurityAction), action) ||
+                action == SecurityAction.RequestMinimum ||
+                action == SecurityAction.RequestOptional ||
+                action == SecurityAction.RequestRefuse)
+            {
+                throw new ArgumentOutOfRangeException("action");
+            }
+#pragma warning restore 618
+
+            // cannot declarative security after type is created
+            m_containingType.ThrowIfCreated();
+
+            // Translate permission set into serialized format (uses standard binary serialization format).
+            byte[] blob = null;
+            int length = 0;
+            if (!pset.IsEmpty())
+            {
+                blob = pset.EncodeXml();
+                length = blob.Length;
+            }
+
+            // Write the blob into the metadata.
+            TypeBuilder.AddDeclarativeSecurity(m_module.GetNativeHandle(), MetadataTokenInternal, action, blob, length);
+        }
+#endif // FEATURE_CAS_POLICY
+
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         public void SetMethodBody(byte[] il, int maxStack, byte[] localSignature, IEnumerable<ExceptionHandler> exceptionHandlers, IEnumerable<int> tokenFixups)
         {
             if (il == null)
             {
-                throw new ArgumentNullException(nameof(il), Environment.GetResourceString("ArgumentNull_Array"));
+                throw new ArgumentNullException("il", Environment.GetResourceString("ArgumentNull_Array"));
             }
             if (maxStack < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(maxStack), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("maxStack", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
             Contract.EndContractBlock();
 
@@ -1008,6 +1056,9 @@ namespace System.Reflection.Emit
         /// <summary>
         /// Obsolete.
         /// </summary>
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         public void CreateMethodBody(byte[] il, int count)
         {
             ThrowIfGeneric();
@@ -1024,7 +1075,7 @@ namespace System.Reflection.Emit
 
             if (il != null && (count < 0 || count > il.Length))
             {
-                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_Index"));
             }
 
             if (il == null)
@@ -1044,6 +1095,7 @@ namespace System.Reflection.Emit
             m_bIsBaked = true;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetImplementationFlags(MethodImplAttributes attributes) 
         {
             ThrowIfGeneric ();
@@ -1106,6 +1158,7 @@ namespace System.Reflection.Emit
 
         public String Signature 
         { 
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get 
             { 
                 return GetMethodSignature().ToString(); 
@@ -1113,13 +1166,18 @@ namespace System.Reflection.Emit
         }
 
 
+#if FEATURE_CORECLR
+[System.Security.SecurityCritical] // auto-generated
+#else
+[System.Security.SecuritySafeCritical]
+#endif
 [System.Runtime.InteropServices.ComVisible(true)]
         public void SetCustomAttribute(ConstructorInfo con, byte[] binaryAttribute)
         {
             if (con == null)
-                throw new ArgumentNullException(nameof(con));
+                throw new ArgumentNullException("con");
             if (binaryAttribute == null)
-                throw new ArgumentNullException(nameof(binaryAttribute));
+                throw new ArgumentNullException("binaryAttribute");
             Contract.EndContractBlock();
 
             ThrowIfGeneric();
@@ -1133,10 +1191,11 @@ namespace System.Reflection.Emit
                 ParseCA(con, binaryAttribute);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public void SetCustomAttribute(CustomAttributeBuilder customBuilder)
         {
             if (customBuilder == null)
-                throw new ArgumentNullException(nameof(customBuilder));
+                throw new ArgumentNullException("customBuilder");
             Contract.EndContractBlock();
 
             ThrowIfGeneric();
@@ -1180,6 +1239,29 @@ namespace System.Reflection.Emit
         internal bool m_isDllImport = false;
 
         #endregion
+
+#if !FEATURE_CORECLR
+        void _MethodBuilder.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _MethodBuilder.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _MethodBuilder.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _MethodBuilder.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
+
     }
 
     internal class LocalSymInfo
@@ -1284,6 +1366,9 @@ namespace System.Reflection.Emit
             checked { m_iNameSpaceCount++; }
         }
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal virtual void EmitLocalSymInfo(ISymbolWriter symWriter)
         {
             int         i;
@@ -1383,51 +1468,51 @@ namespace System.Reflection.Emit
         {
             if (tryOffset < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(tryOffset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("tryOffset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
 
             if (tryLength < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(tryLength), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("tryLength", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
 
             if (filterOffset < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(filterOffset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("filterOffset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
 
             if (handlerOffset < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(handlerOffset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("handlerOffset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
 
             if (handlerLength < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(handlerLength), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("handlerLength", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
 
             if ((long)tryOffset + tryLength > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException(nameof(tryLength), Environment.GetResourceString("ArgumentOutOfRange_Range", 0, Int32.MaxValue - tryOffset));
+                throw new ArgumentOutOfRangeException("tryLength", Environment.GetResourceString("ArgumentOutOfRange_Range", 0, Int32.MaxValue - tryOffset));
             }
 
             if ((long)handlerOffset + handlerLength > Int32.MaxValue)
             {
-                throw new ArgumentOutOfRangeException(nameof(handlerLength), Environment.GetResourceString("ArgumentOutOfRange_Range", 0, Int32.MaxValue - handlerOffset));
+                throw new ArgumentOutOfRangeException("handlerLength", Environment.GetResourceString("ArgumentOutOfRange_Range", 0, Int32.MaxValue - handlerOffset));
             }
 
             // Other tokens migth also be invalid. We only check nil tokens as the implementation (SectEH_Emit in corhlpr.cpp) requires it,
             // and we can't check for valid tokens until the module is baked.
             if (kind == ExceptionHandlingClauseOptions.Clause && (exceptionTypeToken & 0x00FFFFFF) == 0)
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidTypeToken", exceptionTypeToken), nameof(exceptionTypeToken));
+                throw new ArgumentException(Environment.GetResourceString("Argument_InvalidTypeToken", exceptionTypeToken), "exceptionTypeToken");
             }
 
             Contract.EndContractBlock();
 
             if (!IsValidKind(kind))
             {
-                throw new ArgumentOutOfRangeException(nameof(kind), Environment.GetResourceString("ArgumentOutOfRange_Enum"));
+                throw new ArgumentOutOfRangeException("kind", Environment.GetResourceString("ArgumentOutOfRange_Enum"));
             }
             
             m_tryStartOffset = tryOffset;
@@ -1442,13 +1527,13 @@ namespace System.Reflection.Emit
         internal ExceptionHandler(int tryStartOffset, int tryEndOffset, int filterOffset, int handlerStartOffset, int handlerEndOffset,
             int kind, int exceptionTypeToken)
         {
-            Debug.Assert(tryStartOffset >= 0);
-            Debug.Assert(tryEndOffset >= 0);
-            Debug.Assert(filterOffset >= 0);
-            Debug.Assert(handlerStartOffset >= 0);
-            Debug.Assert(handlerEndOffset >= 0);
-            Debug.Assert(IsValidKind((ExceptionHandlingClauseOptions)kind));
-            Debug.Assert(kind != (int)ExceptionHandlingClauseOptions.Clause || (exceptionTypeToken & 0x00FFFFFF) != 0);
+            Contract.Assert(tryStartOffset >= 0);
+            Contract.Assert(tryEndOffset >= 0);
+            Contract.Assert(filterOffset >= 0);
+            Contract.Assert(handlerStartOffset >= 0);
+            Contract.Assert(handlerEndOffset >= 0);
+            Contract.Assert(IsValidKind((ExceptionHandlingClauseOptions)kind));
+            Contract.Assert(kind != (int)ExceptionHandlingClauseOptions.Clause || (exceptionTypeToken & 0x00FFFFFF) != 0);
 
             m_tryStartOffset = tryStartOffset;
             m_tryEndOffset = tryEndOffset;

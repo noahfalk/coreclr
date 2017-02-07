@@ -81,6 +81,20 @@ namespace System.Security
                     enm.Current = perm;
                     return true;
                 }
+
+#if FEATURE_CAS_POLICY
+                SecurityElement elem = obj as SecurityElement;
+
+                if (elem != null)
+                {
+                    perm = m_permSet.CreatePermission(elem, enm.Index);
+                    if (perm != null)
+                    {
+                        enm.Current = perm;
+                        return true;
+                    }
+                }
+#endif // FEATURE_CAS_POLICY
             }
             return false;
         }

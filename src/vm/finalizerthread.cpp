@@ -295,7 +295,7 @@ Object * FinalizerThread::FinalizeAllObjects(Object* fobj, int bitToCheck)
         {
             return NULL;
         }
-        fobj = GCHeapUtilities::GetGCHeap()->GetNextFinalizable();
+        fobj = GCHeap::GetGCHeap()->GetNextFinalizable();
     }
 
     Thread *pThread = GetThread();
@@ -320,7 +320,7 @@ Object * FinalizerThread::FinalizeAllObjects(Object* fobj, int bitToCheck)
             {
                 return NULL;
             }
-            fobj = GCHeapUtilities::GetGCHeap()->GetNextFinalizable();
+            fobj = GCHeap::GetGCHeap()->GetNextFinalizable();
         }
         else
         {
@@ -337,7 +337,7 @@ Object * FinalizerThread::FinalizeAllObjects(Object* fobj, int bitToCheck)
                 {
                     return NULL;
                 }
-                fobj = GCHeapUtilities::GetGCHeap()->GetNextFinalizable();
+                fobj = GCHeap::GetGCHeap()->GetNextFinalizable();
             }
         }
     }
@@ -533,7 +533,7 @@ void FinalizerThread::WaitForFinalizerEvent (CLREvent *event)
             case (WAIT_OBJECT_0 + kLowMemoryNotification):
                 //short on memory GC immediately
                 GetFinalizerThread()->DisablePreemptiveGC();
-                GCHeapUtilities::GetGCHeap()->GarbageCollect(0, TRUE);
+                GCHeap::GetGCHeap()->GarbageCollect(0, TRUE);
                 GetFinalizerThread()->EnablePreemptiveGC();
                 //wait only on the event for 2s 
                 switch (event->Wait(2000, FALSE))
@@ -584,7 +584,7 @@ void FinalizerThread::WaitForFinalizerEvent (CLREvent *event)
                 if (WaitForSingleObject(MHandles[kLowMemoryNotification], 0) == WAIT_OBJECT_0) {
                     //short on memory GC immediately
                     GetFinalizerThread()->DisablePreemptiveGC();
-                    GCHeapUtilities::GetGCHeap()->GarbageCollect(0, TRUE);
+                    GCHeap::GetGCHeap()->GarbageCollect(0, TRUE);
                     GetFinalizerThread()->EnablePreemptiveGC();
                 }
                 //wait only on the event for 2s
@@ -604,7 +604,7 @@ void FinalizerThread::WaitForFinalizerEvent (CLREvent *event)
                         if (sLastLowMemoryFromHost != 0)
                         {
                             GetFinalizerThread()->DisablePreemptiveGC();
-                            GCHeapUtilities::GetGCHeap()->GarbageCollect(0, TRUE);
+                            GCHeap::GetGCHeap()->GarbageCollect(0, TRUE);
                             GetFinalizerThread()->EnablePreemptiveGC();
                         }
                     }
@@ -677,7 +677,7 @@ VOID FinalizerThread::FinalizerThreadWorker(void *args)
         {
             s_forcedGCInProgress = true;
             GetFinalizerThread()->DisablePreemptiveGC();
-            GCHeapUtilities::GetGCHeap()->GarbageCollect(2, FALSE, collection_blocking);
+            GCHeap::GetGCHeap()->GarbageCollect(2, FALSE, collection_blocking);
             GetFinalizerThread()->EnablePreemptiveGC();
             s_forcedGCInProgress = false;
             
@@ -710,14 +710,14 @@ VOID FinalizerThread::FinalizerThreadWorker(void *args)
 
             do
             {
-                last_gc_count = GCHeapUtilities::GetGCHeap()->CollectionCount(0);
+                last_gc_count = GCHeap::GetGCHeap()->CollectionCount(0);
                 GetFinalizerThread()->m_GCOnTransitionsOK = FALSE; 
                 GetFinalizerThread()->EnablePreemptiveGC();
                 __SwitchToThread (0, ++dwSwitchCount);
                 GetFinalizerThread()->DisablePreemptiveGC();             
                 // If no GCs happended, then we assume we are quiescent
                 GetFinalizerThread()->m_GCOnTransitionsOK = TRUE; 
-            } while (GCHeapUtilities::GetGCHeap()->CollectionCount(0) - last_gc_count > 0);
+            } while (GCHeap::GetGCHeap()->CollectionCount(0) - last_gc_count > 0);
         }
 #endif //_DEBUG
 
@@ -747,7 +747,7 @@ VOID FinalizerThread::FinalizerThreadWorker(void *args)
             }
             else if (UnloadingAppDomain == NULL)
                 break;
-            else if (!GCHeapUtilities::GetGCHeap()->FinalizeAppDomain(UnloadingAppDomain, fRunFinalizersOnUnload))
+            else if (!GCHeap::GetGCHeap()->FinalizeAppDomain(UnloadingAppDomain, fRunFinalizersOnUnload))
             {
                 break;
             }
@@ -916,7 +916,7 @@ DWORD __stdcall FinalizerThread::FinalizerThreadStart(void *args)
             if (CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_FinalizeOnShutdown) != 0)
             {
                 // Finalize all registered objects during shutdown, even they are still reachable.
-                GCHeapUtilities::GetGCHeap()->SetFinalizeQueueForShutdown(FALSE);
+                GCHeap::GetGCHeap()->SetFinalizeQueueForShutdown(FALSE);
 
                 // This will apply any policy for swallowing exceptions during normal
                 // processing, without allowing the finalizer thread to disappear on us.
@@ -1380,7 +1380,7 @@ BOOL FinalizerThread::FinalizerThreadWatchDogHelper()
     }
     else
     {
-        prevCount = GCHeapUtilities::GetGCHeap()->GetNumberOfFinalizable();
+        prevCount = GCHeap::GetGCHeap()->GetNumberOfFinalizable();
     }
 
     DWORD maxTry = (DWORD)(totalWaitTimeout*1.0/FINALIZER_WAIT_TIMEOUT + 0.5);
@@ -1447,11 +1447,11 @@ BOOL FinalizerThread::FinalizerThreadWatchDogHelper()
         }
         else
         {
-            curCount = GCHeapUtilities::GetGCHeap()->GetNumberOfFinalizable();
+            curCount = GCHeap::GetGCHeap()->GetNumberOfFinalizable();
         }
 
         if ((prevCount <= curCount)
-            && !GCHeapUtilities::GetGCHeap()->ShouldRestartFinalizerWatchDog()
+            && !GCHeap::GetGCHeap()->ShouldRestartFinalizerWatchDog()
             && (pThread == NULL || !(pThread->m_State & (Thread::TS_UserSuspendPending | Thread::TS_DebugSuspendPending)))){
             if (nTry == maxTry) {
                 if (!s_fRaiseExitProcessEvent) {

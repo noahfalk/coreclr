@@ -13,16 +13,28 @@
 **
 =============================================================================*/
 
-namespace System
-{
+namespace System {
+    using System;
+#if FEATURE_CLICKONCE        
+    using System.Deployment.Internal.Isolation;
+    using System.Deployment.Internal.Isolation.Manifest;
+    using System.Runtime.Hosting;    
+#endif
+    using System.Runtime.CompilerServices;
+    using System.Runtime;
     using System.Text;
+    using System.Threading;
     using System.Runtime.InteropServices;
     using System.Runtime.Serialization;
+    using System.Reflection;
     using System.Security;
+    using System.Security.Permissions;
     using System.Security.Policy;
+    using System.Globalization;
     using Path = System.IO.Path;
-    using System.Diagnostics;
+    using System.Runtime.Versioning;
     using System.Diagnostics.Contracts;
+    using System.Collections;
     using System.Collections.Generic;
 
     [Serializable]
@@ -63,6 +75,10 @@ namespace System
         private const string MACHINE_CONFIGURATION_FILE = "config\\machine.config";
         private const string ACTAG_HOST_CONFIG_FILE = "HOST_CONFIG";
 
+#if FEATURE_FUSION
+        private const string LICENSE_FILE = "LICENSE_FILE";
+#endif
+
         // Constants from fusionpriv.h
         private const string ACTAG_APP_CONFIG_FILE = "APP_CONFIG_FILE";
         private const string ACTAG_MACHINE_CONFIG = "MACHINE_CONFIG";
@@ -93,9 +109,14 @@ namespace System
         private AppDomainInitializer  _AppDomainInitializer;
         [OptionalField(VersionAdded = 2)]
         private string[] _AppDomainInitializerArguments;
-
+#if FEATURE_CLICKONCE
+        [OptionalField(VersionAdded = 2)]
+        private ActivationArguments _ActivationArguments;
+#endif
+#if FEATURE_CORECLR
         // On the CoreCLR, this contains just the name of the permission set that we install in the new appdomain.
         // Not the ToXml().ToString() of an ApplicationTrust object.
+#endif
         [OptionalField(VersionAdded = 2)]
         private string _ApplicationTrust;
         [OptionalField(VersionAdded = 2)]
@@ -109,6 +130,11 @@ namespace System
         [OptionalField(VersionAdded = 4)]
         private string _AppDomainManagerType;
 
+#if FEATURE_APTCA
+        [OptionalField(VersionAdded = 4)]
+        private string[] _AptcaVisibleAssemblies;
+#endif
+
         // A collection of strings used to indicate which breaking changes shouldn't be applied
         // to an AppDomain. We only use the keys, the values are ignored.
         [OptionalField(VersionAdded = 4)]
@@ -116,6 +142,11 @@ namespace System
 
         [OptionalField(VersionAdded = 5)] // This was added in .NET FX v4.5
         private String _TargetFrameworkName;
+
+#if !FEATURE_CORECLR
+        [NonSerialized]
+        internal AppDomainSortingSetupInfo _AppDomainSortingSetupInfo;
+#endif
 
         [OptionalField(VersionAdded = 5)] // This was added in .NET FX v4.5
         private bool _CheckedForTargetFrameworkName;
@@ -125,6 +156,7 @@ namespace System
         private bool _UseRandomizedStringHashing;
 #endif
 
+        [SecuritySafeCritical]
         internal AppDomainSetup(AppDomainSetup copy, bool copyDomainBoundData)
         {
             string[] mine = Value;
@@ -148,8 +180,10 @@ namespace System
                 _LoaderOptimization = copy._LoaderOptimization;
 
                 _AppDomainInitializerArguments = copy.AppDomainInitializerArguments;
+#if FEATURE_CLICKONCE
+                _ActivationArguments = copy.ActivationArguments;
+#endif
                 _ApplicationTrust = copy._ApplicationTrust;
-
                 if (copyDomainBoundData)
                     _AppDomainInitializer = copy.AppDomainInitializer;
                 else
@@ -161,12 +195,21 @@ namespace System
 #endif // FEATURE_COMINTEROP
                 _AppDomainManagerAssembly = copy.AppDomainManagerAssembly;
                 _AppDomainManagerType = copy.AppDomainManagerType;
+#if FEATURE_APTCA
+                _AptcaVisibleAssemblies = copy.PartialTrustVisibleAssemblies;
+#endif
 
                 if (copy._CompatFlags != null)
                 {
                     SetCompatibilitySwitches(copy._CompatFlags.Keys);
                 }
 
+#if !FEATURE_CORECLR
+                if(copy._AppDomainSortingSetupInfo != null)
+                {
+                    _AppDomainSortingSetupInfo = new AppDomainSortingSetupInfo(copy._AppDomainSortingSetupInfo);
+                }
+#endif
                 _TargetFrameworkName = copy._TargetFrameworkName;
 
 #if FEATURE_RANDOMIZED_STRING_HASHING
@@ -183,6 +226,32 @@ namespace System
             _LoaderOptimization = LoaderOptimization.NotSpecified;
         }
 
+#if FEATURE_CLICKONCE
+        // Creates an AppDomainSetup object from an application identity.
+        public AppDomainSetup (ActivationContext activationContext) : this (new ActivationArguments(activationContext)) {}
+
+        [System.Security.SecuritySafeCritical]  // auto-generated
+        public AppDomainSetup (ActivationArguments activationArguments) {
+            if (activationArguments == null)
+                throw new ArgumentNullException("activationArguments");
+            Contract.EndContractBlock();
+
+            _LoaderOptimization = LoaderOptimization.NotSpecified;
+            ActivationArguments = activationArguments;
+
+            Contract.Assert(activationArguments.ActivationContext != null, "Cannot set base directory without activation context");
+            string entryPointPath = CmsUtils.GetEntryPointFullPath(activationArguments);
+            if (!String.IsNullOrEmpty(entryPointPath))
+                SetupDefaults(entryPointPath);
+            else
+                ApplicationBase = activationArguments.ActivationContext.ApplicationDirectory;
+
+        }
+#endif // !FEATURE_CLICKONCE
+
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal void SetupDefaults(string imageLocation, bool imageLocationAlreadyNormalized = false) {
             char[] sep = {'\\', '/'};
             int i = imageLocation.LastIndexOfAny(sep);
@@ -228,13 +297,37 @@ namespace System
             set { _AppDomainManagerType = value; }
         }
 
+#if FEATURE_APTCA
+        public string[] PartialTrustVisibleAssemblies
+        {
+            get { return _AptcaVisibleAssemblies; }
+            set { 
+                if (value != null) {
+                    _AptcaVisibleAssemblies = (string[])value.Clone(); 
+                    Array.Sort<string>(_AptcaVisibleAssemblies, StringComparer.OrdinalIgnoreCase);
+                }
+                else {
+                    _AptcaVisibleAssemblies = null;
+                }
+            }
+        }
+#endif
+
         public String ApplicationBase
         {
+            #if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+            #else
+            [System.Security.SecuritySafeCritical]
+            #endif
             [Pure]
             get {
                 return VerifyDir(GetUnsecureApplicationBase(), false);
             }
 
+            #if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+            #endif
             set {
                 Value[(int) LoaderInformation.ApplicationBaseValue] = NormalizePath(value, false);
             }
@@ -457,6 +550,7 @@ namespace System
 
         public String ConfigurationFile
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return VerifyDir(Value[(int) LoaderInformation.ConfigurationFileValue], true);
             }
@@ -510,6 +604,15 @@ namespace System
 
         public void SetCompatibilitySwitches(IEnumerable<String> switches)
         {
+
+#if !FEATURE_CORECLR
+            if(_AppDomainSortingSetupInfo != null)
+            {
+                _AppDomainSortingSetupInfo._useV2LegacySorting = false;
+                _AppDomainSortingSetupInfo._useV4LegacySorting = false;
+            }
+#endif
+
 #if FEATURE_RANDOMIZED_STRING_HASHING
             _UseRandomizedStringHashing = false;
 #endif
@@ -518,11 +621,30 @@ namespace System
                 _CompatFlags = new Dictionary<string, object>();
                 foreach (String str in switches) 
                 {
+#if !FEATURE_CORECLR
+                    if(StringComparer.OrdinalIgnoreCase.Equals("NetFx40_Legacy20SortingBehavior", str)) {
+                        if(_AppDomainSortingSetupInfo == null)
+                        {
+                            _AppDomainSortingSetupInfo = new AppDomainSortingSetupInfo();
+                        }
+                        _AppDomainSortingSetupInfo._useV2LegacySorting = true;
+                    }
+
+                    if(StringComparer.OrdinalIgnoreCase.Equals("NetFx45_Legacy40SortingBehavior", str)) {
+                        if(_AppDomainSortingSetupInfo == null)
+                        {
+                            _AppDomainSortingSetupInfo = new AppDomainSortingSetupInfo();
+                        }
+                        _AppDomainSortingSetupInfo._useV4LegacySorting = true;
+                    }
+#endif
+
 #if FEATURE_RANDOMIZED_STRING_HASHING
                     if(StringComparer.OrdinalIgnoreCase.Equals("UseRandomizedStringHashAlgorithm", str)) {
                         _UseRandomizedStringHashing = true;
                     }
 #endif
+
                     _CompatFlags.Add(str, null);
                 }
             }
@@ -549,12 +671,82 @@ namespace System
             set { _CheckedForTargetFrameworkName = value; }
         }
 
+#if !FEATURE_CORECLR
+        [SecurityCritical]
+        public void SetNativeFunction(string functionName, int functionVersion, IntPtr functionPointer) 
+        {
+            if(functionName == null) 
+            {
+                throw new ArgumentNullException("functionName");
+            }
+
+            if(functionPointer == IntPtr.Zero)
+            {
+                throw new ArgumentNullException("functionPointer");
+            }
+
+            if(String.IsNullOrWhiteSpace(functionName))
+            {
+                throw new ArgumentException(Environment.GetResourceString("Argument_NPMSInvalidName"), "functionName");
+            }
+
+            Contract.EndContractBlock();
+
+            if(functionVersion < 1)
+            {
+                throw new ArgumentException(Environment.GetResourceString("ArgumentException_MinSortingVersion", 1, functionName));
+            }
+
+            if(_AppDomainSortingSetupInfo == null)
+            {
+                _AppDomainSortingSetupInfo = new AppDomainSortingSetupInfo();
+            }
+
+            if(String.Equals(functionName, "IsNLSDefinedString", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnIsNLSDefinedString = functionPointer;
+            }
+
+            if (String.Equals(functionName, "CompareStringEx", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnCompareStringEx = functionPointer;
+            }
+
+            if (String.Equals(functionName, "LCMapStringEx", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnLCMapStringEx = functionPointer;
+            }
+
+            if (String.Equals(functionName, "FindNLSStringEx", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnFindNLSStringEx = functionPointer;
+            }
+
+            if (String.Equals(functionName, "CompareStringOrdinal", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnCompareStringOrdinal = functionPointer;
+            }
+
+            if (String.Equals(functionName, "GetNLSVersionEx", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnGetNLSVersionEx = functionPointer;
+            }
+
+            if (String.Equals(functionName, "FindStringOrdinal", StringComparison.OrdinalIgnoreCase))
+            {
+                _AppDomainSortingSetupInfo._pfnFindStringOrdinal = functionPointer;
+            }
+        }
+#endif
+
         public String DynamicBase
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return VerifyDir(Value[(int) LoaderInformation.DynamicBaseValue], true);
             }
 
+            [System.Security.SecuritySafeCritical]  // auto-generated
             set {
                 if (value == null)
                     Value[(int) LoaderInformation.DynamicBaseValue] = null;
@@ -579,6 +771,7 @@ namespace System
                 return ACTAG_APP_DYNAMIC_BASE;
             }
         }
+
 
         public bool DisallowPublisherPolicy
         {
@@ -642,6 +835,7 @@ namespace System
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private String VerifyDir(String dir, bool normalize)
         {
             if (dir != null) {
@@ -650,12 +844,22 @@ namespace System
                 else {
                     if (normalize)
                         dir = NormalizePath(dir, true);
+
+                // The only way AppDomainSetup is exposed in coreclr is through the AppDomainManager 
+                // and the AppDomainManager is a SecurityCritical type. Also, all callers of callstacks 
+                // leading from VerifyDir are SecurityCritical. So we can remove the Demand because 
+                // we have validated that all callers are SecurityCritical
+#if !FEATURE_CORECLR
+                    if (IsFilePath(dir))
+                        new FileIOPermission( FileIOPermissionAccess.PathDiscovery, dir ).Demand();
+#endif // !FEATURE_CORECLR
                 }
             }
 
             return dir;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private void VerifyDirList(String dirs)
         {
             if (dirs != null) {
@@ -669,6 +873,7 @@ namespace System
 
         internal String DeveloperPath
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get {
                 String dirs = Value[(int) LoaderInformation.DevPathValue];
                 VerifyDirList(dirs);
@@ -691,7 +896,7 @@ namespace System
                             else
                                 fDelimiter = true;
                             
-                            newPath.Append(Path.GetFullPath(directories[i]));
+                            newPath.Append(Path.GetFullPathInternal(directories[i]));
                         }
                     }
                     
@@ -783,29 +988,83 @@ namespace System
             }
         }
 
+#if FEATURE_CLICKONCE
+        [XmlIgnoreMember]
+        public ActivationArguments ActivationArguments {
+            [Pure]
+            get {
+                return _ActivationArguments;
+            }
+            set {
+                _ActivationArguments = value;
+            }
+        }
+#endif // !FEATURE_CLICKONCE
+
         internal ApplicationTrust InternalGetApplicationTrust()
         {
+            
             if (_ApplicationTrust == null) return null;
+
+
+#if FEATURE_CORECLR            
             ApplicationTrust grantSet = new ApplicationTrust(NamedPermissionSet.GetBuiltInSet(_ApplicationTrust));
+#else
+            SecurityElement securityElement = SecurityElement.FromString(_ApplicationTrust);
+            ApplicationTrust grantSet = new ApplicationTrust();
+            grantSet.FromXml(securityElement);
+#endif
             return grantSet;
         }
 
+#if FEATURE_CORECLR
         internal void InternalSetApplicationTrust(String permissionSetName)
         {
             _ApplicationTrust = permissionSetName;
         }
+#else
+        internal void InternalSetApplicationTrust(ApplicationTrust value)
+        {
+            if (value != null)
+            {
+                _ApplicationTrust = value.ToXml().ToString();
+            }
+            else
+            {
+                _ApplicationTrust = null;
+            }
+        }
+#endif
 
+#if FEATURE_CLICKONCE
+        [XmlIgnoreMember]
+        public ApplicationTrust ApplicationTrust 
+        {
+            get {
+                return InternalGetApplicationTrust();
+            }
+            set {
+                InternalSetApplicationTrust(value);
+            }
+        }
+#else // FEATURE_CLICKONCE
         [XmlIgnoreMember]
         internal ApplicationTrust ApplicationTrust
         {
-            get
-            {
+            get {
                 return InternalGetApplicationTrust();
             }
+#if !FEATURE_CORECLR            
+            set {
+                InternalSetApplicationTrust(value);
+            }
+#endif 
         }
+#endif // FEATURE_CLICKONCE
 
         public String PrivateBinPath
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 String dirs = Value[(int) LoaderInformation.PrivateBinPathValue];
                 VerifyDirList(dirs);
@@ -823,6 +1082,7 @@ namespace System
                 return ACTAG_APP_PRIVATE_BINPATH;
             }
         }
+
 
         public String PrivateBinPathProbe
         {
@@ -844,6 +1104,7 @@ namespace System
 
         public String ShadowCopyDirectories
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 String dirs = Value[(int) LoaderInformation.ShadowCopyDirectoriesValue];
                 VerifyDirList(dirs);
@@ -886,6 +1147,7 @@ namespace System
 
         public String CachePath
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return VerifyDir(Value[(int) LoaderInformation.CachePathValue], false);
             }
@@ -904,6 +1166,7 @@ namespace System
 
         public String LicenseFile
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return VerifyDir(Value[(int) LoaderInformation.LicenseFileValue], true);
             }
@@ -966,17 +1229,203 @@ namespace System
             }
         }
 
+#if FEATURE_FUSION
+        [SecurityCritical]
+        internal bool UpdateContextPropertyIfNeeded(LoaderInformation FieldValue, String FieldKey, String UpdatedField, IntPtr fusionContext, AppDomainSetup oldADS)
+        {
+            String FieldString = Value[(int) FieldValue],
+                   OldFieldString = (oldADS == null ? null : oldADS.Value[(int) FieldValue]);
+            if (FieldString != OldFieldString) { // Compare references since strings are immutable
+                UpdateContextProperty(fusionContext, FieldKey, UpdatedField == null ? FieldString : UpdatedField);
+                return true;
+            }
+
+	     return false;
+        }
+
+        [SecurityCritical]
+        internal void UpdateBooleanContextPropertyIfNeeded(LoaderInformation FieldValue, String FieldKey, IntPtr fusionContext, AppDomainSetup oldADS)
+        {
+            if (Value[(int) FieldValue] != null)
+                UpdateContextProperty(fusionContext, FieldKey, "true");
+            else if (oldADS != null && oldADS.Value[(int) FieldValue] != null)
+                UpdateContextProperty(fusionContext, FieldKey, "false");
+        }
+
+        [SecurityCritical]
+        internal static bool ByteArraysAreDifferent(Byte[] A, Byte[] B)
+        {
+		int length = A.Length;
+		if (length != B.Length)
+		    return true;
+
+		for(int i = 0; i < length; i++) {
+		    if (A[i] != B[i])
+		        return true;				
+	       }
+
+		return false;
+        }
+
+        [System.Security.SecurityCritical]  // auto-generated
+        internal static void UpdateByteArrayContextPropertyIfNeeded(Byte[] NewArray, Byte[] OldArray, String FieldKey, IntPtr fusionContext)
+        {
+            if ((NewArray != null && OldArray == null) ||
+		   (NewArray == null && OldArray != null) ||
+		   (NewArray != null && OldArray != null && ByteArraysAreDifferent(NewArray, OldArray)))
+                UpdateContextProperty(fusionContext, FieldKey, NewArray);
+        }
+		
+        [System.Security.SecurityCritical]  // auto-generated
+        internal void SetupFusionContext(IntPtr fusionContext, AppDomainSetup oldADS)
+        {
+            UpdateContextPropertyIfNeeded(LoaderInformation.ApplicationBaseValue, ApplicationBaseKey, null, fusionContext, oldADS);
+            UpdateContextPropertyIfNeeded(LoaderInformation.PrivateBinPathValue, PrivateBinPathKey, null, fusionContext, oldADS);
+            UpdateContextPropertyIfNeeded(LoaderInformation.DevPathValue, DeveloperPathKey, null, fusionContext, oldADS);
+
+            UpdateBooleanContextPropertyIfNeeded(LoaderInformation.DisallowPublisherPolicyValue, DisallowPublisherPolicyKey, fusionContext, oldADS);
+            UpdateBooleanContextPropertyIfNeeded(LoaderInformation.DisallowCodeDownloadValue, DisallowCodeDownloadKey, fusionContext, oldADS);
+            UpdateBooleanContextPropertyIfNeeded(LoaderInformation.DisallowBindingRedirectsValue, DisallowBindingRedirectsKey, fusionContext, oldADS);
+            UpdateBooleanContextPropertyIfNeeded(LoaderInformation.DisallowAppBaseProbingValue, DisallowAppBaseProbingKey, fusionContext, oldADS);
+
+            if(UpdateContextPropertyIfNeeded(LoaderInformation.ShadowCopyFilesValue, ShadowCopyFilesKey, ShadowCopyFiles, fusionContext, oldADS)) {
+
+                // If we are asking for shadow copy directories then default to
+                // only to the ones that are in the private bin path.
+                if(Value[(int) LoaderInformation.ShadowCopyDirectoriesValue] == null)
+                    ShadowCopyDirectories = BuildShadowCopyDirectories();
+
+                UpdateContextPropertyIfNeeded(LoaderInformation.ShadowCopyDirectoriesValue, ShadowCopyDirectoriesKey, null, fusionContext, oldADS);
+            }
+
+            UpdateContextPropertyIfNeeded(LoaderInformation.CachePathValue, CachePathKey, null, fusionContext, oldADS);
+            UpdateContextPropertyIfNeeded(LoaderInformation.PrivateBinPathProbeValue, PrivateBinPathProbeKey, PrivateBinPathProbe, fusionContext, oldADS);
+            UpdateContextPropertyIfNeeded(LoaderInformation.ConfigurationFileValue, ConfigurationFileKey, null, fusionContext, oldADS);
+
+            UpdateByteArrayContextPropertyIfNeeded(_ConfigurationBytes, oldADS == null ? null : oldADS.GetConfigurationBytes(), ConfigurationBytesKey, fusionContext);
+
+            UpdateContextPropertyIfNeeded(LoaderInformation.ApplicationNameValue, ApplicationNameKey, ApplicationName, fusionContext, oldADS);
+            UpdateContextPropertyIfNeeded(LoaderInformation.DynamicBaseValue, DynamicBaseKey, null, fusionContext, oldADS);
+
+            // Always add the runtime configuration file to the appdomain
+            UpdateContextProperty(fusionContext, MachineConfigKey, RuntimeEnvironment.GetRuntimeDirectoryImpl() + RuntimeConfigurationFile);
+
+            String hostBindingFile = RuntimeEnvironment.GetHostBindingFile();
+            if(hostBindingFile != null || oldADS != null) // If oldADS != null, we don't know the old value of the hostBindingFile, so we force an update even when hostBindingFile == null.
+                UpdateContextProperty(fusionContext, HostBindingKey, hostBindingFile);
+        }
+
+        [System.Security.SecurityCritical]  // auto-generated
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        internal static extern void UpdateContextProperty(IntPtr fusionContext, string key, Object value);
+#endif // FEATURE_FUSION
+
         static internal int Locate(String s)
         {
             if(String.IsNullOrEmpty(s))
                 return -1;
+#if FEATURE_FUSION
 
-            Debug.Assert('A' == ACTAG_APP_BASE_URL[0]        , "Assumption violated");
+            // verify assumptions hardcoded into the switch below
+            Contract.Assert('A' == ACTAG_APP_CONFIG_FILE[0]     , "Assumption violated");
+            Contract.Assert('A' == ACTAG_APP_NAME[0]            , "Assumption violated");
+            Contract.Assert('A' == ACTAG_APP_BASE_URL[0]        , "Assumption violated");
+            Contract.Assert('B' == ACTAG_BINPATH_PROBE_ONLY[0]  , "Assumption violated");
+            Contract.Assert('C' == ACTAG_APP_CACHE_BASE[0]      , "Assumption violated");
+            Contract.Assert('D' == ACTAG_DEV_PATH[0]            , "Assumption violated");
+            Contract.Assert('D' == ACTAG_APP_DYNAMIC_BASE[0]    , "Assumption violated");
+            Contract.Assert('F' == ACTAG_FORCE_CACHE_INSTALL[0] , "Assumption violated");
+            Contract.Assert('L' == LICENSE_FILE[0]              , "Assumption violated");
+            Contract.Assert('P' == ACTAG_APP_PRIVATE_BINPATH[0] , "Assumption violated");
+            Contract.Assert('S' == ACTAG_APP_SHADOW_COPY_DIRS[0], "Assumption violated");
+            Contract.Assert('D' == ACTAG_DISALLOW_APPLYPUBLISHERPOLICY[0], "Assumption violated");
+            Contract.Assert('C' == ACTAG_CODE_DOWNLOAD_DISABLED[0], "Assumption violated");
+            Contract.Assert('D' == ACTAG_DISALLOW_APP_BINDING_REDIRECTS[0], "Assumption violated");
+            Contract.Assert('D' == ACTAG_DISALLOW_APP_BASE_PROBING[0], "Assumption violated");
+            Contract.Assert('A' == ACTAG_APP_CONFIG_BLOB[0], "Assumption violated");
+
+            switch (s[0]) {
+                case 'A':
+                    if (s == ACTAG_APP_CONFIG_FILE)     return (int)LoaderInformation.ConfigurationFileValue;
+                    if (s == ACTAG_APP_NAME)            return (int)LoaderInformation.ApplicationNameValue;
+                    if (s == ACTAG_APP_BASE_URL)        return (int)LoaderInformation.ApplicationBaseValue;
+                    if (s == ACTAG_APP_CONFIG_BLOB)     return (int)LoaderInformation.ConfigurationBytesValue;
+                    break;
+                case 'B':
+                    if (s == ACTAG_BINPATH_PROBE_ONLY)  return (int)LoaderInformation.PrivateBinPathProbeValue;
+                    break;
+                case 'C':
+                    if (s == ACTAG_APP_CACHE_BASE)      return (int)LoaderInformation.CachePathValue;
+                    if (s == ACTAG_CODE_DOWNLOAD_DISABLED) return (int)LoaderInformation.DisallowCodeDownloadValue;
+                    break;
+                case 'D':
+                    if (s == ACTAG_DEV_PATH)            return (int)LoaderInformation.DevPathValue;
+                    if (s == ACTAG_APP_DYNAMIC_BASE)    return (int)LoaderInformation.DynamicBaseValue;
+                    if (s == ACTAG_DISALLOW_APPLYPUBLISHERPOLICY) return (int)LoaderInformation.DisallowPublisherPolicyValue;
+                    if (s == ACTAG_DISALLOW_APP_BINDING_REDIRECTS) return (int)LoaderInformation.DisallowBindingRedirectsValue;
+                    if (s == ACTAG_DISALLOW_APP_BASE_PROBING) return (int)LoaderInformation.DisallowAppBaseProbingValue;
+                   break;
+                case 'F':
+                    if (s == ACTAG_FORCE_CACHE_INSTALL) return (int)LoaderInformation.ShadowCopyFilesValue;
+                    break;
+                case 'L':
+                    if (s == LICENSE_FILE)              return (int)LoaderInformation.LicenseFileValue;
+                    break;
+                case 'P':
+                    if (s == ACTAG_APP_PRIVATE_BINPATH) return (int)LoaderInformation.PrivateBinPathValue;
+                    break;
+                case 'S':
+                    if (s == ACTAG_APP_SHADOW_COPY_DIRS) return (int)LoaderInformation.ShadowCopyDirectoriesValue;
+                    break;
+            }
+#else
+            Contract.Assert('A' == ACTAG_APP_BASE_URL[0]        , "Assumption violated");
             if (s[0]=='A' && s == ACTAG_APP_BASE_URL)        
                 return (int)LoaderInformation.ApplicationBaseValue;
 
+#endif //FEATURE_FUSION
+
             return -1;
         }
+#if FEATURE_FUSION
+        private string BuildShadowCopyDirectories()
+        {
+            // Default to only to the ones that are in the private bin path.
+            String binPath = Value[(int) LoaderInformation.PrivateBinPathValue];
+            if(binPath == null)
+                return null;
+
+            StringBuilder result = StringBuilderCache.Acquire();
+            String appBase = Value[(int) LoaderInformation.ApplicationBaseValue];
+            if(appBase != null) {
+                char[] sep = {';'};
+                string[] directories = binPath.Split(sep);
+                int size = directories.Length;
+                bool appendSlash = !( (appBase[appBase.Length-1] == '/') ||
+                                      (appBase[appBase.Length-1] == '\\') );
+
+                if (size == 0) {
+                    result.Append(appBase);
+                    if (appendSlash)
+                        result.Append('\\');
+                    result.Append(binPath);
+                }
+                else {
+                    for(int i = 0; i < size; i++) {
+                        result.Append(appBase);
+                        if (appendSlash)
+                            result.Append('\\');
+                        result.Append(directories[i]);
+                        
+                        if (i < size-1)
+                            result.Append(';');
+                    }
+                }
+            }
+            
+            return StringBuilderCache.GetStringAndRelease(result);
+        }
+#endif // FEATURE_FUSION		
 
 #if FEATURE_COMINTEROP
         public bool SandboxInterop

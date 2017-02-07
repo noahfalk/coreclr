@@ -156,7 +156,7 @@ namespace System.Diagnostics.Tracing
                     size = 16;
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(type));
+                    throw new ArgumentOutOfRangeException("type");
             }
 
             this.impl.AddScalar(size);
@@ -183,7 +183,7 @@ namespace System.Diagnostics.Tracing
                 case TraceLoggingDataType.CountedUtf16String:
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(type));
+                    throw new ArgumentOutOfRangeException("type");
             }
 
             this.impl.AddScalar(2);
@@ -227,7 +227,7 @@ namespace System.Diagnostics.Tracing
                 case TraceLoggingDataType.Char8:
                     break;
                 default:
-                    throw new ArgumentOutOfRangeException(nameof(type));
+                    throw new ArgumentOutOfRangeException("type");
             }
 
             if (this.BeginningBufferedArray)

@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8.12.2)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(SOURCES
-  createdirectoryw.cpp
+  createdirectoryw.c
 )
 
 add_executable(paltest_createdirectoryw_test2

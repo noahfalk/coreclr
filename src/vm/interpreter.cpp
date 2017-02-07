@@ -14,7 +14,7 @@
 #include "openum.h"
 #include "fcall.h"
 #include "frames.h"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include <float.h>
 #include "jitinterface.h"
 #include "safemath.h"
@@ -903,10 +903,9 @@ CorJitResult Interpreter::GenerateInterpreterStub(CEEInfo* comp,
 #endif
         {
             // But we also have to use r4, because ThumbEmitCondRegJump below requires a low register.
-            sl.ThumbEmitMovConstant(r11, 0);
             sl.ThumbEmitMovConstant(r12, UINT_PTR(interpMethInfo));
             sl.ThumbEmitLoadRegIndirect(r12, r12, offsetof(InterpreterMethodInfo, m_jittedCode));
-            sl.ThumbEmitCmpReg(r12, r11); // Set condition codes.
+            sl.ThumbEmitCmpImm(r12, 0); // Set condition codes.
             // If r12 is zero, then go on to do the interpretation.
             CodeLabel* doInterpret = sl.NewCodeLabel();
             sl.ThumbEmitCondFlagJump(doInterpret, thumbCondEq.cond);
@@ -1579,7 +1578,7 @@ CorJitResult Interpreter::GenerateInterpreterStub(CEEInfo* comp,
 #else
 #error unsupported platform
 #endif
-        stub = sl.Link(SystemDomain::GetGlobalLoaderAllocator()->GetStubHeap());
+        stub = sl.Link();
 
         *nativeSizeOfCode = static_cast<ULONG>(stub->GetNumCodeBytes());
         // TODO: manage reference count of interpreter stubs.  Look for examples...
@@ -1737,13 +1736,13 @@ void Interpreter::JitMethodIfAppropriate(InterpreterMethodInfo* interpMethInfo, 
                 fprintf(GetLogFile(), "JITting method %s:%s.\n", md->m_pszDebugClassName, md->m_pszDebugMethodName);
             }
 #endif // _DEBUG
-            CORJIT_FLAGS jitFlags(CORJIT_FLAGS::CORJIT_FLAG_MAKEFINALCODE);
+            DWORD dwFlags = CORJIT_FLG_MAKEFINALCODE;
             NewHolder<COR_ILMETHOD_DECODER> pDecoder(NULL);
             // Dynamic methods (e.g., IL stubs) do not have an IL decoder but may
             // require additional flags.  Ordinary methods require the opposite.
             if (md->IsDynamicMethod())
             {
-                jitFlags.Add(md->AsDynamicMethodDesc()->GetILStubResolver()->GetJitFlags());
+                dwFlags |= md->AsDynamicMethodDesc()->GetILStubResolver()->GetJitFlags();
             }
             else
             {
@@ -1752,7 +1751,7 @@ void Interpreter::JitMethodIfAppropriate(InterpreterMethodInfo* interpMethInfo, 
                                                     md->GetMDImport(),
                                                     &status);
             }
-            PCODE res = md->MakeJitWorker(pDecoder, jitFlags);
+            PCODE res = md->MakeJitWorker(pDecoder, dwFlags, 0);
             interpMethInfo->m_jittedCode = res;
         }
     }
@@ -8608,8 +8607,6 @@ void Interpreter::BoxStructRefAt(unsigned ind, CORINFO_CLASS_HANDLE valCls)
     if (th.IsTypeDesc())
         COMPlusThrow(kInvalidOperationException,W("InvalidOperation_TypeCannotBeBoxed"));
 
-    MethodTable* pMT = th.AsMethodTable();
-
     {
         Object* res = OBJECTREFToObject(pMT->Box(valPtr));
 
@@ -9581,9 +9578,6 @@ void Interpreter::DoCallWork(bool virtualCall, void* thisArg, CORINFO_RESOLVED_T
 
     // This is the argument slot that will be used to hold the return value.
     ARG_SLOT retVal = 0;
-#ifndef _ARM_
-    _ASSERTE (NUMBER_RETURNVALUE_SLOTS == 1);
-#endif
 
     // If the return type is a structure, then these will be initialized.
     CORINFO_CLASS_HANDLE retTypeClsHnd = NULL;
@@ -9859,7 +9853,7 @@ void Interpreter::DoCallWork(bool virtualCall, void* thisArg, CORINFO_RESOLVED_T
 #if INTERP_ILCYCLE_PROFILE
             bool b = CycleTimer::GetThreadCyclesS(&startCycles); assert(b);
 #endif // INTERP_ILCYCLE_PROFILE
-            mdcs.CallTargetWorker(args, &retVal, sizeof(retVal));
+            retVal = mdcs.CallTargetWorker(args);
 
             if (pCscd != NULL)
             {
@@ -10321,23 +10315,15 @@ void Interpreter::CallI()
             }
             else
             {
-                pMD = g_pExecuteBackoutCodeHelperMethod;  // A random static method.
+                pMD = g_pPrepareConstrainedRegionsMethod;  // A random static method.
             }
             MethodDescCallSite mdcs(pMD, &mSig, ftnPtr);
-#if 0
             // If the current method being interpreted is an IL stub, we're calling native code, so
             // change the GC mode.  (We'll only do this at the call if the calling convention turns out
             // to be a managed calling convention.)
             MethodDesc* pStubContextMD = reinterpret_cast<MethodDesc*>(m_stubContext);
             bool transitionToPreemptive = (pStubContextMD != NULL && !pStubContextMD->IsIL());
-            mdcs.CallTargetWorker(args, &retVal, sizeof(retVal), transitionToPreemptive);
-#else
-            // TODO The code above triggers assertion at threads.cpp:6861:
-            //     _ASSERTE(thread->PreemptiveGCDisabled());  // Should have been in managed code
-            // The workaround will likely break more things than what it is fixing:
-            // just do not make transition to preemptive GC for now.
-            mdcs.CallTargetWorker(args, &retVal, sizeof(retVal));
-#endif
+            retVal = mdcs.CallTargetWorker(args, transitionToPreemptive);
         }
         // retVal is now vulnerable.
         GCX_FORBID();

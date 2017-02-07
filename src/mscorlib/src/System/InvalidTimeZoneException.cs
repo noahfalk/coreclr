@@ -2,14 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Runtime.Serialization;
+namespace System {
+   using  System.Runtime.Serialization;
+   using  System.Runtime.CompilerServices;
 
-namespace System
-{
    [Serializable]
    [System.Security.Permissions.HostProtection(MayLeakOnAbort = true)]
-   public class InvalidTimeZoneException : Exception
-   {
+#if !FEATURE_CORECLR
+   [TypeForwardedFrom("System.Core, Version=3.5.0.0, Culture=Neutral, PublicKeyToken=b77a5c561934e089")]
+#endif
+   public class InvalidTimeZoneException : Exception {
        public InvalidTimeZoneException(String message)
            : base(message) { }
 

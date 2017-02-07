@@ -3,7 +3,6 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Text;
 
@@ -31,7 +30,7 @@ namespace System.Globalization
         {
             if (name == null)
             {
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             }
             Contract.EndContractBlock();
 
@@ -45,7 +44,7 @@ namespace System.Globalization
             throw new ArgumentException(
                 string.Format(
                     CultureInfo.CurrentCulture,
-                    Environment.GetResourceString("Argument_EncodingNotSupported"), name), nameof(name));
+                    Environment.GetResourceString("Argument_EncodingNotSupported"), name), "name");
         }
 
         internal static CodePageDataItem GetCodePageDataItem(int codepage)
@@ -83,7 +82,7 @@ namespace System.Globalization
                     break;
             }
 
-            Debug.Assert(item == null || item.CodePage == codepage, "item.CodePage needs to equal the specified codepage");
+            Contract.Assert(item == null || item.CodePage == codepage, "item.CodePage needs to equal the specified codepage");
             return item;
         }
 
@@ -92,7 +91,7 @@ namespace System.Globalization
 #if DEBUG
         static EncodingTable()
         {
-            Debug.Assert(
+            Contract.Assert(
                 s_encodingDataTable.Count == EncodingTableCapacity,
                 string.Format(CultureInfo.InvariantCulture,
                     "EncodingTable s_encodingDataTable's initial capacity (EncodingTableCapacity) is incorrect.{0}Expected (s_encodingDataTable.Count): {1}, Actual (EncodingTableCapacity): {2}",

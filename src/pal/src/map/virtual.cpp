@@ -1096,7 +1096,6 @@ VIRTUALCommitMemory(
         }
 
         StartBoundary = pInformation->startBoundary + runStart * VIRTUAL_PAGE_SIZE;
-        pRetVal = (void *)StartBoundary;
         MemSize = runLength * VIRTUAL_PAGE_SIZE;
 
         if (allocationType != MEM_COMMIT)
@@ -1157,10 +1156,10 @@ error:
             pRetVal = NULL;
             goto done;
         }
+        pInformation = NULL;
+        pRetVal = NULL;
     }
 
-    pInformation = NULL;
-    pRetVal = NULL;
 done:
 
     LogVaOperation(

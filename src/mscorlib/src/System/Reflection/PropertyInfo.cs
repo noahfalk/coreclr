@@ -22,6 +22,9 @@ namespace System.Reflection
     [Serializable]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_PropertyInfo))]
+#pragma warning disable 618
+    [PermissionSetAttribute(SecurityAction.InheritanceDemand, Name = "FullTrust")]
+#pragma warning restore 618
     [System.Runtime.InteropServices.ComVisible(true)]
     public abstract class PropertyInfo : MemberInfo, _PropertyInfo
     {
@@ -150,6 +153,35 @@ namespace System.Reflection
 
         public bool IsSpecialName { get { return(Attributes & PropertyAttributes.SpecialName) != 0; } }
         #endregion
+
+#if !FEATURE_CORECLR
+        Type _PropertyInfo.GetType()
+        {
+            return base.GetType();
+        }
+
+        void _PropertyInfo.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _PropertyInfo.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _PropertyInfo.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        // If you implement this method, make sure to include _PropertyInfo.Invoke in VM\DangerousAPIs.h and 
+        // include _PropertyInfo in SystemDomain::IsReflectionInvocationMethod in AppDomain.cpp.
+        void _PropertyInfo.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
     }
 
     [Serializable]
@@ -158,6 +190,7 @@ namespace System.Reflection
         #region Private Data Members
         private int m_token;
         private string m_name;
+        [System.Security.SecurityCritical]
         private void* m_utf8name;
         private PropertyAttributes m_flags;
         private RuntimeTypeCache m_reflectedTypeCache;
@@ -171,12 +204,13 @@ namespace System.Reflection
         #endregion
 
         #region Constructor
+        [System.Security.SecurityCritical]  // auto-generated
         internal RuntimePropertyInfo(
             int tkProperty, RuntimeType declaredType, RuntimeTypeCache reflectedTypeCache, out bool isPrivate)
         {
             Contract.Requires(declaredType != null);
             Contract.Requires(reflectedTypeCache != null);
-            Debug.Assert(!reflectedTypeCache.IsGlobal);
+            Contract.Assert(!reflectedTypeCache.IsGlobal);
 
             MetadataImport scope = declaredType.GetRuntimeModule().MetadataImport;
 
@@ -211,6 +245,7 @@ namespace System.Reflection
 
         internal Signature Signature
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 if (m_signature == null)
@@ -297,27 +332,28 @@ namespace System.Reflection
         public override Object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsDefined(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.IsDefined(this, attributeRuntimeType);
         }
@@ -332,6 +368,7 @@ namespace System.Reflection
         public override MemberTypes MemberType { get { return MemberTypes.Property; } }
         public override String Name 
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get 
             {
                 if (m_name == null)
@@ -384,6 +421,7 @@ namespace System.Reflection
             return Signature.GetCustomModifiers(0, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal object GetConstantValue(bool raw)
         {
             Object defaultValue = MdConstant.GetValue(GetRuntimeModule().MetadataImport, m_token, PropertyType.GetTypeHandleInternal(), raw);
@@ -592,10 +630,11 @@ namespace System.Reflection
         #endregion
 
         #region ISerializable Implementation
+        [System.Security.SecurityCritical]  // auto-generated
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             MemberInfoSerializationHolder.GetSerializationInfo(

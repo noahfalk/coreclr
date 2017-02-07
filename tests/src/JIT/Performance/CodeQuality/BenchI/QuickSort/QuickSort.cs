@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public static class QuickSort
 {
 
@@ -54,7 +52,7 @@ public static class QuickSort
                     arr[j] = temp;
                 }
             }
-
+            
             // need to swap the pivot and a[i](or a[j] as i==j) so
             // that the pivot will be at its final place in the sorted array
 
@@ -110,10 +108,9 @@ public static class QuickSort
         }
         return result;
     }
-
+    
     public static int Main() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

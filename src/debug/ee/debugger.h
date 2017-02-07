@@ -3431,7 +3431,7 @@ public:
     BYTE                              *m_argData;
     MethodDesc                        *m_md;
     PCODE                              m_targetCodeAddr;
-    ARG_SLOT                           m_result[NUMBER_RETURNVALUE_SLOTS];
+    INT64                              m_result;
     TypeHandle                         m_resultType;
     SIZE_T                             m_arrayRank;
     FUNC_EVAL_ABORT_TYPE               m_aborting;          // Has an abort been requested, and what type.
@@ -3512,10 +3512,10 @@ public:
  * ------------------------------------------------------------------------ */
 
 class InteropSafe {};
-extern InteropSafe interopsafe;
+#define interopsafe (*(InteropSafe*)NULL)
 
 class InteropSafeExecutable {};
-extern InteropSafeExecutable interopsafeEXEC;
+#define interopsafeEXEC (*(InteropSafeExecutable*)NULL)
 
 #ifndef DACCESS_COMPILE
 inline void * __cdecl operator new(size_t n, const InteropSafe&)

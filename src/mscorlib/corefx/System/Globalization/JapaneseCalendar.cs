@@ -9,6 +9,11 @@ using System.Diagnostics.Contracts;
 
 namespace System.Globalization
 {
+
+#if INSIDE_CLR
+    using Debug = BCLDebug;
+#endif
+
     /*=================================JapaneseCalendar==========================
     **
     ** JapaneseCalendar is based on Gregorian calendar.  The month and day values are the same as
@@ -63,19 +68,10 @@ namespace System.Globalization
             }
         }
 
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public override CalendarAlgorithmType AlgorithmType
-        {
-            get
-            {
-                return CalendarAlgorithmType.SolarCalendar;
-            }
-        }
-
         //
         // Using a field initializer rather than a static constructor so that the whole class can be lazy
         // init.
-        internal static volatile EraInfo[] japaneseEraInfo;
+        static internal volatile EraInfo[] japaneseEraInfo;
 
         //
         // Read our era info
@@ -306,7 +302,7 @@ namespace System.Globalization
         {
             if (year <= 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedPosNum);
             }
             Contract.EndContractBlock();
@@ -314,7 +310,7 @@ namespace System.Globalization
             if (year > helper.MaxYear)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,

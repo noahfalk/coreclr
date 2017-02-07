@@ -25,7 +25,7 @@ namespace System.Globalization
     public class ThaiBuddhistCalendar : Calendar
     {
         // Initialize our era info.
-        internal static EraInfo[] thaiBuddhistEraInfo = new EraInfo[] {
+        static internal EraInfo[] thaiBuddhistEraInfo = new EraInfo[] {
             new EraInfo( 1, 1, 1, 1, -543, 544, GregorianCalendar.MaxYear + 543)     // era #, start year/month/day, yearOffset, minEraYear 
         };
 
@@ -34,6 +34,8 @@ namespace System.Globalization
         //
 
         public const int ThaiBuddhistEra = 1;
+
+        //internal static Calendar m_defaultInstance;
 
         internal GregorianCalendarHelper helper;
 
@@ -53,15 +55,6 @@ namespace System.Globalization
             get
             {
                 return (DateTime.MaxValue);
-            }
-        }
-
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public override CalendarAlgorithmType AlgorithmType
-        {
-            get
-            {
-                return CalendarAlgorithmType.SolarCalendar;
             }
         }
 
@@ -230,7 +223,7 @@ namespace System.Globalization
         {
             if (year < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
             Contract.EndContractBlock();

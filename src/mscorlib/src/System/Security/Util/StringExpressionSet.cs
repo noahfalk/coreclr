@@ -12,7 +12,6 @@ namespace System.Security.Util {
     using System.Globalization;
     using System.Runtime.Versioning;
     using System.IO;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     [Serializable]
@@ -27,9 +26,12 @@ namespace System.Security.Util {
         //  2. Ensuring that the partial trust code has permission to see full path data
         //  3. Not using this set for paths (eg EnvironmentStringExpressionSet)
         //
+        [SecurityCritical]
         protected ArrayList m_list;
         protected bool m_ignoreCase;
+        [SecurityCritical]
         protected String m_expressions;
+        [SecurityCritical]
         protected String[] m_expressionsArray;
 
         protected bool m_throwOnRelative;
@@ -59,6 +61,7 @@ namespace System.Security.Util {
         {
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public StringExpressionSet( bool ignoreCase, String str, bool throwOnRelative )
         {
             m_list = null;
@@ -75,6 +78,7 @@ namespace System.Security.Util {
             return new StringExpressionSet();
         }
         
+        [SecuritySafeCritical]
         public virtual StringExpressionSet Copy()
         {
             // SafeCritical: just copying this value around, not leaking it
@@ -114,10 +118,11 @@ namespace System.Security.Util {
             return StaticProcessSingleString(str);
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         public void AddExpressions( String str )
         {
             if (str == null)
-                throw new ArgumentNullException( nameof(str) );
+                throw new ArgumentNullException( "str" );
             Contract.EndContractBlock();
             if (str.Length == 0)
                 return;
@@ -160,7 +165,7 @@ namespace System.Security.Util {
                     {
                         if (m_throwOnRelative)
                         {
-                            if (PathInternal.IsPartiallyQualified(temp))
+                            if (Path.IsRelative(temp))
                             {
                                 throw new ArgumentException( Environment.GetResourceString( "Argument_AbsolutePathRequired" ) );
                             }
@@ -176,14 +181,16 @@ namespace System.Security.Util {
             Reduce();
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         public void AddExpressions( String[] str, bool checkForDuplicates, bool needFullPath )
         {
             AddExpressions(CreateListFromExpressions(str, needFullPath), checkForDuplicates);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         public void AddExpressions( ArrayList exprArrayList, bool checkForDuplicates)
         {
-            Debug.Assert( m_throwOnRelative, "This should only be called when throw on relative is set" );
+            Contract.Assert( m_throwOnRelative, "This should only be called when throw on relative is set" );
 
             m_expressionsArray = null;
             m_expressions = null;
@@ -198,18 +205,19 @@ namespace System.Security.Util {
         }
 
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal static ArrayList CreateListFromExpressions(String[] str, bool needFullPath)
         {
             if (str == null)
             {
-                throw new ArgumentNullException( nameof(str) );
+                throw new ArgumentNullException( "str" );
             }
             Contract.EndContractBlock();
             ArrayList retArrayList = new ArrayList();
             for (int index = 0; index < str.Length; ++index)
             {
                 if (str[index] == null)
-                    throw new ArgumentNullException( nameof(str) );
+                    throw new ArgumentNullException( "str" );
 
                 // Replace alternate directory separators
                 String oneString = StaticProcessWholeString( str[index] );
@@ -241,6 +249,7 @@ namespace System.Security.Util {
             return retArrayList;
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         protected void CheckList()
         {
             if (m_list == null && m_expressions != null)
@@ -294,6 +303,7 @@ namespace System.Security.Util {
         }
 
         
+        [System.Security.SecurityCritical]  // auto-generated
         protected void CreateList()
         {
             String[] expressionsArray = Split( m_expressions );
@@ -315,7 +325,7 @@ namespace System.Security.Util {
                     {
                         if (m_throwOnRelative)
                         {
-                            if (PathInternal.IsPartiallyQualified(temp))
+                            if (Path.IsRelative(temp))
                             {
                                 throw new ArgumentException( Environment.GetResourceString( "Argument_AbsolutePathRequired" ) );
                             }
@@ -329,6 +339,7 @@ namespace System.Security.Util {
             }
         }
         
+        [SecuritySafeCritical]
         public bool IsEmpty()
         {
             // SafeCritical: we're just showing that the expressions are empty, the sensitive portion is their
@@ -343,6 +354,7 @@ namespace System.Security.Util {
             }
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         public bool IsSubsetOf( StringExpressionSet ses )
         {
             if (this.IsEmpty())
@@ -364,6 +376,7 @@ namespace System.Security.Util {
             return true;
         }
         
+        [System.Security.SecurityCritical]  // auto-generated
         public bool IsSubsetOfPathDiscovery( StringExpressionSet ses )
         {
             if (this.IsEmpty())
@@ -386,6 +399,7 @@ namespace System.Security.Util {
         }
 
         
+        [System.Security.SecurityCritical]  // auto-generated
         public StringExpressionSet Union( StringExpressionSet ses )
         {
             // If either set is empty, the union represents a copy of the other.
@@ -420,6 +434,7 @@ namespace System.Security.Util {
         }
             
         
+        [System.Security.SecurityCritical]  // auto-generated
         public StringExpressionSet Intersect( StringExpressionSet ses )
         {
             // If either set is empty, the intersection is empty
@@ -462,6 +477,7 @@ namespace System.Security.Util {
             return intersectSet;
         }
         
+        [SecuritySafeCritical]
         protected void GenerateString()
         {
             // SafeCritical - moves critical data around, but doesn't expose it out
@@ -506,6 +522,7 @@ namespace System.Security.Util {
         // expressions contain paths that were canonicalized and expanded from the input that would cause
         // information disclosure, so we instead only expose this out to trusted code that can ensure they
         // either don't leak the information or required full path information.
+        [SecurityCritical]
         public string UnsafeToString()
         {
             CheckList();
@@ -517,6 +534,7 @@ namespace System.Security.Util {
             return m_expressions;
         }
 
+        [SecurityCritical]
         public String[] UnsafeToStringArray()
         {
             if (m_expressionsArray == null && m_list != null)
@@ -532,6 +550,7 @@ namespace System.Security.Util {
         // protected static helper functions
         //-------------------------------
         
+        [SecurityCritical]
         private bool StringSubsetStringExpression( String left, StringExpressionSet right, bool ignoreCase )
         {
             for (int index = 0; index < right.m_list.Count; ++index)
@@ -544,6 +563,7 @@ namespace System.Security.Util {
             return false;
         }
         
+        [SecurityCritical]
         private static bool StringSubsetStringExpressionPathDiscovery( String left, StringExpressionSet right, bool ignoreCase )
         {
             for (int index = 0; index < right.m_list.Count; ++index)
@@ -641,6 +661,7 @@ namespace System.Security.Util {
         // protected helper functions
         //-------------------------------
         
+        [SecuritySafeCritical]
         protected void AddSingleExpressionNoDuplicates( String expression )
         {
             // SafeCritical: We're not exposing out the string sets, just allowing modification of them
@@ -670,6 +691,7 @@ namespace System.Security.Util {
             this.m_list.Add( expression );
         }
     
+        [System.Security.SecurityCritical]  // auto-generated
         protected void Reduce()
         {
             CheckList();
@@ -704,20 +726,23 @@ namespace System.Security.Util {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         internal static extern void GetLongPathName( String path, StringHandleOnStack retLongPath );
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal static String CanonicalizePath( String path )
         {
             return CanonicalizePath( path, true );
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal static string CanonicalizePath(string path, bool needFullPath)
         {
             if (needFullPath)
             {
-                string newPath = Path.GetFullPath(path);
+                string newPath = Path.GetFullPathInternal(path);
                 if (path.EndsWith(m_directorySeparator + ".", StringComparison.Ordinal))
                 {
                     if (newPath.EndsWith(m_directorySeparator))

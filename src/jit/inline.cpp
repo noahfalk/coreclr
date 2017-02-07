@@ -447,7 +447,7 @@ void InlineContext::DumpData(unsigned indent)
     else if (m_Success)
     {
         const char* inlineReason = InlGetObservationString(m_Observation);
-        printf("%*s%u,\"%s\",\"%s\",", indent, "", m_Ordinal, inlineReason, calleeName);
+        printf("%*s%u,\"%s\",\"%s\"", indent, "", m_Ordinal, inlineReason, calleeName);
         m_Policy->DumpData(jitstdout);
         printf("\n");
     }
@@ -500,22 +500,11 @@ void InlineContext::DumpXml(FILE* file, unsigned indent)
         fprintf(file, "%*s<Offset>%u</Offset>\n", indent + 2, "", offset);
         fprintf(file, "%*s<Reason>%s</Reason>\n", indent + 2, "", inlineReason);
 
-        // Optionally, dump data about the inline
-        const int dumpDataSetting = JitConfig.JitInlineDumpData();
-
-        // JitInlineDumpData=1 -- dump data plus deltas for last inline only
-        if ((dumpDataSetting == 1) && (this == m_InlineStrategy->GetLastContext()))
+        // Optionally, dump data about the last inline
+        if ((JitConfig.JitInlineDumpData() != 0) && (this == m_InlineStrategy->GetLastContext()))
         {
             fprintf(file, "%*s<Data>", indent + 2, "");
             m_InlineStrategy->DumpDataContents(file);
-            fprintf(file, "</Data>\n");
-        }
-
-        // JitInlineDumpData=2 -- dump data for all inlines, no deltas
-        if ((dumpDataSetting == 2) && (m_Policy != nullptr))
-        {
-            fprintf(file, "%*s<Data>", indent + 2, "");
-            m_Policy->DumpData(file);
             fprintf(file, "</Data>\n");
         }
 
@@ -657,11 +646,10 @@ void InlineResult::Report()
     m_Reported = true;
 
 #ifdef DEBUG
-    const char* callee      = nullptr;
-    const bool  showInlines = (JitConfig.JitPrintInlinedMethods() == 1);
+    const char* callee = nullptr;
 
     // Optionally dump the result
-    if (VERBOSE || showInlines)
+    if (VERBOSE)
     {
         const char* format = "INLINER: during '%s' result '%s' reason '%s' for '%s' calling '%s'\n";
         const char* caller = (m_Caller == nullptr) ? "n/a" : m_RootCompiler->eeGetMethodFullName(m_Caller);
@@ -701,16 +689,10 @@ void InlineResult::Report()
 
 #ifdef DEBUG
 
-            const char* obsString = InlGetObservationString(obs);
-
             if (VERBOSE)
             {
+                const char* obsString = InlGetObservationString(obs);
                 JITDUMP("\nINLINER: Marking %s as NOINLINE because of %s\n", callee, obsString);
-            }
-
-            if (showInlines)
-            {
-                printf("Marking %s as NOINLINE because of %s\n", callee, obsString);
             }
 
 #endif // DEBUG
@@ -758,7 +740,6 @@ InlineStrategy::InlineStrategy(Compiler* compiler)
     , m_HasForceViaDiscretionary(false)
 #if defined(DEBUG) || defined(INLINE_DATA)
     , m_MethodXmlFilePosition(0)
-    , m_Random(nullptr)
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
 {
@@ -1174,10 +1155,10 @@ InlineContext* InlineStrategy::NewRoot()
 InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 {
     InlineContext* calleeContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
-    GenTreeStmt*   stmt          = inlineInfo->iciStmt;
+    GenTree*       stmt          = inlineInfo->iciStmt;
     BYTE*          calleeIL      = inlineInfo->inlineCandidateInfo->methInfo.ILCode;
     unsigned       calleeILSize  = inlineInfo->inlineCandidateInfo->methInfo.ILCodeSize;
-    InlineContext* parentContext = stmt->gtInlineContext;
+    InlineContext* parentContext = stmt->gtStmt.gtInlineContext;
 
     noway_assert(parentContext != nullptr);
 
@@ -1232,22 +1213,35 @@ InlineContext* InlineStrategy::NewSuccess(InlineInfo* inlineInfo)
 //    A new InlineContext for diagnostic purposes, or nullptr if
 //    the desired context could not be created.
 
-InlineContext* InlineStrategy::NewFailure(GenTreeStmt* stmt, InlineResult* inlineResult)
+InlineContext* InlineStrategy::NewFailure(GenTree* stmt, InlineResult* inlineResult)
 {
-    // Check for a parent context first. We should now have a parent
-    // context for all statements.
-    InlineContext* parentContext = stmt->gtInlineContext;
-    assert(parentContext != nullptr);
+    // Check for a parent context first. We may insert new statements
+    // between the caller and callee that do not pick up either's
+    // context, and these statements may have calls that we later
+    // examine and fail to inline.
+    //
+    // See fgInlinePrependStatements for examples.
+
+    InlineContext* parentContext = stmt->gtStmt.gtInlineContext;
+
+    if (parentContext == nullptr)
+    {
+        // Assume for now this is a failure to inline a call in a
+        // statement inserted between caller and callee. Just ignore
+        // it for the time being.
+
+        return nullptr;
+    }
+
     InlineContext* failedContext = new (m_Compiler, CMK_Inlining) InlineContext(this);
 
-    // Pushing the new context on the front of the parent child list
-    // will put siblings in reverse lexical order which we undo in the
-    // dumper.
-    failedContext->m_Parent      = parentContext;
+    failedContext->m_Parent = parentContext;
+    // Push on front here will put siblings in reverse lexical
+    // order which we undo in the dumper
     failedContext->m_Sibling     = parentContext->m_Child;
     parentContext->m_Child       = failedContext;
     failedContext->m_Child       = nullptr;
-    failedContext->m_Offset      = stmt->gtStmtILoffsx;
+    failedContext->m_Offset      = stmt->AsStmt()->gtStmtILoffsx;
     failedContext->m_Observation = inlineResult->GetObservation();
     failedContext->m_Callee      = inlineResult->GetCallee();
     failedContext->m_Success     = false;
@@ -1360,7 +1354,7 @@ void InlineStrategy::DumpDataEnsurePolicyIsSet()
     // successful policy, so fake one up.
     if (m_LastSuccessfulPolicy == nullptr)
     {
-        const bool isPrejitRoot = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+        const bool isPrejitRoot = (opts.eeFlags & CORJIT_FLG_PREJIT) != 0;
         m_LastSuccessfulPolicy  = InlinePolicy::GetPolicy(m_Compiler, isPrejitRoot);
 
         // Add in a bit of data....
@@ -1394,7 +1388,7 @@ void InlineStrategy::DumpDataHeader(FILE* file)
 void InlineStrategy::DumpDataSchema(FILE* file)
 {
     DumpDataEnsurePolicyIsSet();
-    fprintf(file, "Method,Version,HotSize,ColdSize,JitTime,SizeEstimate,TimeEstimate,");
+    fprintf(file, "Method,Version,HotSize,ColdSize,JitTime,SizeEstimate,TimeEstimate");
     m_LastSuccessfulPolicy->DumpSchema(file);
 }
 
@@ -1430,7 +1424,7 @@ void InlineStrategy::DumpDataContents(FILE* file)
         microsecondsSpentJitting = (unsigned)((counts / countsPerSec) * 1000 * 1000);
     }
 
-    fprintf(file, "%08X,%u,%u,%u,%u,%d,%d,", currentMethodToken, m_InlineCount, info.compTotalHotCodeSize,
+    fprintf(file, "%08X,%u,%u,%u,%u,%d,%d", currentMethodToken, m_InlineCount, info.compTotalHotCodeSize,
             info.compTotalColdCodeSize, microsecondsSpentJitting, m_CurrentSizeEstimate / 10, m_CurrentTimeEstimate);
     m_LastSuccessfulPolicy->DumpData(file);
 }
@@ -1467,22 +1461,10 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
         fprintf(file, "<InlineForest>\n");
         fprintf(file, "<Policy>%s</Policy>\n", m_LastSuccessfulPolicy->GetName());
 
-        const int dumpDataSetting = JitConfig.JitInlineDumpData();
-        if (dumpDataSetting != 0)
+        if (JitConfig.JitInlineDumpData() != 0)
         {
             fprintf(file, "<DataSchema>");
-
-            if (dumpDataSetting == 1)
-            {
-                // JitInlineDumpData=1 -- dump schema for data plus deltas
-                DumpDataSchema(file);
-            }
-            else if (dumpDataSetting == 2)
-            {
-                // JitInlineDumpData=2 -- dump schema for data only
-                m_LastSuccessfulPolicy->DumpSchema(file);
-            }
-
+            DumpDataSchema(file);
             fprintf(file, "</DataSchema>\n");
         }
 
@@ -1502,7 +1484,7 @@ void InlineStrategy::DumpXml(FILE* file, unsigned indent)
     const Compiler::Info&    info = m_Compiler->info;
     const Compiler::Options& opts = m_Compiler->opts;
 
-    const bool isPrejitRoot  = opts.jitFlags->IsSet(JitFlags::JIT_FLAG_PREJIT);
+    const bool isPrejitRoot  = (opts.eeFlags & CORJIT_FLG_PREJIT) != 0;
     const bool isForceInline = (info.compFlags & CORINFO_FLG_FORCEINLINE) != 0;
 
     // We'd really like the method identifier to be unique and
@@ -1605,52 +1587,6 @@ void InlineStrategy::FinalizeXml(FILE* file)
 
     // Finalize reading inline xml
     ReplayPolicy::FinalizeXml();
-}
-
-//------------------------------------------------------------------------
-// GetRandom: setup or access random state
-//
-// Return Value:
-//    New or pre-existing random state.
-//
-// Notes:
-//    Random state is kept per jit compilation request. Seed is partially
-//    specified externally (via stress or policy setting) and partially
-//    specified internally via method hash.
-
-CLRRandom* InlineStrategy::GetRandom()
-{
-    if (m_Random == nullptr)
-    {
-        int externalSeed = 0;
-
-#ifdef DEBUG
-
-        if (m_Compiler->compRandomInlineStress())
-        {
-            externalSeed = getJitStressLevel();
-        }
-
-#endif // DEBUG
-
-        int randomPolicyFlag = JitConfig.JitInlinePolicyRandom();
-        if (randomPolicyFlag != 0)
-        {
-            externalSeed = randomPolicyFlag;
-        }
-
-        int internalSeed = m_Compiler->info.compMethodHash();
-
-        assert(externalSeed != 0);
-        assert(internalSeed != 0);
-
-        int seed = externalSeed ^ internalSeed;
-
-        m_Random = new (m_Compiler, CMK_Inlining) CLRRandom();
-        m_Random->Init(seed);
-    }
-
-    return m_Random;
 }
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)

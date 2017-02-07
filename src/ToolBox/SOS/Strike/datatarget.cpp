@@ -83,9 +83,9 @@ DataTarget::GetPointerSize(
 {
 #if defined(SOS_TARGET_AMD64) || defined(SOS_TARGET_ARM64)
     *size = 8;
-#elif defined(SOS_TARGET_ARM) || defined(SOS_TARGET_X86)
+#elif defined(SOS_TARGET_ARM)
     *size = 4;
-#else
+#elif
   #error Unsupported architecture
 #endif
 

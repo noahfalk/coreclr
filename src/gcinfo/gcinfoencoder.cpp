@@ -343,13 +343,10 @@ GcInfoSize& GcInfoSize::operator+=(const GcInfoSize& other)
     NumRanges += other.NumRanges;
     NumRegs += other.NumRegs;
     NumStack += other.NumStack;
-    NumUntracked += other.NumUntracked;
+    NumEh += other.NumEh;
     NumTransitions += other.NumTransitions;
     SizeOfCode += other.SizeOfCode;
-    EncPreservedSlots += other.EncPreservedSlots;
     
-    UntrackedSlotSize += other.UntrackedSlotSize;
-    NumUntrackedSize += other.NumUntrackedSize;
     FlagsSize += other.FlagsSize;
     CodeLengthSize += other.CodeLengthSize;
     ProEpilogSize += other.ProEpilogSize;
@@ -369,6 +366,7 @@ GcInfoSize& GcInfoSize::operator+=(const GcInfoSize& other)
     RegSlotSize += other.RegSlotSize;
     StackSlotSize += other.StackSlotSize;
     CallSiteStateSize += other.CallSiteStateSize;
+    NumEhSize += other.NumEhSize;
     EhPosSize += other.EhPosSize;
     EhStateSize += other.EhStateSize;
     ChunkPtrSize += other.ChunkPtrSize;
@@ -391,15 +389,12 @@ void GcInfoSize::Log(DWORD level, const char * header)
         LogSpew(LF_GCINFO, level, "NumRanges: %Iu\n", NumRanges);
         LogSpew(LF_GCINFO, level, "NumRegs: %Iu\n", NumRegs);
         LogSpew(LF_GCINFO, level, "NumStack: %Iu\n", NumStack);
-        LogSpew(LF_GCINFO, level, "NumUntracked: %Iu\n", NumUntracked);
+        LogSpew(LF_GCINFO, level, "NumEh: %Iu\n", NumEh);
         LogSpew(LF_GCINFO, level, "NumTransitions: %Iu\n", NumTransitions);
         LogSpew(LF_GCINFO, level, "SizeOfCode: %Iu\n", SizeOfCode);
-        LogSpew(LF_GCINFO, level, "EncPreservedSlots: %Iu\n", EncPreservedSlots);
 
         LogSpew(LF_GCINFO, level, "---SIZES(bits)---\n");
         LogSpew(LF_GCINFO, level, "Total: %Iu\n", TotalSize);
-        LogSpew(LF_GCINFO, level, "UntrackedSlot: %Iu\n", UntrackedSlotSize);
-        LogSpew(LF_GCINFO, level, "NumUntracked: %Iu\n", NumUntrackedSize);
         LogSpew(LF_GCINFO, level, "Flags: %Iu\n", FlagsSize);
         LogSpew(LF_GCINFO, level, "CodeLength: %Iu\n", CodeLengthSize);
         LogSpew(LF_GCINFO, level, "Prolog/Epilog: %Iu\n", ProEpilogSize);
@@ -419,6 +414,7 @@ void GcInfoSize::Log(DWORD level, const char * header)
         LogSpew(LF_GCINFO, level, "RegSlots: %Iu\n", RegSlotSize);
         LogSpew(LF_GCINFO, level, "StackSlots: %Iu\n", StackSlotSize);
         LogSpew(LF_GCINFO, level, "CallSiteStates: %Iu\n", CallSiteStateSize);
+        LogSpew(LF_GCINFO, level, "NumEh: %Iu\n", NumEhSize);
         LogSpew(LF_GCINFO, level, "EhOffsets: %Iu\n", EhPosSize);
         LogSpew(LF_GCINFO, level, "EhStates: %Iu\n", EhStateSize);
         LogSpew(LF_GCINFO, level, "ChunkPointers: %Iu\n", ChunkPtrSize);
@@ -428,6 +424,17 @@ void GcInfoSize::Log(DWORD level, const char * header)
     }
 }
 
+#endif
+
+#ifndef DISABLE_EH_VECTORS
+inline BOOL IsEssential(EE_ILEXCEPTION_CLAUSE *pClause)
+{
+    _ASSERTE(pClause->TryEndPC >= pClause->TryStartPC);
+     if(pClause->TryEndPC == pClause->TryStartPC)
+        return FALSE;
+
+     return TRUE;
+}
 #endif
 
 GcInfoEncoder::GcInfoEncoder(
@@ -1163,8 +1170,7 @@ void GcInfoEncoder::Build()
     int size_tCount = (m_NumSlots + BITS_PER_SIZE_T - 1) / BITS_PER_SIZE_T;
     BitArray liveState(m_pAllocator, size_tCount);
     BitArray couldBeLive(m_pAllocator, size_tCount);
-    liveState.ClearAll();
-    couldBeLive.ClearAll();
+
 
 #ifdef PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
     _ASSERTE(m_NumCallSites == 0 || m_pCallSites != NULL);
@@ -1348,6 +1354,83 @@ void GcInfoEncoder::Build()
 #endif
     }
 
+
+#ifdef PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
+    ///////////////////////////////////////////////////////////////////////
+    // Gather EH information
+    ///////////////////////////////////////////////////////////////////////
+   
+    couldBeLive.ClearAll();
+
+#ifndef DISABLE_EH_VECTORS
+    UINT32 numEHClauses;
+    EE_ILEXCEPTION *pEHInfo = (EE_ILEXCEPTION*) m_pCorJitInfo->getEHInfo();
+    if (!pEHInfo)
+        numEHClauses = 0;
+    else
+        numEHClauses = pEHInfo->EHCount();
+
+    UINT32 numUsedEHClauses = numEHClauses;
+    for (UINT32 clauseIndex = 0; clauseIndex < numEHClauses; clauseIndex++)
+    {
+        EE_ILEXCEPTION_CLAUSE * pClause;
+        pClause = pEHInfo->EHClause(clauseIndex);
+
+        if(!IsEssential(pClause))
+            numUsedEHClauses--;
+    }
+    
+    UINT32 ehTableBitCount = m_NumSlots * numUsedEHClauses;
+    BitArray ehLiveSlots(m_pAllocator, (ehTableBitCount + BITS_PER_SIZE_T - 1) / BITS_PER_SIZE_T);
+    ehLiveSlots.ClearAll();
+
+    UINT32 basePos = 0;
+    for (UINT32 clauseIndex = 0; clauseIndex < numEHClauses; clauseIndex++)
+    {
+        EE_ILEXCEPTION_CLAUSE * pClause;
+        pClause = pEHInfo->EHClause(clauseIndex);
+
+        _ASSERTE(pClause->TryEndPC <= m_CodeLength);
+        if(!IsEssential(pClause))
+            continue;
+        
+        liveState.ClearAll();
+        
+        for(pCurrent = pTransitions; pCurrent < pEndTransitions; pCurrent++)
+        {
+            if(pCurrent->CodeOffset > pClause->TryStartPC)
+                break;
+            
+            UINT32 slotIndex = pCurrent->SlotId;
+            BYTE becomesLive = pCurrent->BecomesLive;
+            _ASSERTE(liveState.ReadBit(slotIndex) && !becomesLive
+                    || !liveState.ReadBit(slotIndex) && becomesLive);
+            liveState.WriteBit(slotIndex, becomesLive);
+        }
+
+        for( ; pCurrent < pEndTransitions; pCurrent++)
+        {
+            if(pCurrent->CodeOffset >= pClause->TryEndPC)
+                break;
+            
+            UINT32 slotIndex = pCurrent->SlotId;
+            liveState.ClearBit(slotIndex);
+        }
+
+        // Copy to the EH live state table
+        for(UINT32 i = 0; i < m_NumSlots; i++)
+        {
+            if(liveState.ReadBit(i))
+                ehLiveSlots.SetBit(basePos + i);
+        }
+        basePos += m_NumSlots;
+
+        // Keep track of which slots are used
+        couldBeLive |= liveState;
+    }
+#endif  // DISABLE_EH_VECTORS
+#endif  // PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
+    
 #if CODE_OFFSETS_NEED_NORMALIZATION
     // Do a pass to normalize transition offsets
     for(pCurrent = pTransitions; pCurrent < pEndTransitions; pCurrent++)
@@ -1361,7 +1444,6 @@ void GcInfoEncoder::Build()
     // Find out which slots are really used
     ///////////////////////////////////////////////////////////////////
 
-    couldBeLive.ClearAll();
     
 #ifdef PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
     if(m_NumCallSites)
@@ -1912,6 +1994,40 @@ void GcInfoEncoder::Build()
 #endif // MUST_CALL_JITALLOCATOR_FREE
 
     }
+
+    //-----------------------------------------------------------------
+    // Encode EH clauses and bit vectors
+    //-----------------------------------------------------------------
+
+#ifndef DISABLE_EH_VECTORS
+    GCINFO_WRITE_VARL_U(m_Info1, numUsedEHClauses, NUM_EH_CLAUSES_ENCBASE, NumEhSize);
+
+    basePos = 0;
+    for(UINT32 clauseIndex = 0; clauseIndex < numEHClauses; clauseIndex++)
+    {
+        EE_ILEXCEPTION_CLAUSE * pClause;
+        pClause = pEHInfo->EHClause(clauseIndex);
+
+        if(!IsEssential(pClause))
+            continue;
+
+        UINT32 normStartOffset = NORMALIZE_CODE_OFFSET(pClause->TryStartPC);
+        UINT32 normStopOffset = NORMALIZE_CODE_OFFSET(pClause->TryEndPC);
+        _ASSERTE(normStopOffset > normStartOffset);        
+
+        GCINFO_WRITE(m_Info1, normStartOffset, numBitsPerOffset, EhPosSize);
+        GCINFO_WRITE(m_Info1, normStopOffset - 1, numBitsPerOffset, EhPosSize);
+                
+        for(UINT slotIndex = 0; slotIndex < m_NumSlots; slotIndex++)
+        {
+            if(!m_SlotTable[slotIndex].IsDeleted())
+            {
+                GCINFO_WRITE(m_Info1, ehLiveSlots.ReadBit(basePos + slotIndex) ? 1 : 0, 1, EhStateSize);
+            }
+        }
+        basePos += m_NumSlots;
+    }
+#endif  // DISABLE_EH_VECTORS    
 #endif  // PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
 
     
@@ -2242,6 +2358,11 @@ lExitSuccess:;
     m_CurrentMethodSize.NumMethods = 1;
 #ifdef PARTIALLY_INTERRUPTIBLE_GC_SUPPORTED
     m_CurrentMethodSize.NumCallSites = m_NumCallSites;
+#ifdef DISABLE_EH_VECTORS
+    m_CurrentMethodSize.NumEh = 0;
+#else
+    m_CurrentMethodSize.NumEh = numUsedEHClauses;
+#endif
 #endif
     m_CurrentMethodSize.NumRanges = numInterruptibleRanges;
     m_CurrentMethodSize.NumRegs = numRegisters;

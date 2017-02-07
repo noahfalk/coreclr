@@ -71,7 +71,7 @@ public:
     // only use this for clearing it
     void operator=(void* rhs)
     {
-        assert(rhs == nullptr);
+        assert(rhs == NULL);
         data = 0;
     }
 };

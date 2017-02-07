@@ -166,7 +166,7 @@ namespace System {
         internal UnitySerializationHolder(SerializationInfo info, StreamingContext context) 
         {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
             
             m_unityType = info.GetInt32("UnityType");
@@ -204,6 +204,7 @@ namespace System {
         #endregion
 
         #region ISerializable
+        [System.Security.SecurityCritical]  // auto-generated
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context) 
         {
             throw new NotSupportedException(Environment.GetResourceString("NotSupported_UnitySerHolder"));
@@ -211,6 +212,7 @@ namespace System {
         #endregion
 
         #region IObjectReference
+        [System.Security.SecurityCritical]  // auto-generated
         public virtual Object GetRealObject(StreamingContext context) 
         {
             // GetRealObject uses the data we have in m_data and m_unityType to do a lookup on the correct 

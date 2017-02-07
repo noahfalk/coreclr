@@ -297,6 +297,13 @@ public:
         return ValueNum(SRC_ZeroMap);
     }
 
+    // The value number for the special "NotAField" field sequence.
+    static ValueNum VNForNotAField()
+    {
+        // We reserve Chunk 0 for "special" VNs.  Let SRC_NotAField (== 2) be the "not a field seq".
+        return ValueNum(SRC_NotAField);
+    }
+
     // The ROH map is the map for the "read-only heap".  We assume that this is never mutated, and always
     // has the same value number.
     static ValueNum VNForROH()
@@ -443,7 +450,7 @@ public:
 
     // Get a new, unique value number for an expression that we're not equating to some function,
     // which is the value of a tree in the given block.
-    ValueNum VNForExpr(BasicBlock* block, var_types typ = TYP_UNKNOWN);
+    ValueNum VNForExpr(BasicBlock *block, var_types typ = TYP_UNKNOWN);
 
 // This controls extra tracing of the "evaluation" of "VNF_MapSelect" functions.
 #define FEATURE_VN_TRACE_APPLY_SELECTORS 1
@@ -478,11 +485,13 @@ public:
 
     ValueNumPair VNPairApplySelectors(ValueNumPair map, FieldSeqNode* fieldSeq, var_types indType);
 
-    ValueNumPair VNPairApplySelectorsAssign(
-        ValueNumPair map, FieldSeqNode* fieldSeq, ValueNumPair rhs, var_types indType, BasicBlock* block)
+    ValueNumPair VNPairApplySelectorsAssign(ValueNumPair  map,
+                                            FieldSeqNode* fieldSeq,
+                                            ValueNumPair  rhs,
+                                            var_types     indType,
+                                            BasicBlock*   block)
     {
-        return ValueNumPair(VNApplySelectorsAssign(VNK_Liberal, map.GetLiberal(), fieldSeq, rhs.GetLiberal(), indType,
-                                                   block),
+        return ValueNumPair(VNApplySelectorsAssign(VNK_Liberal, map.GetLiberal(), fieldSeq, rhs.GetLiberal(), indType, block),
                             VNApplySelectorsAssign(VNK_Conservative, map.GetConservative(), fieldSeq,
                                                    rhs.GetConservative(), indType, block));
     }
@@ -497,9 +506,6 @@ public:
                                bool         srcIsUnsigned    = false,
                                bool         hasOverflowCheck = false);
 
-    // Returns true iff the VN represents an application of VNF_NotAField.
-    bool IsVNNotAField(ValueNum vn);
-
     // PtrToLoc values need to express a field sequence as one of their arguments.  VN for null represents
     // empty sequence, otherwise, "FieldSeq(VN(FieldHandle), restOfSeq)".
     ValueNum VNForFieldSeq(FieldSeqNode* fieldSeq);
@@ -511,6 +517,12 @@ public:
     // Both argument must represent field sequences; returns the value number representing the
     // concatenation "fsVN1 || fsVN2".
     ValueNum FieldSeqVNAppend(ValueNum fsVN1, ValueNum fsVN2);
+
+    // Requires "lclVarVN" be a value number for a GT_LCL_VAR pointer tree.
+    // Requires "fieldSeqVN" be a field sequence value number.
+    // Requires "typ" to be a TYP_REF/TYP_BYREF used for VNF_PtrToLoc.
+    // When "fieldSeqVN" is VNForNotAField, a unique VN is generated using m_uPtrToLocNotAFieldCount.
+    ValueNum VNForPtrToLoc(var_types typ, ValueNum lclVarVN, ValueNum fieldSeqVN);
 
     // If "opA" has a PtrToLoc, PtrToArrElem, or PtrToStatic application as its value numbers, and "opB" is an integer
     // with a "fieldSeq", returns the VN for the pointer form extended with the field sequence; or else NoVN.
@@ -841,15 +853,14 @@ private:
 
     DECLARE_TYPED_ENUM(ChunkExtraAttribs, BYTE)
     {
-        CEA_None,          // No extra attributes.
-            CEA_Const,     // This chunk contains constant values.
-            CEA_Handle,    // This chunk contains handle constants.
-            CEA_NotAField, // This chunk contains "not a field" values.
-            CEA_Func0,     // Represents functions of arity 0.
-            CEA_Func1,     // ...arity 1.
-            CEA_Func2,     // ...arity 2.
-            CEA_Func3,     // ...arity 3.
-            CEA_Func4,     // ...arity 4.
+        CEA_None,       // No extra attributes.
+            CEA_Const,  // This chunk contains constant values.
+            CEA_Handle, // This chunk contains handle constants.
+            CEA_Func0,  // Represents functions of arity 0.
+            CEA_Func1,  // ...arity 1.
+            CEA_Func2,  // ...arity 2.
+            CEA_Func3,  // ...arity 3.
+            CEA_Func4,  // ...arity 4.
             CEA_Count
     }
     END_DECLARE_TYPED_ENUM(ChunkExtraAttribs, BYTE);
@@ -872,14 +883,9 @@ private:
         ChunkExtraAttribs      m_attribs;
         BasicBlock::loopNumber m_loopNum;
 
-        // Initialize a chunk, starting at "*baseVN", for the given "typ", "attribs", and "loopNum" (using "alloc" for
-        // allocations).
+        // Initialize a chunk, starting at "*baseVN", for the given "typ", "attribs", and "loopNum" (using "alloc" for allocations).
         // (Increments "*baseVN" by ChunkSize.)
-        Chunk(IAllocator*            alloc,
-              ValueNum*              baseVN,
-              var_types              typ,
-              ChunkExtraAttribs      attribs,
-              BasicBlock::loopNumber loopNum);
+        Chunk(IAllocator* alloc, ValueNum* baseVN, var_types typ, ChunkExtraAttribs attribs, BasicBlock::loopNumber loopNum);
 
         // Requires that "m_numUsed < ChunkSize."  Returns the offset of the allocated VN within the chunk; the
         // actual VN is this added to the "m_baseVN" of the chunk.
@@ -1251,12 +1257,17 @@ private:
     {
         SRC_Null,
         SRC_ZeroMap,
+        SRC_NotAField,
         SRC_ReadOnlyHeap,
         SRC_Void,
         SRC_EmptyExcSet,
 
         SRC_NumSpecialRefConsts
     };
+
+    // Counter to keep track of all the unique not a field sequences that have been assigned to
+    // PtrToLoc, because the ptr was added to an offset that was not a field.
+    unsigned m_uPtrToLocNotAFieldCount;
 
     // The "values" of special ref consts will be all be "null" -- their differing meanings will
     // be carried by the distinct value numbers.

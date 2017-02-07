@@ -21,7 +21,9 @@
 // from ntstatus.h
 #define STATUS_SUSPEND_COUNT_EXCEEDED    ((NTSTATUS)0xC000004AL)
 
+#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_) || defined(_TARGET_ARM_)
 #define HIJACK_NONINTERRUPTIBLE_THREADS
+#endif
 
 bool ThreadSuspend::s_fSuspendRuntimeInProgress = false;
 
@@ -754,7 +756,6 @@ static StackWalkAction TAStackCrawlCallBackWorker(CrawlFrame* pCf, StackCrawlCon
     }
     #undef METHODNAME
 
-#ifdef FEATURE_CER
     // If we're asking about CERs and we don't yet have a definite answer either way then take a closer look at the current method.
     if (pData->eType & StackCrawlContext::SCC_CheckWithinCer && !pData->fUnprotectedCode && !pData->fWithinCer)
     {
@@ -776,7 +777,6 @@ static StackWalkAction TAStackCrawlCallBackWorker(CrawlFrame* pCf, StackCrawlCon
                     pData->fUnprotectedCode = true;
         }
     }
-#endif // FEATURE_CER
 
     // If we weren't asked about EH clauses then we can return now (stop the stack trace if we have a definitive answer on the CER
     // question, move to the next frame otherwise).
@@ -1124,7 +1124,6 @@ struct CerStackCrawlContext
     bool        m_fWithinCer;           // The result
 };
 
-#ifdef FEATURE_CER
 // Callback used on the stack crawl described above.
 StackWalkAction CerStackCrawlCallBack(CrawlFrame *pCf, void *pData)
 {
@@ -1167,7 +1166,6 @@ StackWalkAction CerStackCrawlCallBack(CrawlFrame *pCf, void *pData)
     // Otherwise everything looks OK so far and we need to investigate the next frame.
     return SWA_CONTINUE;
 }
-#endif // FEATURE_CER
 
 // Determine whether the method at the given depth in the thread's execution stack is executing within a CER.
 BOOL Thread::IsWithinCer(CrawlFrame *pCf)
@@ -1179,9 +1177,6 @@ BOOL Thread::IsWithinCer(CrawlFrame *pCf)
     }
     CONTRACTL_END;
 
-#ifndef FEATURE_CER
-    return FALSE;
-#else
     // There had better be a method associated with this frame.
     MethodDesc *pMD = pCf->GetFunction();
     _ASSERTE(pMD != NULL);
@@ -1298,7 +1293,6 @@ BOOL Thread::IsWithinCer(CrawlFrame *pCf)
     _ASSERTE(!sContext.m_fFirstFrame);
 
     return sContext.m_fWithinCer;
-#endif // FEATURE_CER
 }
 
 #if defined(_TARGET_AMD64_) && defined(FEATURE_HIJACK)
@@ -2190,7 +2184,7 @@ LRetry:
                               | TS_Detached
                               | TS_Unstarted)));
 
-#if defined(_TARGET_X86_) && !defined(WIN64EXCEPTIONS)
+#ifdef _TARGET_X86_
         // TODO WIN64: consider this if there is a way to detect of managed code on stack.
         if ((m_pFrame == FRAME_TOP)
             && (GetFirstCOMPlusSEHRecord(this) == EXCEPTION_CHAIN_END)
@@ -2213,7 +2207,7 @@ LRetry:
         if (!m_fPreemptiveGCDisabled)
         {
             if ((m_pFrame != FRAME_TOP) && m_pFrame->IsTransitionToNativeFrame()
-#if defined(_TARGET_X86_) && !defined(WIN64EXCEPTIONS)
+#ifdef _TARGET_X86_
                 && ((size_t) GetFirstCOMPlusSEHRecord(this) > ((size_t) m_pFrame) - 20)
 #endif // _TARGET_X86_
                 )
@@ -3284,7 +3278,7 @@ void Thread::RareDisablePreemptiveGC()
         __SwitchToThread(0, CALLER_LIMITS_SPINNING);
     }
 
-    if (!GCHeapUtilities::IsGCHeapInitialized())
+    if (!GCHeap::IsGCHeapInitialized())
     {
         goto Exit;
     }
@@ -3292,7 +3286,7 @@ void Thread::RareDisablePreemptiveGC()
     // Note IsGCInProgress is also true for say Pause (anywhere SuspendEE happens) and GCThread is the 
     // thread that did the Pause. While in Pause if another thread attempts Rev/Pinvoke it should get inside the following and 
     // block until resume
-    if (((GCHeapUtilities::IsGCInProgress()  && (this != ThreadSuspend::GetSuspensionThread())) ||
+    if (((GCHeap::IsGCInProgress()  && (this != ThreadSuspend::GetSuspensionThread())) ||
         (m_State & (TS_UserSuspendPending | TS_DebugSuspendPending | TS_StackCrawlNeeded))) &&
         (!g_fSuspendOnShutdown || IsFinalizerThread() || IsShutdownSpecialThread()))
     {
@@ -3358,7 +3352,7 @@ void Thread::RareDisablePreemptiveGC()
 
                     DWORD status = S_OK;
                     SetThreadStateNC(TSNC_WaitUntilGCFinished);
-                    status = GCHeapUtilities::GetGCHeap()->WaitUntilGCComplete();
+                    status = GCHeap::GetGCHeap()->WaitUntilGCComplete();
                     ResetThreadStateNC(TSNC_WaitUntilGCFinished);
 
                     if (status == (DWORD)COR_E_STACKOVERFLOW)
@@ -3367,7 +3361,7 @@ void Thread::RareDisablePreemptiveGC()
                         // 1. GC is suspending the process.  GC needs to wait.
                         // 2. GC is proceeding after suspension.  The current thread needs to spin.
                         SetThreadState(TS_BlockGCForSO);
-                        while (GCHeapUtilities::IsGCInProgress() && m_fPreemptiveGCDisabled.Load() == 0)
+                        while (GCHeap::IsGCInProgress() && m_fPreemptiveGCDisabled.Load() == 0)
                         {
 #undef Sleep
                             // We can not go to a host for blocking operation due ot lack of stack.
@@ -3384,7 +3378,7 @@ void Thread::RareDisablePreemptiveGC()
                             break;
                         }
                     }
-                    if (!GCHeapUtilities::IsGCInProgress())
+                    if (!GCHeap::IsGCInProgress())
                     {
                         if (HasThreadState(TS_StackCrawlNeeded))
                         {
@@ -3419,7 +3413,7 @@ void Thread::RareDisablePreemptiveGC()
                 // thread while in this loop.  This happens if you use the COM+
                 // debugger to suspend this thread and then release it.
 
-            } while ((GCHeapUtilities::IsGCInProgress()  && (this != ThreadSuspend::GetSuspensionThread())) ||
+            } while ((GCHeap::IsGCInProgress()  && (this != ThreadSuspend::GetSuspensionThread())) ||
                      (m_State & (TS_UserSuspendPending | TS_DebugSuspendPending | TS_StackCrawlNeeded)));
         }
         STRESS_LOG0(LF_SYNC, LL_INFO1000, "RareDisablePreemptiveGC: leaving\n");
@@ -3713,7 +3707,7 @@ void Thread::PerformPreemptiveGC()
     if (!GCStressPolicy::IsEnabled() || !GCStress<cfg_transition>::IsEnabled())
         return;
 
-    if (!GCHeapUtilities::IsGCHeapInitialized())
+    if (!GCHeap::IsGCHeapInitialized())
         return;
 
     if (!m_GCOnTransitionsOK
@@ -3721,8 +3715,8 @@ void Thread::PerformPreemptiveGC()
         || RawGCNoTrigger()
 #endif
         || g_fEEShutDown
-        || GCHeapUtilities::IsGCInProgress(TRUE)
-        || GCHeapUtilities::GetGCHeap()->GetGcCount() == 0    // Need something that works for isolated heap.
+        || GCHeap::IsGCInProgress(TRUE)
+        || GCHeap::GetGCHeap()->GetGcCount() == 0    // Need something that works for isolated heap.
         || ThreadStore::HoldingThreadStore())
         return;
 
@@ -3746,7 +3740,7 @@ void Thread::PerformPreemptiveGC()
     {
         GCX_COOP();
         m_bGCStressing = TRUE;
-        GCHeapUtilities::GetGCHeap()->StressHeap();
+        GCHeap::GetGCHeap()->StressHeap();
         m_bGCStressing = FALSE;
     }
     m_GCOnTransitionsOK = TRUE;
@@ -4854,7 +4848,7 @@ HRESULT ThreadSuspend::SuspendRuntime(ThreadSuspend::SUSPEND_REASON reason)
     // Caller is expected to be holding the ThreadStore lock.  Also, caller must
     // have set GcInProgress before coming here, or things will break;
     _ASSERTE(ThreadStore::HoldingThreadStore() || IsAtProcessExit());
-    _ASSERTE(GCHeapUtilities::IsGCInProgress() );
+    _ASSERTE(GCHeap::IsGCInProgress() );
 
     STRESS_LOG1(LF_SYNC, LL_INFO1000, "Thread::SuspendRuntime(reason=0x%x)\n", reason);
 
@@ -5555,7 +5549,7 @@ void ThreadSuspend::ResumeRuntime(BOOL bFinishedGC, BOOL SuspendSucceded)
     // reset GcInProgress, or threads will continue to suspend themselves and won't
     // be resumed until the next GC.
     _ASSERTE(IsGCSpecialThread() || ThreadStore::HoldingThreadStore());
-    _ASSERTE(!GCHeapUtilities::IsGCInProgress() );
+    _ASSERTE(!GCHeap::IsGCInProgress() );
 
     STRESS_LOG2(LF_SYNC, LL_INFO1000, "Thread::ResumeRuntime(finishedGC=%d, SuspendSucceeded=%d) - Start\n", bFinishedGC, SuspendSucceded);
 
@@ -5572,7 +5566,7 @@ void ThreadSuspend::ResumeRuntime(BOOL bFinishedGC, BOOL SuspendSucceded)
     {
         // If we the suspension was for a GC, tell the host what generation GC.
         DWORD   Generation = (bFinishedGC
-                              ? GCHeapUtilities::GetGCHeap()->GetCondemnedGeneration()
+                              ? GCHeap::GetGCHeap()->GetCondemnedGeneration()
                               : ~0U);
 
         pGCThreadControl->SuspensionEnding(Generation);
@@ -5582,7 +5576,7 @@ void ThreadSuspend::ResumeRuntime(BOOL bFinishedGC, BOOL SuspendSucceded)
     {
         // If we the suspension was for a GC, tell the host what generation GC.
         DWORD   Generation = (bFinishedGC
-                              ? GCHeapUtilities::GetGCHeap()->GetCondemnedGeneration()
+                              ? GCHeap::GetGCHeap()->GetCondemnedGeneration()
                               : ~0U);
 
         BEGIN_SO_TOLERANT_CODE_CALLING_HOST(GetThread());
@@ -7019,7 +7013,7 @@ StackWalkAction SWCB_GetExecutionState(CrawlFrame *pCF, VOID *pData)
                 // return address for hijacking.
                 if (!pES->m_IsInterruptible)
                 {
-#if defined(_TARGET_AMD64_) || defined(_TARGET_ARM_) || defined(_TARGET_ARM64_) 
+#if defined(_TARGET_AMD64_) || defined(_TARGET_ARM_)
                     PREGDISPLAY pRDT = pCF->GetRegisterSet();
                     _ASSERTE(pRDT != NULL);
 
@@ -7033,7 +7027,7 @@ StackWalkAction SWCB_GetExecutionState(CrawlFrame *pCF, VOID *pData)
                     {
                          // We already have the caller context available at this point
                         _ASSERTE(pRDT->IsCallerContextValid);
-#if defined(_TARGET_ARM_) || defined(_TARGET_ARM64_)
+#ifdef _TARGET_ARM_
 
                         // Why do we use CallerContextPointers below?
                         //
@@ -7084,7 +7078,7 @@ StackWalkAction SWCB_GetExecutionState(CrawlFrame *pCF, VOID *pData)
                     // peel off the next frame to expose the return address on the stack
                     pES->m_FirstPass = FALSE;
                     action = SWA_CONTINUE;
-#endif // _TARGET_AMD64_ || _TARGET_ARM_ || _TARGET_ARM64_
+#endif // _TARGET_AMD64_ || _TARGET_ARM_
                 }
 #endif // HIJACK_NONINTERRUPTIBLE_THREADS
             }
@@ -7283,8 +7277,18 @@ ReturnKind GetReturnKindFromMethodTable(Thread *pThread, EECodeInfo *codeInfo)
 
 ReturnKind GetReturnKind(Thread *pThread, EECodeInfo *codeInfo)
 {
+    ReturnKind returnKind = RT_Illegal;
+
+#ifdef _TARGET_X86_  
+    // X86 GCInfo updates yet to be implemented.
+#else
     GCInfoToken gcInfoToken = codeInfo->GetGCInfoToken();
-    ReturnKind returnKind = codeInfo->GetCodeManager()->GetReturnKind(gcInfoToken);
+    if (gcInfoToken.IsReturnKindAvailable()) 
+    {
+        GcInfoDecoder gcInfoDecoder(gcInfoToken, DECODE_RETURN_KIND);
+        returnKind = gcInfoDecoder.GetReturnKind();
+    }
+#endif // _TARGET_X86_
 
     if (!IsValidReturnKind(returnKind))
     {
@@ -7310,7 +7314,7 @@ VOID * GetHijackAddr(Thread *pThread, EECodeInfo *codeInfo)
 #ifdef _TARGET_X86_
     if (returnKind == RT_Float)
     {
-        return reinterpret_cast<VOID *>(OnHijackFPTripThread);
+        return reinterpret_cast<VOID *>(OnHijackTripThread);
     }
 #endif // _TARGET_X86_
 
@@ -7896,7 +7900,7 @@ void ThreadSuspend::RestartEE(BOOL bFinishedGC, BOOL SuspendSucceded)
     // Revert to being a normal thread
     // 
     ClrFlsClearThreadType (ThreadType_DynamicSuspendEE);
-    GCHeapUtilities::GetGCHeap()->SetGCInProgress(FALSE);
+    GCHeap::GetGCHeap()->SetGCInProgress(FALSE);
 
     //
     // Allow threads to enter COOP mode (though we still need to wake the ones
@@ -7904,7 +7908,7 @@ void ThreadSuspend::RestartEE(BOOL bFinishedGC, BOOL SuspendSucceded)
     //
     // Note: this is the last barrier that keeps managed threads
     // from entering cooperative mode. If the sequence changes,
-    // you may have to change routine GCHeapUtilities::SafeToRestartManagedThreads
+    // you may have to change routine GCHeap::SafeToRestartManagedThreads
     // as well.
     //
     ThreadStore::TrapReturningThreads(FALSE);
@@ -7913,7 +7917,7 @@ void ThreadSuspend::RestartEE(BOOL bFinishedGC, BOOL SuspendSucceded)
     // 
     // Any threads that are waiting in WaitUntilGCComplete will continue now.
     //
-    GCHeapUtilities::GetGCHeap()->GetWaitForGCEvent()->Set();
+    GCHeap::GetGCHeap()->GetWaitForGCEvent()->Set();
     _ASSERTE(IsGCSpecialThread() || ThreadStore::HoldingThreadStore());
 
     ResumeRuntime(bFinishedGC, SuspendSucceded);
@@ -7962,7 +7966,7 @@ void ThreadSuspend::SuspendEE(SUSPEND_REASON reason)
     ETW::GCLog::ETW_GC_INFO Info;
     Info.SuspendEE.Reason = reason;
     Info.SuspendEE.GcCount = (((reason == SUSPEND_FOR_GC) || (reason == SUSPEND_FOR_GC_PREP)) ? 
-                              (ULONG)GCHeapUtilities::GetGCHeap()->GetGcCount() : (ULONG)-1);
+                              (ULONG)GCHeap::GetGCHeap()->GetGcCount() : (ULONG)-1);
 
     FireEtwGCSuspendEEBegin_V1(Info.SuspendEE.Reason, Info.SuspendEE.GcCount, GetClrInstanceId());
 
@@ -8039,7 +8043,7 @@ retry_for_debugger:
         //
         // First, we reset the event that we're about to tell other threads to wait for.
         //
-        GCHeapUtilities::GetGCHeap()->GetWaitForGCEvent()->Reset();
+        GCHeap::GetGCHeap()->GetWaitForGCEvent()->Reset();
 
         //
         // Remember that we're the one doing the GC.  Actually, maybe we're not doing a GC -
@@ -8064,7 +8068,7 @@ retry_for_debugger:
             // It seems like much of the above is redundant.  We should investigate reducing the number
             // of mechanisms we use to indicate that a suspension is in progress.
             //
-            GCHeapUtilities::GetGCHeap()->SetGCInProgress(TRUE);
+            GCHeap::GetGCHeap()->SetGCInProgress(TRUE);
 
             //
             // Gratuitous memory barrier.  (may be needed - but I'm not sure why.)
@@ -8212,7 +8216,7 @@ retry_for_debugger:
 
 // This function is called by PAL to check if the specified instruction pointer
 // is in a function where we can safely inject activation. 
-BOOL CheckActivationSafePoint(SIZE_T ip, BOOL checkingCurrentThread)
+BOOL PALAPI CheckActivationSafePoint(SIZE_T ip, BOOL checkingCurrentThread)
 {
     Thread *pThread = GetThread();
     // It is safe to call the ExecutionManager::IsManagedCode only if we are making the check for
@@ -8239,7 +8243,7 @@ BOOL CheckActivationSafePoint(SIZE_T ip, BOOL checkingCurrentThread)
 //       address to take the thread to the appropriate stub (based on the return 
 //       type of the method) which will then handle preparing the thread for GC.
 //
-void HandleGCSuspensionForInterruptedThread(CONTEXT *interruptedContext)
+void PALAPI HandleGCSuspensionForInterruptedThread(CONTEXT *interruptedContext)
 {
     Thread *pThread = GetThread();
 
@@ -8355,7 +8359,7 @@ void ThreadSuspend::Initialize()
 BOOL Debug_IsLockedViaThreadSuspension()
 {
     LIMITED_METHOD_CONTRACT;
-    return GCHeapUtilities::IsGCInProgress() && 
+    return GCHeap::IsGCInProgress() && 
                     (dbgOnly_IsSpecialEEThread() || 
                     IsGCSpecialThread() || 
                     GetThread() == ThreadSuspend::GetSuspensionThread());
@@ -8483,7 +8487,7 @@ void SuspendStatistics::EndSuspend(BOOL bForGC)
     // details on suspends...
     if (!bForGC)
         cntNonGCSuspends++;
-    if (GCHeapUtilities::GetGCHeap()->IsConcurrentGCInProgress())
+    if (GCHeap::GetGCHeap()->IsConcurrentGCInProgress())
     {
         cntSuspendsInBGC++;
         if (!bForGC)

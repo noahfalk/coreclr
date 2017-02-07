@@ -21,7 +21,6 @@
 
 #define STATUS_CLR_GCCOVER_CODE         STATUS_PRIVILEGED_INSTRUCTION
 
-#ifndef WIN64EXCEPTIONS
 class Thread;
 
 #if defined(_MSC_VER)
@@ -29,22 +28,12 @@ class Thread;
                               // Actually, the handler getting set is properly registered
 #endif
 
-#define INSTALL_SEH_RECORD(record)                                        \
-    {                                                                     \
-       (record)->Next = (PEXCEPTION_REGISTRATION_RECORD)__readfsdword(0); \
-       __writefsdword(0, (DWORD) (record));                               \
-    }
-
-#define UNINSTALL_SEH_RECORD(record)                                      \
-    {                                                                     \
-        __writefsdword(0, (DWORD) ((record)->Next));                      \
-    }
-
 #define INSTALL_EXCEPTION_HANDLING_RECORD(record)               \
     {                                                           \
         PEXCEPTION_REGISTRATION_RECORD __record = (record);     \
         _ASSERTE(__record < GetCurrentSEHRecord());             \
-        INSTALL_SEH_RECORD(record);                             \
+        __record->Next = (PEXCEPTION_REGISTRATION_RECORD)__readfsdword(0); \
+        __writefsdword(0, (DWORD)__record);                     \
     }
 
 //
@@ -55,7 +44,7 @@ class Thread;
     {                                                           \
         PEXCEPTION_REGISTRATION_RECORD __record = (record);     \
         _ASSERTE(__record == GetCurrentSEHRecord());            \
-        UNINSTALL_SEH_RECORD(record);                           \
+        __writefsdword(0, (DWORD)__record->Next);               \
     }
 
 // stackOverwriteBarrier is used to detect overwriting of stack which will mess up handler registration
@@ -76,32 +65,14 @@ class Thread;
 
 #endif
 
-
-PEXCEPTION_REGISTRATION_RECORD GetCurrentSEHRecord();
-PEXCEPTION_REGISTRATION_RECORD GetFirstCOMPlusSEHRecord(Thread*);
-
-LPVOID COMPlusEndCatchWorker(Thread *pCurThread);
-EXTERN_C LPVOID STDCALL COMPlusEndCatch(LPVOID ebp, DWORD ebx, DWORD edi, DWORD esi, LPVOID* pRetAddress);
-
-#else // WIN64EXCEPTIONS
-#define INSTALL_EXCEPTION_HANDLING_RECORD(record)
-#define UNINSTALL_EXCEPTION_HANDLING_RECORD(record)
-#define DECLARE_CPFH_EH_RECORD(pCurThread)
-
-#endif // WIN64EXCEPTIONS
-
 //
 // Retrieves the redirected CONTEXT* from the stack frame of one of the
 // RedirectedHandledJITCaseForXXX_Stub's.
 //
 PTR_CONTEXT GetCONTEXTFromRedirectedStubStackFrame(CONTEXT * pContext);
-#ifdef WIN64EXCEPTIONS
-PTR_CONTEXT GetCONTEXTFromRedirectedStubStackFrame(T_DISPATCHER_CONTEXT * pDispatcherContext);
 
-class FaultingExceptionFrame;
-
-FaultingExceptionFrame *GetFrameFromRedirectedStubStackFrame (DISPATCHER_CONTEXT *pDispatcherContext);
-#endif // WIN64EXCEPTIONS
+PEXCEPTION_REGISTRATION_RECORD GetCurrentSEHRecord();
+PEXCEPTION_REGISTRATION_RECORD GetFirstCOMPlusSEHRecord(Thread*);
 
 // Determine the address of the instruction that made the current call.
 inline

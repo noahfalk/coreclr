@@ -30,12 +30,16 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "simplerhash.h"
 
 /*****************************************************************************/
-typedef BitVec EXPSET_TP;
+
 #if LARGE_EXPSET
+typedef unsigned __int64 EXPSET_TP;
 #define EXPSET_SZ 64
 #else
+typedef unsigned int EXPSET_TP;
 #define EXPSET_SZ 32
 #endif
+
+#define EXPSET_ALL ((EXPSET_TP)0 - 1)
 
 typedef BitVec          ASSERT_TP;
 typedef BitVec_ValArg_T ASSERT_VALARG_TP;
@@ -287,13 +291,13 @@ struct BasicBlock : private LIR::Range
         }
     }
 
-    unsigned __int64 bbFlags; // see BBF_xxxx below
-
     unsigned bbNum; // the block's number
 
     unsigned bbPostOrderNum; // the block's post order number in the graph.
     unsigned bbRefs; // number of blocks that can reach here, either by fall-through or a branch. If this falls to zero,
                      // the block is unreachable.
+
+    unsigned bbFlags; // see BBF_xxxx below
 
 #define BBF_VISITED 0x00000001 // BB visited during optimizations
 #define BBF_MARKED 0x00000002  // BB marked  during optimizations
@@ -353,18 +357,11 @@ struct BasicBlock : private LIR::Range
                                        // BBJ_CALLFINALLY block, as well as, on x86, the final step block out of a
                                        // finally.
 
-#define BBF_CLONED_FINALLY_BEGIN 0x100000000 // First block of a cloned finally region
-#define BBF_CLONED_FINALLY_END 0x200000000   // Last block of a cloned finally region
-
-// Flags that relate blocks to loop structure.
-
-#define BBF_LOOP_FLAGS (BBF_LOOP_PREHEADER | BBF_LOOP_HEAD | BBF_LOOP_CALL0 | BBF_LOOP_CALL1)
-
-    bool isRunRarely() const
+    bool isRunRarely()
     {
         return ((bbFlags & BBF_RUN_RARELY) != 0);
     }
-    bool isLoopHead() const
+    bool isLoopHead()
     {
         return ((bbFlags & BBF_LOOP_HEAD) != 0);
     }
@@ -391,7 +388,7 @@ struct BasicBlock : private LIR::Range
 // For example, the top block might or might not have BBF_GC_SAFE_POINT,
 // but we assume it does not have BBF_GC_SAFE_POINT any more.
 
-#define BBF_SPLIT_LOST (BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_KEEP_BBJ_ALWAYS | BBF_CLONED_FINALLY_END)
+#define BBF_SPLIT_LOST (BBF_GC_SAFE_POINT | BBF_HAS_JMP | BBF_KEEP_BBJ_ALWAYS)
 
 // Flags gained by the bottom block when a block is split.
 // Note, this is a conservative guess.
@@ -402,7 +399,7 @@ struct BasicBlock : private LIR::Range
 
 #define BBF_SPLIT_GAINED                                                                                               \
     (BBF_DONT_REMOVE | BBF_HAS_LABEL | BBF_HAS_JMP | BBF_BACKWARD_JUMP | BBF_HAS_IDX_LEN | BBF_HAS_NEWARRAY |          \
-     BBF_PROF_WEIGHT | BBF_HAS_NEWOBJ | BBF_KEEP_BBJ_ALWAYS | BBF_CLONED_FINALLY_END)
+     BBF_PROF_WEIGHT | BBF_HAS_NEWOBJ | BBF_KEEP_BBJ_ALWAYS)
 
 #ifndef __GNUC__ // GCC doesn't like C_ASSERT at global scope
     static_assert_no_msg((BBF_SPLIT_NONEXIST & BBF_SPLIT_LOST) == 0);
@@ -804,6 +801,7 @@ struct BasicBlock : private LIR::Range
 
     VARSET_TP bbVarUse; // variables used     by block (before an assignment)
     VARSET_TP bbVarDef; // variables assigned by block (before a use)
+    VARSET_TP bbVarTmp; // TEMP: only used by FP enregistering code!
 
     VARSET_TP bbLiveIn;  // variables live on entry
     VARSET_TP bbLiveOut; // variables live on exit
@@ -821,15 +819,33 @@ struct BasicBlock : private LIR::Range
     // lclVar, and thus has no local #, we can't use a GenTreePhiArg.  Instead, we use this struct.
     struct HeapPhiArg
     {
-        unsigned    m_ssaNum;  // SSA# for incoming value.
+        bool m_isSsaNum; // If true, the phi arg is an SSA # for an internal try block heap state, being
+                         // added to the phi of a catch block.  If false, it's a pred block.
+        union {
+            BasicBlock* m_predBB; // Predecessor block from which the SSA # flows.
+            unsigned    m_ssaNum; // SSA# for internal block heap state.
+        };
         HeapPhiArg* m_nextArg; // Next arg in the list, else NULL.
 
         unsigned GetSsaNum()
         {
-            return m_ssaNum;
+            if (m_isSsaNum)
+            {
+                return m_ssaNum;
+            }
+            else
+            {
+                assert(m_predBB != nullptr);
+                return m_predBB->bbHeapSsaNumOut;
+            }
         }
 
-        HeapPhiArg(unsigned ssaNum, HeapPhiArg* nextArg = nullptr) : m_ssaNum(ssaNum), m_nextArg(nextArg)
+        HeapPhiArg(BasicBlock* predBB, HeapPhiArg* nextArg = nullptr)
+            : m_isSsaNum(false), m_predBB(predBB), m_nextArg(nextArg)
+        {
+        }
+        HeapPhiArg(unsigned ssaNum, HeapPhiArg* nextArg = nullptr)
+            : m_isSsaNum(true), m_ssaNum(ssaNum), m_nextArg(nextArg)
         {
         }
 
@@ -844,7 +860,9 @@ struct BasicBlock : private LIR::Range
     unsigned bbHeapSsaNumIn;            // The SSA # of "Heap" on entry to the block.
     unsigned bbHeapSsaNumOut;           // The SSA # of "Heap" on exit from the block.
 
+#ifdef DEBUGGING_SUPPORT
     VARSET_TP bbScope; // variables in scope over the block
+#endif
 
     void InitVarSets(class Compiler* comp);
 
@@ -965,8 +983,8 @@ struct BasicBlock : private LIR::Range
         return bbNum - 1;
     }
 
-    GenTreeStmt* firstStmt() const;
-    GenTreeStmt* lastStmt() const;
+    GenTreeStmt* firstStmt();
+    GenTreeStmt* lastStmt();
     GenTreeStmt* lastTopLevelStmt();
 
     GenTree* firstNode();
@@ -1076,11 +1094,9 @@ public:
         return AllSuccs(comp, this);
     }
 
-    // Try to clone block state and statements from `from` block to `to` block (which must be new/empty),
-    // optionally replacing uses of local `varNum` with IntCns `varVal`.  Return true if all statements
-    // in the block are cloned successfully, false (with partially-populated `to` block) if one fails.
-    static bool CloneBlockState(
-        Compiler* compiler, BasicBlock* to, const BasicBlock* from, unsigned varNum = (unsigned)-1, int varVal = 0);
+    // Clone block state and statements from 'from' block to 'to' block.
+    // Assumes that "to" is an empty block.
+    static void CloneBlockState(Compiler* compiler, BasicBlock* to, const BasicBlock* from);
 
     void MakeLIR(GenTree* firstNode, GenTree* lastNode);
     bool IsLIR();

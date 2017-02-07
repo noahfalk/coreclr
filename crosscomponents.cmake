@@ -6,5 +6,4 @@ set (CLR_CROSS_COMPONENTS_LIST
   mscordbi   
   sos
   clrjit
-  protojit
 )  

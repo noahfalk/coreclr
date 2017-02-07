@@ -5,6 +5,9 @@
 namespace System.Security.Permissions
 {
     using System;
+#if FEATURE_CAS_POLICY
+    using SecurityElement = System.Security.SecurityElement;
+#endif // FEATURE_CAS_POLICY
     using System.Globalization;
 
     [AttributeUsage(AttributeTargets.Method | AttributeTargets.Constructor | AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Assembly, AllowMultiple = true, Inherited = false )]
@@ -88,6 +91,19 @@ namespace System.Security.Permissions
                 throw new ArgumentException(Environment.GetResourceString("Argument_WrongType", this.GetType().FullName));
             return this.Copy();
         }
+
+#if FEATURE_CAS_POLICY
+        public override SecurityElement ToXml()
+        {
+            SecurityElement securityElement = CodeAccessPermission.CreatePermissionElement( this, "System.Security.Permissions.GacIdentityPermission" );
+            return securityElement;
+        }
+
+        public override void FromXml(SecurityElement securityElement)
+        {
+            CodeAccessPermission.ValidateElement(securityElement, this);
+        }
+#endif // FEATURE_CAS_POLICY
 
         /// <internalonly/>
         int IBuiltInPermission.GetTokenIndex()

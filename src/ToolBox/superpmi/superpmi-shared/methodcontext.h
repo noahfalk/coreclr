@@ -513,9 +513,9 @@ public:
     void dmpGetMethodName(DLD key, DD value);
     const char *repGetMethodName(CORINFO_METHOD_HANDLE ftn, const char **moduleName);
 
-    void recGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes, DWORD result);
-    void dmpGetJitFlags(DWORD key, DD value);
-    DWORD repGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes);
+    void MethodContext::recGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes, DWORD result);
+    void MethodContext::dmpGetJitFlags(DWORD key, DD value);
+    DWORD MethodContext::repGetJitFlags(CORJIT_FLAGS *jitFlags, DWORD sizeInBytes);
 
     void recGetJitTimeLogFilename(LPCWSTR tempFileName);
     void dmpGetJitTimeLogFilename(DWORD key, DWORD value);
@@ -673,10 +673,6 @@ public:
     void recGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args, CORINFO_CLASS_HANDLE result, DWORD exceptionCode);
     void dmpGetArgClass(const Agnostic_GetArgClass& key, const Agnostic_GetArgClass_Value& value);
     CORINFO_CLASS_HANDLE repGetArgClass(CORINFO_SIG_INFO* sig, CORINFO_ARG_LIST_HANDLE args, DWORD *exceptionCode);
-
-    void recGetHFAType(CORINFO_CLASS_HANDLE clsHnd, CorInfoType result);
-    void dmpGetHFAType(DWORDLONG key, DWORD value);
-    CorInfoType repGetHFAType(CORINFO_CLASS_HANDLE clsHnd);
 
     void recGetMethodInfo(CORINFO_METHOD_HANDLE ftn, CORINFO_METHOD_INFO *info, bool result, DWORD exceptionCode);
     void dmpGetMethodInfo(DWORDLONG key, const Agnostic_GetMethodInfo& value);
@@ -1016,7 +1012,7 @@ private:
 
 
 // ********************* Please keep this up-to-date to ease adding more ***************
-// Highest packet number: 159
+// Highest packet number: 158
 // *************************************************************************************
 enum mcPackets
 {
@@ -1059,7 +1055,6 @@ enum mcPackets
     Packet_GetAddrOfCaptureThreadGlobal = 27,
     Retired1 = 28,
     Packet_GetArgClass = 139, //retired as 28 on 2013/07/03
-    Packet_GetHFAType = 159,
     Packet_GetArgNext = 29,
     Retired2 = 30,
     Packet_GetArgType = 140, //retired as 30 on 2013/07/03

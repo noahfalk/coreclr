@@ -4140,8 +4140,8 @@ void DomainAssembly::EnumStaticGCRefs(promote_func* fn, ScanContext* sc)
     }
     CONTRACT_END;
 
-    _ASSERTE(GCHeapUtilities::IsGCInProgress() &&
-         GCHeapUtilities::IsServerHeap()   &&
+    _ASSERTE(GCHeap::IsGCInProgress() &&
+         GCHeap::IsServerHeap()   &&
          IsGCSpecialThread());
 
     DomainModuleIterator i = IterateModules(kModIterIncludeLoaded);

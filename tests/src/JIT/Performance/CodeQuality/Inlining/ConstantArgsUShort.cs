@@ -13,8 +13,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Inlining
-{
 public static class ConstantArgsUShort
 {
 
@@ -929,5 +927,4 @@ public static class ConstantArgsUShort
 
         return (result ? 100 : -1);
     }
-}
 }

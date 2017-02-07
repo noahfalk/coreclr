@@ -32,6 +32,7 @@ namespace System.Diagnostics
         // Break causes a breakpoint to be signalled to an attached debugger.  If no debugger
         // is attached, the user is asked if he wants to attach a debugger. If yes, then the 
         // debugger is launched.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void Break()
         {
             if (!Debugger.IsAttached)
@@ -60,6 +61,7 @@ namespace System.Diagnostics
             BreakInternal();
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         static void BreakCanThrow()
         {
             if (!Debugger.IsAttached)
@@ -73,12 +75,14 @@ namespace System.Diagnostics
             BreakInternal();
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void BreakInternal();
 
         // Launch launches & attaches a debugger to the process. If a debugger is already attached,
         // nothing happens.  
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static bool Launch()
         {
             if (Debugger.IsAttached)
@@ -143,6 +147,7 @@ namespace System.Diagnostics
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool LaunchInternal();
 
@@ -150,6 +155,7 @@ namespace System.Diagnostics
         //
         public static extern bool IsAttached
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             [MethodImplAttribute(MethodImplOptions.InternalCall)]
             get;
         }
@@ -167,17 +173,20 @@ namespace System.Diagnostics
         // Posts a message for the attached debugger.  If there is no
         // debugger attached, has no effect.  The debugger may or may not
         // report the message depending on its settings. 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern void Log(int level, String category, String message);
 
         // Checks to see if an attached debugger has logging enabled
         //  
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         public static extern bool IsLogging();
 
         // Posts a custom notification for the attached debugger.  If there is no
         // debugger attached, has no effect.  The debugger may or may not
         // report the notification depending on its settings. 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void CustomNotification(ICustomDebuggerNotification data);
 

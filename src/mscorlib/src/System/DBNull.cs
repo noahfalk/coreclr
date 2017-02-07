@@ -26,6 +26,7 @@ namespace System {
         
         public static readonly DBNull Value = new DBNull();
 
+        [System.Security.SecurityCritical]
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             UnitySerializationHolder.GetUnitySerializationInfo(info, UnitySerializationHolder.NullUnity, null, null);
         }

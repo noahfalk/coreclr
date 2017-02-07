@@ -1355,11 +1355,11 @@ struct MSLAYOUT DebuggerIPCE_JITFuncData
     LSPTR_DJI   nativeCodeJITInfoToken;
     VMPTR_MethodDesc vmNativeCodeMethodDescToken;
 
-#ifdef WIN64EXCEPTIONS
+#if defined(DBG_TARGET_WIN64) || defined(DBG_TARGET_ARM)
     BOOL         fIsFilterFrame;
     SIZE_T       parentNativeOffset;
     FramePointer fpParentOrSelf;
-#endif // WIN64EXCEPTIONS
+#endif // DBG_TARGET_WIN64 || DBG_TARGET_ARM
 
     // indicates if the MethodDesc is a generic function or a method inside a generic class (or
     // both!).

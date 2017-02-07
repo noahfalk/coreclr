@@ -1,8 +1,6 @@
 function(clr_unknown_arch)
     if (WIN32)
         message(FATAL_ERROR "Only AMD64, ARM64, ARM and I386 are supported")
-    elseif(CLR_CROSS_COMPONENTS_BUILD)
-        message(FATAL_ERROR "Only AMD64, I386 host are supported for linux cross-architecture component")
     else()
         message(FATAL_ERROR "Only AMD64, ARM64 and ARM are supported")
     endif()
@@ -181,11 +179,6 @@ function(install_clr targetName)
     else()  
         install(FILES ${strip_destination_file} DESTINATION .)  
     endif()  
-    if(CLR_CMAKE_PGO_INSTRUMENT)
-        if(WIN32)
-            install(FILES ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/${targetName}.pgd DESTINATION PGD OPTIONAL)
-        endif()
-    endif()
   endif()  
 endfunction()
 
@@ -216,21 +209,5 @@ endfunction()
 function(_install)
     if(NOT DEFINED CLR_CROSS_COMPONENTS_BUILD)
       install(${ARGV})
-    endif()
-endfunction()
-
-function(verify_dependencies targetName errorMessage)
-    # We don't need to verify dependencies on OSX, since missing dependencies
-    # result in link error over there.
-    if (NOT CLR_CMAKE_PLATFORM_DARWIN)
-        add_custom_command(
-            TARGET ${targetName}
-            POST_BUILD
-            VERBATIM
-            COMMAND ${CMAKE_SOURCE_DIR}/verify-so.sh 
-                $<TARGET_FILE:${targetName}> 
-                ${errorMessage}
-            COMMENT "Verifying ${targetName} dependencies"
-        )
     endif()
 endfunction()

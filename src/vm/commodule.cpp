@@ -768,7 +768,8 @@ mdString QCALLTYPE COMModule::GetStringConstant(QCall::ModuleHandle pModule, LPC
     _ASSERTE(pwzValue != NULL);
 
     HRESULT hr = pRCW->GetEmitter()->DefineUserString(pwzValue, iLength, &strRef);
-    if (FAILED(hr)) { 
+    if (FAILED(hr)) {   
+        _ASSERTE(hr == E_OUTOFMEMORY || !"Unknown failure in DefineUserString");    
         COMPlusThrowHR(hr);    
     }   
 

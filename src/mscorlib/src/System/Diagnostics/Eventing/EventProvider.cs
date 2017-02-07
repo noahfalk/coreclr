@@ -74,6 +74,7 @@ namespace System.Diagnostics.Tracing
 
         private static bool m_setInformationMissing;
 
+        [SecurityCritical]
         UnsafeNativeMethods.ManifestEtw.EtwEnableCallback m_etwCallback;     // Trace Callback function
         private long m_regHandle;                        // Trace Registration Handle
         private byte m_level;                            // Tracing Level
@@ -127,6 +128,7 @@ namespace System.Diagnostics.Tracing
         // <SatisfiesLinkDemand Name="Win32Exception..ctor(System.Int32)" />
         // <ReferencesCritical Name="Method: EtwEnableCallBack(Guid&, Int32, Byte, Int64, Int64, Void*, Void*):Void" Ring="1" />
         // </SecurityKernel>
+        [System.Security.SecurityCritical]
         internal unsafe void Register(Guid providerGuid)
         {
             m_providerId = providerGuid;
@@ -155,6 +157,7 @@ namespace System.Diagnostics.Tracing
         // <SecurityKernel Critical="True" TreatAsSafe="Does not expose critical resource" Ring="1">
         // <ReferencesCritical Name="Method: Deregister():Void" Ring="1" />
         // </SecurityKernel>
+        [System.Security.SecuritySafeCritical]
         protected virtual void Dispose(bool disposing)
         {
             //
@@ -172,31 +175,16 @@ namespace System.Diagnostics.Tracing
             // Disable the provider.  
             m_enabled = false;
 
-            // Do most of the work under a lock to avoid shutdown race.
-
-            long registrationHandle = 0;  
+            // Do most of the work under a lock to avoid shutdown race.  
             lock (EventListener.EventListenersLock)
             {
                 // Double check
                 if (m_disposed)
                     return;
 
-                registrationHandle = m_regHandle;
-                m_regHandle = 0;
+                Deregister();
                 m_disposed = true;
             }
-
-            // We do the Unregistration outside the EventListenerLock because there is a lock
-            // inside the ETW routines.   This lock is taken before ETW issues commands
-            // Thus the ETW lock gets taken first and then our EventListenersLock gets taken
-            // in SendCommand(), and also here.  If we called EventUnregister after taking
-            // the EventListenersLock then the take-lock order is reversed and we can have
-            // deadlocks in race conditions (dispose racing with an ETW command).   
-            // 
-            // We solve by Unregistering after releasing the EventListenerLock.     
-            if (registrationHandle != 0)
-                EventUnregister(registrationHandle);
-
         }
 
         /// <summary>
@@ -213,10 +201,33 @@ namespace System.Diagnostics.Tracing
             Dispose(false);
         }
 
+        /// <summary>
+        /// This method un-registers from ETW.
+        /// </summary>
+        // <SecurityKernel Critical="True" Ring="0">
+        // <CallsSuppressUnmanagedCode Name="UnsafeNativeMethods.ManifestEtw.EventUnregister(System.Int64):System.Int32" />
+        // </SecurityKernel>
+        // TODO Check return code from UnsafeNativeMethods.ManifestEtw.EventUnregister
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA1806:DoNotIgnoreMethodResults", MessageId = "Microsoft.Win32.UnsafeNativeMethods.ManifestEtw.EventUnregister(System.Int64)"), System.Security.SecurityCritical]
+        private unsafe void Deregister()
+        {
+            //
+            // Unregister from ETW using the RegHandle saved from
+            // the register call.
+            //
+
+            if (m_regHandle != 0)
+            {
+                EventUnregister();
+                m_regHandle = 0;
+            }
+        }
+
         // <SecurityKernel Critical="True" Ring="0">
         // <UsesUnsafeCode Name="Parameter filterData of type: Void*" />
         // <UsesUnsafeCode Name="Parameter callbackContext of type: Void*" />
         // </SecurityKernel>
+        [System.Security.SecurityCritical]
         unsafe void EtwEnableCallBack(
                         [In] ref System.Guid sourceId,
                         [In] int controlCode,
@@ -337,6 +348,7 @@ namespace System.Diagnostics.Tracing
         /// ETW session that was added or remove, and the bool specifies whether the
         /// session was added or whether it was removed from the set.
         /// </summary>
+        [System.Security.SecuritySafeCritical]
         private List<Tuple<SessionInfo, bool>> GetSessions()
         {
             List<SessionInfo> liveSessionList = null;
@@ -412,6 +424,7 @@ namespace System.Diagnostics.Tracing
         /// for the current process ID, calling 'action' for each session, and passing it the
         /// ETW session and the 'AllKeywords' the session enabled for the current provider.
         /// </summary>
+        [System.Security.SecurityCritical]
         private unsafe void GetSessionInfo(Action<int, long> action)
         {
             // We wish the EventSource package to be legal for Windows Store applications.   
@@ -457,7 +470,7 @@ namespace System.Diagnostics.Tracing
                 }
                 if (providerInstance->NextOffset == 0)
                     break;
-                Debug.Assert(0 <= providerInstance->NextOffset && providerInstance->NextOffset < buffSize);
+                Contract.Assert(0 <= providerInstance->NextOffset && providerInstance->NextOffset < buffSize);
                 var structBase = (byte*)providerInstance;
                 providerInstance = (UnsafeNativeMethods.ManifestEtw.TRACE_PROVIDER_INSTANCE_INFO*)&structBase[providerInstance->NextOffset];
             }
@@ -539,6 +552,7 @@ namespace System.Diagnostics.Tracing
         /// returns an array of bytes representing the data, the index into that byte array where the data
         /// starts, and the command being issued associated with that data.  
         /// </summary>
+        [System.Security.SecurityCritical]
         private unsafe bool GetDataFromController(int etwSessionId,
                 UnsafeNativeMethods.ManifestEtw.EVENT_FILTER_DESCRIPTOR* filterData, out ControllerCommand command, out byte[] data, out int dataStart)
         {
@@ -671,6 +685,7 @@ namespace System.Diagnostics.Tracing
         // <UsesUnsafeCode Name="Parameter dataDescriptor of type: EventData*" />
         // <UsesUnsafeCode Name="Parameter dataBuffer of type: Byte*" />
         // </SecurityKernel>
+        [System.Security.SecurityCritical]
         private static unsafe object EncodeObject(ref object data, ref EventData* dataDescriptor, ref byte* dataBuffer, ref uint totalEventSize)
         /*++
 
@@ -919,6 +934,7 @@ namespace System.Diagnostics.Tracing
         // </SecurityKernel>
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Maintainability", "CA1502:AvoidExcessiveComplexity", Justification = "Performance-critical code")]
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
+        [System.Security.SecurityCritical]
         internal unsafe bool WriteEvent(ref EventDescriptor eventDescriptor, Guid* activityID, Guid* childActivityID, params object[] eventPayload)
         {
             int status = 0;
@@ -1115,12 +1131,13 @@ namespace System.Diagnostics.Tracing
         // <CallsSuppressUnmanagedCode Name="UnsafeNativeMethods.ManifestEtw.EventWrite(System.Int64,EventDescriptor&,System.UInt32,System.Void*):System.UInt32" />
         // </SecurityKernel>
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
+        [System.Security.SecurityCritical]
         internal unsafe protected bool WriteEvent(ref EventDescriptor eventDescriptor, Guid* activityID, Guid* childActivityID, int dataCount, IntPtr data)
         {
             if (childActivityID != null)
             {
                 // activity transfers are supported only for events that specify the Send or Receive opcode
-                Debug.Assert((EventOpcode)eventDescriptor.Opcode == EventOpcode.Send ||
+                Contract.Assert((EventOpcode)eventDescriptor.Opcode == EventOpcode.Send ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Receive ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Start ||
                                 (EventOpcode)eventDescriptor.Opcode == EventOpcode.Stop);
@@ -1137,6 +1154,7 @@ namespace System.Diagnostics.Tracing
         }
 
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1045:DoNotPassTypesByReference")]
+        [System.Security.SecurityCritical]
         internal unsafe bool WriteEventRaw(
             ref EventDescriptor eventDescriptor,
             Guid* activityID,
@@ -1165,6 +1183,7 @@ namespace System.Diagnostics.Tracing
 
         // These are look-alikes to the Manifest based ETW OS APIs that have been shimmed to work
         // either with Manifest ETW or Classic ETW (if Manifest based ETW is not available).  
+        [SecurityCritical]
         private unsafe uint EventRegister(ref Guid providerId, UnsafeNativeMethods.ManifestEtw.EtwEnableCallback enableCallback)
         {
             m_providerId = providerId;
@@ -1172,9 +1191,12 @@ namespace System.Diagnostics.Tracing
             return UnsafeNativeMethods.ManifestEtw.EventRegister(ref providerId, enableCallback, null, ref m_regHandle);
         }
 
-        private uint EventUnregister(long registrationHandle)
+        [SecurityCritical]
+        private uint EventUnregister()
         {
-            return UnsafeNativeMethods.ManifestEtw.EventUnregister(registrationHandle);
+            uint status = UnsafeNativeMethods.ManifestEtw.EventUnregister(m_regHandle);
+            m_regHandle = 0;
+            return status;
         }
 
         static int[] nibblebits = { 0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4 };
@@ -1187,7 +1209,7 @@ namespace System.Diagnostics.Tracing
         }
         private static int bitindex(uint n)
         {
-            Debug.Assert(bitcount(n) == 1);
+            Contract.Assert(bitcount(n) == 1);
             int idx = 0;
             while ((n & (1 << idx)) == 0)
                 idx++;

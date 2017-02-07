@@ -532,9 +532,7 @@ BOOL ThreadpoolMgr::SetMaxThreadsHelper(DWORD MaxWorkerThreads,
     CrstHolder csh(&WorkerCriticalSection);
 
     if (MaxWorkerThreads >= (DWORD)MinLimitTotalWorkerThreads &&
-        MaxIOCompletionThreads >= (DWORD)MinLimitTotalCPThreads &&
-        MaxWorkerThreads != 0 &&
-        MaxIOCompletionThreads != 0)
+       MaxIOCompletionThreads >= (DWORD)MinLimitTotalCPThreads)
     {
         BEGIN_SO_INTOLERANT_CODE(GetThread());
 
@@ -2369,11 +2367,11 @@ Work:
         counts = oldCounts;
     }
 
-    if (GCHeapUtilities::IsGCInProgress(TRUE))
+    if (GCHeap::IsGCInProgress(TRUE))
     {
         // GC is imminent, so wait until GC is complete before executing next request.
         // this reduces in-flight objects allocated right before GC, easing the GC's work
-        GCHeapUtilities::WaitForGCCompletion(TRUE);
+        GCHeap::WaitForGCCompletion(TRUE);
     }
 
     {
@@ -3679,8 +3677,6 @@ DWORD __stdcall ThreadpoolMgr::CompletionPortThreadStart(LPVOID lpArgs)
     BOOL fThreadInit = FALSE;
     Thread *pThread = NULL;
 
-    DWORD cpThreadWait = 0;
-
     if (g_fEEStarted) {
         pThread = SetupThreadNoThrow();
         if (pThread == NULL) {
@@ -3715,7 +3711,7 @@ DWORD __stdcall ThreadpoolMgr::CompletionPortThreadStart(LPVOID lpArgs)
     ThreadCounter::Counts oldCounts;
     ThreadCounter::Counts newCounts;
 
-    cpThreadWait = CP_THREAD_WAIT;
+    DWORD cpThreadWait = CP_THREAD_WAIT;
     for (;; )
     {
 Top:
@@ -3990,7 +3986,7 @@ Top:
 
             if (key != 0)
             {
-                if (GCHeapUtilities::IsGCInProgress(TRUE))
+                if (GCHeap::IsGCInProgress(TRUE))
                 {
                     //Indicate that this thread is free, and waiting on GC, not doing any user work.
                     //This helps in threads not getting injected when some threads have woken up from the
@@ -4007,7 +4003,7 @@ Top:
 
                     // GC is imminent, so wait until GC is complete before executing next request.
                     // this reduces in-flight objects allocated right before GC, easing the GC's work
-                    GCHeapUtilities::WaitForGCCompletion(TRUE);
+                    GCHeap::WaitForGCCompletion(TRUE);
 
                     while (true)
                     {
@@ -4221,7 +4217,7 @@ BOOL ThreadpoolMgr::ShouldGrowCompletionPortThreadpool(ThreadCounter::Counts cou
 
     if (counts.NumWorking >= counts.NumActive 
         && NumCPInfrastructureThreads == 0
-        && (counts.NumActive == 0 ||  !GCHeapUtilities::IsGCInProgress(TRUE))
+        && (counts.NumActive == 0 ||  !GCHeap::IsGCInProgress(TRUE))
         )
     {
         // adjust limit if neeeded
@@ -4622,7 +4618,7 @@ DWORD __stdcall ThreadpoolMgr::GateThreadStart(LPVOID lpArgs)
             EX_END_CATCH(SwallowAllExceptions);
         }
 
-        if (!GCHeapUtilities::IsGCInProgress(FALSE) )
+        if (!GCHeap::IsGCInProgress(FALSE) )
         {
             if (IgnoreNextSample)
             {
@@ -4664,7 +4660,7 @@ DWORD __stdcall ThreadpoolMgr::GateThreadStart(LPVOID lpArgs)
                 oldCounts.NumActive < MaxLimitTotalCPThreads &&
                 !g_fCompletionPortDrainNeeded &&
                 NumCPInfrastructureThreads == 0 &&       // infrastructure threads count as "to be free as needed"
-                !GCHeapUtilities::IsGCInProgress(TRUE))
+                !GCHeap::IsGCInProgress(TRUE))
 
             {
                 BOOL status;

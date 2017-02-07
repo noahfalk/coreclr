@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 2.8.12.2)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(SOURCES
-  GetConsoleOutputCP.cpp
+  GetConsoleOutputCP.c
 )
 
 add_executable(paltest_getconsoleoutputcp_test1

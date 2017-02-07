@@ -17,7 +17,6 @@ namespace System.Globalization {
     using System;
     using System.Runtime.Serialization;
     using System.Security.Permissions;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     [Serializable]
@@ -93,7 +92,7 @@ namespace System.Globalization {
             }
             set {
                 if (null == value) {
-                    throw new ArgumentNullException(nameof(String),
+                    throw new ArgumentNullException("String",
                         Environment.GetResourceString("ArgumentNull_String"));
                 }
                 Contract.EndContractBlock();
@@ -119,11 +118,11 @@ namespace System.Globalization {
             if(null == this.Indexes) {
                 // Just decide which error to give depending on the param they gave us....
                 if(startingTextElement < 0) {
-                    throw new ArgumentOutOfRangeException(nameof(startingTextElement),
+                    throw new ArgumentOutOfRangeException("startingTextElement",
                         Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
                 }
                 else {
-                    throw new ArgumentOutOfRangeException(nameof(startingTextElement),
+                    throw new ArgumentOutOfRangeException("startingTextElement",
                         Environment.GetResourceString("Arg_ArgumentOutOfRangeException"));
                 }
             }
@@ -136,22 +135,22 @@ namespace System.Globalization {
             // Parameter checking
             //
             if(startingTextElement < 0) {
-                throw new ArgumentOutOfRangeException(nameof(startingTextElement),
+                throw new ArgumentOutOfRangeException("startingTextElement",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             }
 
             if(this.String.Length == 0 || startingTextElement >= this.Indexes.Length) {
-                throw new ArgumentOutOfRangeException(nameof(startingTextElement),
+                throw new ArgumentOutOfRangeException("startingTextElement",
                     Environment.GetResourceString("Arg_ArgumentOutOfRangeException"));
             }
 
             if(lengthInTextElements < 0) {
-                throw new ArgumentOutOfRangeException(nameof(lengthInTextElements),
+                throw new ArgumentOutOfRangeException("lengthInTextElements",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedPosNum"));
             }
 
             if(startingTextElement > this.Indexes.Length - lengthInTextElements) {
-                throw new ArgumentOutOfRangeException(nameof(lengthInTextElements),
+                throw new ArgumentOutOfRangeException("lengthInTextElements",
                     Environment.GetResourceString("Arg_ArgumentOutOfRangeException"));
             }
 
@@ -207,8 +206,8 @@ namespace System.Globalization {
         
         internal static int GetCurrentTextElementLen(String str, int index, int len, ref UnicodeCategory ucCurrent, ref int currentCharCount)
         {
-            Debug.Assert(index >= 0 && len >= 0, "StringInfo.GetCurrentTextElementLen() : index = " + index + ", len = " + len);
-            Debug.Assert(index < len, "StringInfo.GetCurrentTextElementLen() : index = " + index + ", len = " + len);
+            Contract.Assert(index >= 0 && len >= 0, "StringInfo.GetCurrentTextElementLen() : index = " + index + ", len = " + len);
+            Contract.Assert(index < len, "StringInfo.GetCurrentTextElementLen() : index = " + index + ", len = " + len);
             if (index + currentCharCount == len)
             {
                 // This is the last character/surrogate in the string.
@@ -269,7 +268,7 @@ namespace System.Globalization {
             // Validate parameters.
             //
             if (str==null) {
-                throw new ArgumentNullException(nameof(str));
+                throw new ArgumentNullException("str");
             }
             Contract.EndContractBlock();
         
@@ -278,7 +277,7 @@ namespace System.Globalization {
                 if (index == len) {
                     return (String.Empty);
                 }            
-                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_Index"));
             }
 
             int charLen;
@@ -298,14 +297,14 @@ namespace System.Globalization {
             //
             if (str==null) 
             {
-                throw new ArgumentNullException(nameof(str));
+                throw new ArgumentNullException("str");
             }
             Contract.EndContractBlock();
         
             int len = str.Length;
             if (index < 0 || (index > len))
             {
-                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_Index"));
             }
 
             return (new TextElementEnumerator(str, index, len));
@@ -327,7 +326,7 @@ namespace System.Globalization {
         {
             if (str == null)
             {
-                throw new ArgumentNullException(nameof(str));
+                throw new ArgumentNullException("str");
             }
             Contract.EndContractBlock();
             

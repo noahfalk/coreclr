@@ -34,9 +34,11 @@ namespace System.Reflection
         internal IntPtr m_nativeLoaderAllocator;
 
         [SuppressUnmanagedCodeSecurity]
+        [SecurityCritical]
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         private static extern bool Destroy(IntPtr nativeLoaderAllocator);
 
+        [SecuritySafeCritical]
         ~LoaderAllocatorScout()
         {
             if (m_nativeLoaderAllocator.IsNull())

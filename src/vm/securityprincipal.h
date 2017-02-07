@@ -11,11 +11,9 @@
 
 
 
-#ifndef FEATURE_PAL
 class COMPrincipal
 {
 public:
-#ifndef FEATURE_CORECLR
     static
     INT32 QCALLTYPE ImpersonateLoggedOnUser(HANDLE hToken);
 
@@ -26,8 +24,6 @@ public:
 
     static
     INT32 QCALLTYPE SetThreadToken(HANDLE hToken);
-#endif // !FEATURE_CORECLR
 
     static void CLR_ImpersonateLoggedOnUser(HANDLE hToken);
 };
-#endif // FEATURE_PAL

@@ -36,16 +36,16 @@ namespace System.Collections {
 
         public void CopyTo(Array array, int index)  {
             if (array==null)
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
 
             if (array.Rank != 1)
                 throw new ArgumentException(Environment.GetResourceString("Arg_RankMultiDimNotSupported"));
 
             if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
 
             if ( array.Length - index < this.Count ) 
-                throw new ArgumentException( Environment.GetResourceString("ArgumentOutOfRange_Index"), nameof(index));
+                throw new ArgumentException( Environment.GetResourceString("ArgumentOutOfRange_Index"), "index");
             Contract.EndContractBlock();
 
             // the actual copy is a NOP
@@ -74,21 +74,21 @@ namespace System.Collections {
         public Object this[Object key] {
             get {
                 if (key == null) {
-                    throw new ArgumentNullException(nameof(key), Environment.GetResourceString("ArgumentNull_Key"));
+                    throw new ArgumentNullException("key", Environment.GetResourceString("ArgumentNull_Key"));
                 }
                 Contract.EndContractBlock();
                 return null;
             }
             set {
                 if (key == null) {
-                    throw new ArgumentNullException(nameof(key), Environment.GetResourceString("ArgumentNull_Key"));
+                    throw new ArgumentNullException("key", Environment.GetResourceString("ArgumentNull_Key"));
                 }
 
                 if (!key.GetType().IsSerializable)                 
-                    throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), nameof(key));                    
+                    throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), "key");                    
 
                 if( (value != null) && (!value.GetType().IsSerializable ) )
-                    throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), nameof(value));                    
+                    throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), "value");                    
                 Contract.EndContractBlock();
 
                 throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_ReadOnly"));
@@ -113,14 +113,14 @@ namespace System.Collections {
 
         public void Add(Object key, Object value) {
             if (key == null) {
-                throw new ArgumentNullException(nameof(key), Environment.GetResourceString("ArgumentNull_Key"));
+                throw new ArgumentNullException("key", Environment.GetResourceString("ArgumentNull_Key"));
             }
 
             if (!key.GetType().IsSerializable)                 
-                throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), nameof(key) );                    
+                throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), "key" );                    
 
             if( (value != null) && (!value.GetType().IsSerializable) )
-                throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), nameof(value));                    
+                throw new ArgumentException(Environment.GetResourceString("Argument_NotSerializable"), "value");                    
             Contract.EndContractBlock();
 
             throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_ReadOnly"));

@@ -52,6 +52,7 @@ namespace System.Runtime.InteropServices {
             }
         }
 
+#if !FEATURE_CORECLR // Breaks the subset-of-Orcas property
         public override String ToString() {
             String message = Message;
             String s;
@@ -74,5 +75,6 @@ namespace System.Runtime.InteropServices {
 
             return s;
         }
+#endif // !FEATURE_CORECLR
     }
 }

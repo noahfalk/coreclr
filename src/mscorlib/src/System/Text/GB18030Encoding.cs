@@ -85,7 +85,6 @@
 namespace System.Text
 {
     using System;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using System.Text;
     using System.Runtime.InteropServices;
@@ -108,8 +107,10 @@ namespace System.Text
         // This is the table of 4 byte conversions.
         private const int GBLast4ByteCode = 0x99FB;
         [NonSerialized]
+        [SecurityCritical]
         unsafe internal char* map4BytesToUnicode = null;       // new char[GBLast4ByteCode + 1]; // Need to map all 4 byte sequences to Unicode
         [NonSerialized]
+        [SecurityCritical]
         unsafe internal byte* mapUnicodeTo4BytesFlags = null;  // new byte[0x10000 / 8];         // Need 1 bit for each code point to say if its 4 byte or not
 
         private const int GB18030       = 54936;
@@ -119,33 +120,37 @@ namespace System.Text
         private const int GBLastSurrogateOffset = 0x12E247; // GBE3329A35
 
         // We have to load the 936 code page tables, so impersonate 936 as our base
+        [System.Security.SecurityCritical]  // auto-generated
         internal GB18030Encoding() : base(GB18030, 936)
         {
         }
 
         // Constructor called by serialization.
+        [System.Security.SecurityCritical]  // auto-generated
         internal GB18030Encoding(SerializationInfo info, StreamingContext context) :
                                           base(GB18030, 936)
         {
             // Set up our base, also throws if info was empty
             DeserializeEncoding(info, context);
-            Debug.Assert(info!=null, "[GB18030Encoding(Serialization...)] Expected null info to throw");
+            Contract.Assert(info!=null, "[GB18030Encoding(Serialization...)] Expected null info to throw");
 
             // Already build our code page, fallbacks & read only, so we're good to go!
         }
 
         // ISerializable implementation
+        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
             // Make sure to get the base stuff too This throws if info is null
             SerializeEncoding(info, context);
-            Debug.Assert(info!=null, "[GB18030.GetObjectData] Expected null info to throw");
+            Contract.Assert(info!=null, "[GB18030.GetObjectData] Expected null info to throw");
 
             // Everett doesn't need more than the basics
         }
 
         // This loads our base 936 code page and then applys the changes from the tableUnicodeToGBDiffs table.
         // See table comments for table format.
+        [System.Security.SecurityCritical]  // auto-generated
         protected override unsafe void LoadManagedCodePage()
         {
             // Use base code page loading algorithm.
@@ -194,7 +199,7 @@ namespace System.Text
                     // It was GB 18030 4 byte data, next <data> characters are 4 byte sequences.
                     while (data > 0)
                     {
-                        Debug.Assert(count4Byte <= GBLast4ByteCode,
+                        Contract.Assert(count4Byte <= GBLast4ByteCode,
                             "[GB18030Encoding.LoadManagedCodePage] Found too many 4 byte codes in data table.");
 
                         // Set the 4 byte -> Unicode value
@@ -212,11 +217,11 @@ namespace System.Text
             }
 
             // unicodeCount should've wrapped back to 0
-            Debug.Assert(unicodeCount == 0,
+            Contract.Assert(unicodeCount == 0,
                 "[GB18030Encoding.LoadManagedCodePage] Expected unicodeCount to wrap around to 0 as all chars were processed");
 
             // We should've read in GBLast4ByteCode 4 byte sequences
-            Debug.Assert(count4Byte == GBLast4ByteCode + 1,
+            Contract.Assert(count4Byte == GBLast4ByteCode + 1,
                 "[GB18030Encoding.LoadManagedCodePage] Expected 0x99FB to be last 4 byte offset, found 0x" + count4Byte.ToString("X4", CultureInfo.InvariantCulture));
 
             // Need to flag ourselves saying we've built this CP.
@@ -233,6 +238,7 @@ namespace System.Text
         // Is4Byte
         // Checks the 4 byte table and returns true if this is a 4 byte code.
         // Its a 4 byte code if the flag is set in mapUnicodeTo4BytesFlags
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe bool Is4Byte(char charTest)
         {
             // See what kind it is
@@ -241,24 +247,26 @@ namespace System.Text
         }
 
         // GetByteCount
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetByteCount(char* chars, int count, EncoderNLS encoder)
         {
             // Just call GetBytes() with null bytes
             return GetBytes(chars, count, null, 0, encoder);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetBytes(char* chars, int charCount,
                                                 byte* bytes, int byteCount, EncoderNLS encoder)
         {
             // Just need to ASSERT, this is called by something else internal that checked parameters already
             // We'll allow null bytes as a count
-//            Debug.Assert(bytes != null, "[GB18030Encoding.GetBytes]bytes is null");
-            Debug.Assert(byteCount >= 0, "[GB18030Encoding.GetBytes]byteCount is negative");
-            Debug.Assert(chars != null, "[GB18030Encoding.GetBytes]chars is null");
-            Debug.Assert(charCount >= 0, "[GB18030Encoding.GetBytes]charCount is negative");
+//            Contract.Assert(bytes != null, "[GB18030Encoding.GetBytes]bytes is null");
+            Contract.Assert(byteCount >= 0, "[GB18030Encoding.GetBytes]byteCount is negative");
+            Contract.Assert(chars != null, "[GB18030Encoding.GetBytes]chars is null");
+            Contract.Assert(charCount >= 0, "[GB18030Encoding.GetBytes]charCount is negative");
 
             // Assert because we shouldn't be able to have a null encoder.
-            Debug.Assert(encoderFallback != null, "[GB18030Encoding.GetBytes]Attempting to use null encoder fallback");
+            Contract.Assert(encoderFallback != null, "[GB18030Encoding.GetBytes]Attempting to use null encoder fallback");
 
             // Get any left over characters
             char charLeftOver = (char)0;
@@ -281,7 +289,7 @@ namespace System.Text
                 // Have to check for charLeftOver
                 if (charLeftOver != 0)
                 {
-                    Debug.Assert(Char.IsHighSurrogate(charLeftOver),
+                    Contract.Assert(Char.IsHighSurrogate(charLeftOver),
                         "[GB18030Encoding.GetBytes] leftover character should be high surrogate, not 0x" + ((int)charLeftOver).ToString("X4", CultureInfo.InvariantCulture));
 
                     // If our next char isn't a low surrogate, then we need to do fallback.
@@ -311,7 +319,7 @@ namespace System.Text
                         offset /= 0x7e;
                         byte byte2 = (byte)((offset % 0x0a) + 0x30);
                         offset /= 0x0a;
-                        Debug.Assert(offset < 0x6f,
+                        Contract.Assert(offset < 0x6f,
                             "[GB18030Encoding.GetBytes](1) Expected offset < 0x6f, not 0x" + offset.ToString("X2", CultureInfo.InvariantCulture));
 
                         charLeftOver = (char)0;
@@ -361,7 +369,7 @@ namespace System.Text
                         iBytes /= 0x7e;
                         byte byte2 = (byte)((iBytes % 0x0a) + 0x30);
                         iBytes /= 0x0a;
-                        Debug.Assert(iBytes < 0x7e,
+                        Contract.Assert(iBytes < 0x7e,
                             "[GB18030Encoding.GetBytes]Expected iBytes < 0x7e, not 0x" + iBytes.ToString("X2", CultureInfo.InvariantCulture));
                         if (!buffer.AddByte((byte)(iBytes + 0x81), byte2, byte3, byte4))
                             break;
@@ -428,21 +436,23 @@ namespace System.Text
         }
 
         // This is internal and called by something else,
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetCharCount(byte* bytes, int count, DecoderNLS baseDecoder)
         {
             // Just call GetChars() with null chars to count
             return GetChars(bytes, count, null, 0, baseDecoder);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetChars(byte* bytes, int byteCount,
                                                 char* chars, int charCount, DecoderNLS baseDecoder)
         {
             // Just need to ASSERT, this is called by something else internal that checked parameters already
             // We'll allow null chars as a count
-            Debug.Assert(bytes != null, "[GB18030Encoding.GetChars]bytes is null");
-            Debug.Assert(byteCount >= 0, "[GB18030Encoding.GetChars]byteCount is negative");
-//            Debug.Assert(chars != null, "[GB18030Encoding.GetChars]chars is null");
-            Debug.Assert(charCount >= 0, "[GB18030Encoding.GetChars]charCount is negative");
+            Contract.Assert(bytes != null, "[GB18030Encoding.GetChars]bytes is null");
+            Contract.Assert(byteCount >= 0, "[GB18030Encoding.GetChars]byteCount is negative");
+//            Contract.Assert(chars != null, "[GB18030Encoding.GetChars]chars is null");
+            Contract.Assert(charCount >= 0, "[GB18030Encoding.GetChars]charCount is negative");
 
             // Fix our decoder
             GB18030Decoder decoder = (GB18030Decoder)baseDecoder;
@@ -783,7 +793,7 @@ namespace System.Text
         public override int GetMaxByteCount(int charCount)
         {
             if (charCount < 0)
-               throw new ArgumentOutOfRangeException(nameof(charCount),
+               throw new ArgumentOutOfRangeException("charCount",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -797,7 +807,7 @@ namespace System.Text
             byteCount *= 4;
 
             if (byteCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException(nameof(charCount), Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
+                throw new ArgumentOutOfRangeException("charCount", Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
 
             return (int)byteCount;
         }
@@ -805,7 +815,7 @@ namespace System.Text
         public override int GetMaxCharCount(int byteCount)
         {
             if (byteCount < 0)
-               throw new ArgumentOutOfRangeException(nameof(byteCount),
+               throw new ArgumentOutOfRangeException("byteCount",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -818,7 +828,7 @@ namespace System.Text
                 charCount *= DecoderFallback.MaxCharCount;
 
             if (charCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException(nameof(byteCount), Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
+                throw new ArgumentOutOfRangeException("byteCount", Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
 
             return (int)charCount;
         }
@@ -842,10 +852,11 @@ namespace System.Text
             }
 
             // Constructor called by serialization, have to handle deserializing from Everett
+            [System.Security.SecurityCritical]  // auto-generated
             internal GB18030Decoder(SerializationInfo info, StreamingContext context)
             {
                 // Any info?
-                if (info==null) throw new ArgumentNullException(nameof(info));
+                if (info==null) throw new ArgumentNullException("info");
                 Contract.EndContractBlock();
 
                 try
@@ -868,10 +879,11 @@ namespace System.Text
             }
 
             // ISerializable implementation, get data for this object
+            [System.Security.SecurityCritical]  // auto-generated_required
             void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
             {
                 // Any info?
-                if (info==null) throw new ArgumentNullException(nameof(info));
+                if (info==null) throw new ArgumentNullException("info");
                 Contract.EndContractBlock();
 
                 // Save Whidbey data

@@ -17,6 +17,7 @@ namespace Microsoft.Win32 {
     //This class contains only static members and does not need to be serializable.
     [ComVisible(true)]
     public static class Registry {
+        [System.Security.SecuritySafeCritical]  // auto-generated
         static Registry()
         { 
         }
@@ -62,6 +63,17 @@ namespace Microsoft.Win32 {
          * This is where current configuration information is stored.
          */
         public static readonly RegistryKey CurrentConfig      = RegistryKey.GetBaseKey(RegistryKey.HKEY_CURRENT_CONFIG);
+        
+#if !FEATURE_CORECLR
+        /**
+         * Dynamic Data Root Key.
+         * 
+         * LEGACY: This is where dynamic performance data is stored on Win9X.
+         * This does not exist on NT.
+         */
+        [Obsolete("The DynData registry key only works on Win9x, which is no longer supported by the CLR.  On NT-based operating systems, use the PerformanceData registry key instead.")]
+        public static readonly RegistryKey DynData            = RegistryKey.GetBaseKey(RegistryKey.HKEY_DYN_DATA);
+#endif
 
         //
         // Following function will parse a keyName and returns the basekey for it.
@@ -69,9 +81,10 @@ namespace Microsoft.Win32 {
         // If the keyName is not valid, we will throw ArgumentException.
         // The return value shouldn't be null. 
         //
+        [System.Security.SecurityCritical]  // auto-generated
         private static RegistryKey GetBaseKeyFromKeyName(string keyName, out string subKeyName) {
             if( keyName == null) {
-                throw new ArgumentNullException(nameof(keyName));
+                throw new ArgumentNullException("keyName");
             }
 
             string basekeyName;
@@ -103,8 +116,13 @@ namespace Microsoft.Win32 {
                 case "HKEY_CURRENT_CONFIG": 
                     basekey = Registry.CurrentConfig;
                     break;
+#if !FEATURE_CORECLR
+                case "HKEY_DYN_DATA": 
+                    basekey = RegistryKey.GetBaseKey(RegistryKey.HKEY_DYN_DATA);
+                    break;                    
+#endif
                 default:
-                    throw new ArgumentException(Environment.GetResourceString("Arg_RegInvalidKeyName", nameof(keyName)));
+                    throw new ArgumentException(Environment.GetResourceString("Arg_RegInvalidKeyName", "keyName"));
             }            
             if( i == -1 || i == keyName.Length) {
                 subKeyName = string.Empty;
@@ -115,6 +133,7 @@ namespace Microsoft.Win32 {
             return basekey;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static object GetValue(string keyName, string valueName, object defaultValue ) {
             string subKeyName;
             RegistryKey basekey = GetBaseKeyFromKeyName(keyName, out subKeyName);
@@ -135,6 +154,7 @@ namespace Microsoft.Win32 {
             SetValue(keyName, valueName, value, RegistryValueKind.Unknown);            
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static void SetValue(string keyName, string valueName, object value, RegistryValueKind valueKind ) {
             string subKeyName; 
             RegistryKey basekey = GetBaseKeyFromKeyName(keyName, out subKeyName);

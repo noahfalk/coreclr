@@ -1656,7 +1656,6 @@ void Module::Destruct()
     m_InstMethodHashTableCrst.Destroy();
     m_ISymUnmanagedReaderCrst.Destroy();
 
-#ifdef FEATURE_CER
     if (m_pCerPrepInfo)
     {
         _ASSERTE(m_pCerCrst != NULL);
@@ -1673,7 +1672,6 @@ void Module::Destruct()
     }
     if (m_pCerCrst)
         delete m_pCerCrst;
-#endif // FEATURE_CER
 
     if (m_debuggerSpecificData.m_pDynamicILCrst)
     {
@@ -1704,10 +1702,8 @@ void Module::Destruct()
     }
 
 #ifdef FEATURE_PREJIT 
-#ifdef FEATURE_CER
     if (m_pCerNgenRootTable && (m_dwTransientFlags & M_CER_ROOT_TABLE_ON_HEAP))
         delete m_pCerNgenRootTable;
-#endif
 
     if (HasNativeImage())
     {
@@ -3158,7 +3154,6 @@ BOOL Module::IsPreV4Assembly()
     return !!(m_dwPersistedFlags & IS_PRE_V4_ASSEMBLY);
 }
 
-#ifdef FEATURE_CER
 DWORD Module::GetReliabilityContract()
 {
     CONTRACTL
@@ -3185,7 +3180,6 @@ DWORD Module::GetReliabilityContract()
 
     return m_dwReliabilityContract;
 }
-#endif // FEATURE_CER
 
 ArrayDPTR(FixupPointer<PTR_MethodTable>) ModuleCtorInfo::GetGCStaticMTs(DWORD index)
 {
@@ -3433,8 +3427,8 @@ void Module::EnumRegularStaticGCRefs(AppDomain* pAppDomain, promote_func* fn, Sc
     }
     CONTRACT_END;
 
-    _ASSERTE(GCHeapUtilities::IsGCInProgress() && 
-         GCHeapUtilities::IsServerHeap() && 
+    _ASSERTE(GCHeap::IsGCInProgress() && 
+         GCHeap::IsServerHeap() && 
          IsGCSpecialThread());
 
 
@@ -4286,11 +4280,7 @@ ISymUnmanagedReader *Module::GetISymUnmanagedReader(void)
             // On desktop, the framework installer is supposed to install diasymreader.dll as well
             // and so this shouldn't happen.
             hr = FakeCoCreateInstanceEx(CLSID_CorSymBinder_SxS,
-#ifdef FEATURE_CORECLR
-                                        NATIVE_SYMBOL_READER_DLL,
-#else
                                         GetInternalSystemDirectory(),
-#endif
                                         IID_ISymUnmanagedBinder,
                                         (void**)&pBinder,
                                         NULL);
@@ -6274,7 +6264,7 @@ Module *Module::GetModuleIfLoaded(mdFile kFile, BOOL onlyLoadedInAppDomain, BOOL
 #ifndef DACCESS_COMPILE
 #if defined(FEATURE_MULTIMODULE_ASSEMBLIES)
     // check if actually loaded, unless happens during GC (GC works only with loaded assemblies)
-    if (!GCHeapUtilities::IsGCInProgress() && onlyLoadedInAppDomain && pModule && !pModule->IsManifest())
+    if (!GCHeap::IsGCInProgress() && onlyLoadedInAppDomain && pModule && !pModule->IsManifest())
     {
         DomainModule *pDomainModule = pModule->FindDomainModule(GetAppDomain());
         if (pDomainModule == NULL || !pDomainModule->IsLoaded())
@@ -9866,12 +9856,10 @@ void Module::PrepareTypesForSave(DataImage *image)
             PrepareRemotableMethodInfo(pMT);
 #endif // FEATURE_REMOTING
 
-#ifdef FEATURE_CER
             // If this module defines any CriticalFinalizerObject derived classes,
             // then we'll prepare these types for Constrained Execution Regions (CER) now.
             // (Normally they're prepared at object instantiation time, a little too late for ngen).
             PrepareCriticalType(pMT);
-#endif // FEATURE_CER
         }
     }
 
@@ -9955,9 +9943,7 @@ void Module::Save(DataImage *image)
     // Cache values of all persisted flags computed from custom attributes
     IsNoStringInterning();
     IsRuntimeWrapExceptions();
-#ifdef FEATURE_CER
     GetReliabilityContract();
-#endif
     IsPreV4Assembly();
 
     HasDefaultDllImportSearchPathsAttribute();
@@ -10312,12 +10298,10 @@ void Module::Save(DataImage *image)
                           m_nPropertyNameSet * sizeof(BYTE),
                           DataImage::ITEM_PROPERTY_NAME_SET);
 
-#ifdef FEATURE_CER
     // Save Constrained Execution Region (CER) fixup information (used to eagerly fixup trees of methods to avoid any runtime
     // induced failures when invoking the tree).
     if (m_pCerNgenRootTable != NULL)
         m_pCerNgenRootTable->Save(image, profileData);
-#endif
 
     // Sort the list of RVA statics in an ascending order wrt the RVA
     // and save them.
@@ -10773,7 +10757,6 @@ void Module::PlaceMethod(DataImage *image, MethodDesc *pMD, DWORD profilingFlags
         image->PlaceStructureForAddress(pMD, CORCOMPILE_SECTION_WRITE);
     }
 
-#ifdef FEATURE_CER
     if (profilingFlags & (1 << ReadCerMethodList))
     {
         // protect against stale IBC data
@@ -10784,7 +10767,6 @@ void Module::PlaceMethod(DataImage *image, MethodDesc *pMD, DWORD profilingFlags
             image->PlaceStructureForAddress(m_pCerNgenRootTable->GetList(pMD), CORCOMPILE_SECTION_HOT);
         }
     }
-#endif // FEATURE_CER
 
     if (profilingFlags & (1 << WriteMethodPrecode))
     {
@@ -11328,7 +11310,6 @@ void Module::Fixup(DataImage *image)
     image->ZeroField(m_FileReferencesMap.pTable, 0,
                      m_FileReferencesMap.GetSize() * sizeof(void*));
 
-#ifdef FEATURE_CER
     //
     // Fixup Constrained Execution Regions restoration records.
     //
@@ -11345,7 +11326,6 @@ void Module::Fixup(DataImage *image)
     // Zero out fields we always compute at runtime lazily.
     image->ZeroField(this, offsetof(Module, m_pCerPrepInfo), sizeof(m_pCerPrepInfo));
     image->ZeroField(this, offsetof(Module, m_pCerCrst), sizeof(m_pCerCrst));
-#endif // FEATURE_CER
 
     image->ZeroField(this, offsetof(Module, m_debuggerSpecificData), sizeof(m_debuggerSpecificData));
 
@@ -15609,7 +15589,7 @@ FieldDesc *Module::LookupFieldDef(mdFieldDef token)
 #endif // DACCESS_COMPILE
 
 
-#if !defined(DACCESS_COMPILE) && defined(FEATURE_CER)
+#ifndef DACCESS_COMPILE 
 
 // Access to CerPrepInfo, the structure used to track CERs prepared at runtime (as opposed to ngen time). GetCerPrepInfo will
 // return the structure associated with the given method desc if it exists or NULL otherwise. CreateCerPrepInfo will get the
@@ -15761,7 +15741,7 @@ void Module::RestoreCer(MethodDesc *pMD)
 
 #endif // FEATURE_PREJIT
 
-#endif // !DACCESS_COMPILE && FEATURE_CER
+#endif // !DACCESS_COMPILE
 
 
 
@@ -15927,9 +15907,9 @@ void Module::ExpandAll()
                                                                                  pMD->GetMDImport(),
                                                                                  &ignored));
 #ifdef FEATURE_INTERPRETER
-                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_MAKEFINALCODE));
+                pMD->MakeJitWorker(pHeader, CORJIT_FLG_MAKEFINALCODE, 0);
 #else
-                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS());
+                pMD->MakeJitWorker(pHeader, 0, 0);
 #endif
             }
         }

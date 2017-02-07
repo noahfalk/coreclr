@@ -20,29 +20,6 @@
 #include <msodw.h>
 #endif // FEATURE_PAL
 
-//
-// Whenever a structure is marshalled between different platforms, we need to ensure the
-// layout is the same in both cases.  We tell GCC to use the MSVC-style packing with
-// the following attribute.  The main thing this appears to control is whether
-// 8-byte values are aligned at 4-bytes (GCC default) or 8-bytes (MSVC default).
-// This attribute affects only the immediate struct it is applied to, you must also apply
-// it to any nested structs if you want their layout affected as well.  You also must
-// apply this to unions embedded in other structures, since it can influence the starting
-// alignment.
-//
-// Note that there doesn't appear to be any disadvantage to applying this a little
-// more agressively than necessary, so we generally use it on all classes / structures
-// defined in a file that defines marshalled data types (eg. DacDbiStructures.h)
-// The -mms-bitfields compiler option also does this for the whole file, but we don't
-// want to go changing the layout of, for example, structures defined in OS header files
-// so we explicitly opt-in with this attribute.
-//
-#ifdef __GNUC__
-#define MSLAYOUT __attribute__((__ms_struct__))
-#else
-#define MSLAYOUT
-#endif
-
 //----------------------------------------------------------------------------
 //
 // Utility class to allow for zero initialization of our Dacp- structs.
@@ -81,7 +58,7 @@ enum
 };
 
 enum DacpObjectType { OBJ_STRING=0,OBJ_FREE,OBJ_OBJECT,OBJ_ARRAY,OBJ_OTHER };
-struct MSLAYOUT DacpObjectData : ZeroInit<DacpObjectData>
+struct DacpObjectData : ZeroInit<DacpObjectData>
 {
     CLRDATA_ADDRESS MethodTable;
     DacpObjectType ObjectType;
@@ -104,7 +81,7 @@ struct MSLAYOUT DacpObjectData : ZeroInit<DacpObjectData>
     }
 };
 
-struct MSLAYOUT DacpExceptionObjectData : ZeroInit<DacpExceptionObjectData>
+struct DacpExceptionObjectData : ZeroInit<DacpExceptionObjectData>
 {
     CLRDATA_ADDRESS   Message;
     CLRDATA_ADDRESS   InnerException;
@@ -128,7 +105,7 @@ struct MSLAYOUT DacpExceptionObjectData : ZeroInit<DacpExceptionObjectData>
     }
 };
 
-struct MSLAYOUT DacpUsefulGlobalsData : ZeroInit<DacpUsefulGlobalsData>
+struct DacpUsefulGlobalsData : ZeroInit<DacpUsefulGlobalsData>
 {
     CLRDATA_ADDRESS ArrayMethodTable;
     CLRDATA_ADDRESS StringMethodTable;
@@ -137,7 +114,7 @@ struct MSLAYOUT DacpUsefulGlobalsData : ZeroInit<DacpUsefulGlobalsData>
     CLRDATA_ADDRESS FreeMethodTable;
 };
 
-struct MSLAYOUT DacpFieldDescData : ZeroInit<DacpFieldDescData>
+struct DacpFieldDescData : ZeroInit<DacpFieldDescData>
 {
     CorElementType Type;
     CorElementType sigType;     // ELEMENT_TYPE_XXX from signature. We need this to disply pretty name for String in minidump's case
@@ -160,7 +137,7 @@ struct MSLAYOUT DacpFieldDescData : ZeroInit<DacpFieldDescData>
     }
 };
 
-struct MSLAYOUT DacpMethodTableFieldData : ZeroInit<DacpMethodTableFieldData>
+struct DacpMethodTableFieldData : ZeroInit<DacpMethodTableFieldData>
 {
     WORD wNumInstanceFields;
     WORD wNumStaticFields;
@@ -177,7 +154,7 @@ struct MSLAYOUT DacpMethodTableFieldData : ZeroInit<DacpMethodTableFieldData>
     }
 };
 
-struct MSLAYOUT DacpMethodTableTransparencyData : ZeroInit<DacpMethodTableTransparencyData>
+struct DacpMethodTableTransparencyData : ZeroInit<DacpMethodTableTransparencyData>
 {
     BOOL bHasCriticalTransparentInfo;
     BOOL bIsCritical;
@@ -189,7 +166,7 @@ struct MSLAYOUT DacpMethodTableTransparencyData : ZeroInit<DacpMethodTableTransp
     }
 };
 
-struct MSLAYOUT DacpDomainLocalModuleData : ZeroInit<DacpDomainLocalModuleData>
+struct DacpDomainLocalModuleData : ZeroInit<DacpDomainLocalModuleData>
 {
     // These two parameters are used as input params when calling the
     // no-argument form of Request below.
@@ -209,7 +186,7 @@ struct MSLAYOUT DacpDomainLocalModuleData : ZeroInit<DacpDomainLocalModuleData>
 };
 
 
-struct MSLAYOUT DacpThreadLocalModuleData : ZeroInit<DacpThreadLocalModuleData>
+struct DacpThreadLocalModuleData : ZeroInit<DacpThreadLocalModuleData>
 {
     // These two parameters are used as input params when calling the
     // no-argument form of Request below.
@@ -223,7 +200,7 @@ struct MSLAYOUT DacpThreadLocalModuleData : ZeroInit<DacpThreadLocalModuleData>
 };
 
 
-struct MSLAYOUT DacpModuleData : ZeroInit<DacpModuleData>
+struct DacpModuleData : ZeroInit<DacpModuleData>
 {
     CLRDATA_ADDRESS Address;
     CLRDATA_ADDRESS File; // A PEFile addr
@@ -266,7 +243,7 @@ private:
     void operator=(const DacpModuleData&);
 };
 
-struct MSLAYOUT DacpMethodTableData : ZeroInit<DacpMethodTableData>
+struct DacpMethodTableData : ZeroInit<DacpMethodTableData>
 {
     BOOL bIsFree; // everything else is NULL if this is true.
     CLRDATA_ADDRESS Module;
@@ -283,7 +260,7 @@ struct MSLAYOUT DacpMethodTableData : ZeroInit<DacpMethodTableData>
     BOOL bIsShared; // flags & enum_flag_DomainNeutral
     BOOL bIsDynamic;
     BOOL bContainsPointers;
-
+    
     HRESULT Request(ISOSDacInterface *sos, CLRDATA_ADDRESS addr)
     {
         return sos->GetMethodTableData(addr, this);
@@ -302,7 +279,7 @@ struct MSLAYOUT DacpMethodTableData : ZeroInit<DacpMethodTableData>
 #define CLRSECURITYHOSTED                           0x80
 #define CLRHOSTED           0x80000000
 
-struct MSLAYOUT DacpThreadStoreData : ZeroInit<DacpThreadStoreData>
+struct DacpThreadStoreData : ZeroInit<DacpThreadStoreData>
 {
     LONG threadCount;
     LONG unstartedThreadCount;
@@ -313,14 +290,14 @@ struct MSLAYOUT DacpThreadStoreData : ZeroInit<DacpThreadStoreData>
     CLRDATA_ADDRESS finalizerThread;
     CLRDATA_ADDRESS gcThread;
     DWORD fHostConfig;          // Uses hosting flags defined above
-
+	
     HRESULT Request(ISOSDacInterface *sos)
     {
         return sos->GetThreadStoreData(this);
     }
 };
 
-struct MSLAYOUT DacpAppDomainStoreData : ZeroInit<DacpAppDomainStoreData>
+struct DacpAppDomainStoreData : ZeroInit<DacpAppDomainStoreData>
 {
     CLRDATA_ADDRESS sharedDomain;
     CLRDATA_ADDRESS systemDomain;
@@ -332,14 +309,14 @@ struct MSLAYOUT DacpAppDomainStoreData : ZeroInit<DacpAppDomainStoreData>
     }
 };
 
-struct MSLAYOUT DacpCOMInterfacePointerData : ZeroInit<DacpCOMInterfacePointerData>
+struct DacpCOMInterfacePointerData : ZeroInit<DacpCOMInterfacePointerData>
 {
     CLRDATA_ADDRESS methodTable;
     CLRDATA_ADDRESS interfacePtr;
     CLRDATA_ADDRESS comContext;
 };
 
-struct MSLAYOUT DacpRCWData : ZeroInit<DacpRCWData>
+struct DacpRCWData : ZeroInit<DacpRCWData>
 {
     CLRDATA_ADDRESS identityPointer;
     CLRDATA_ADDRESS unknownPointer;
@@ -378,7 +355,7 @@ struct MSLAYOUT DacpRCWData : ZeroInit<DacpRCWData>
     }
 };
 
-struct MSLAYOUT DacpCCWData : ZeroInit<DacpCCWData>
+struct DacpCCWData : ZeroInit<DacpCCWData>
 {
     CLRDATA_ADDRESS outerIUnknown;
     CLRDATA_ADDRESS managedObject;
@@ -420,7 +397,7 @@ enum DacpAppDomainDataStage {
 
 // Information about a BaseDomain (AppDomain, SharedDomain or SystemDomain).
 // For types other than AppDomain, some fields (like dwID, DomainLocalBlock, etc.) will be 0/null. 
-struct MSLAYOUT DacpAppDomainData : ZeroInit<DacpAppDomainData>
+struct DacpAppDomainData : ZeroInit<DacpAppDomainData>
 {
     // The pointer to the BaseDomain (not necessarily an AppDomain).  
     // It's useful to keep this around in the structure
@@ -443,7 +420,7 @@ struct MSLAYOUT DacpAppDomainData : ZeroInit<DacpAppDomainData>
     }
 };
 
-struct MSLAYOUT DacpAssemblyData : ZeroInit<DacpAssemblyData>
+struct DacpAssemblyData : ZeroInit<DacpAssemblyData>
 {
     CLRDATA_ADDRESS AssemblyPtr; //useful to have
     CLRDATA_ADDRESS ClassLoader;
@@ -468,7 +445,7 @@ struct MSLAYOUT DacpAssemblyData : ZeroInit<DacpAssemblyData>
 };
 
 
-struct MSLAYOUT DacpThreadData : ZeroInit<DacpThreadData>
+struct DacpThreadData : ZeroInit<DacpThreadData>
 {
     DWORD corThreadId;
     DWORD osThreadId;
@@ -493,7 +470,7 @@ struct MSLAYOUT DacpThreadData : ZeroInit<DacpThreadData>
 };
 
 
-struct MSLAYOUT DacpReJitData : ZeroInit<DacpReJitData>
+struct DacpReJitData : ZeroInit<DacpReJitData>
 {
     enum Flags
     {
@@ -508,7 +485,7 @@ struct MSLAYOUT DacpReJitData : ZeroInit<DacpReJitData>
     CLRDATA_ADDRESS                 NativeCodeAddr;
 };
     
-struct MSLAYOUT DacpMethodDescData : ZeroInit<DacpMethodDescData>
+struct DacpMethodDescData : ZeroInit<DacpMethodDescData>
 {
     BOOL            bHasNativeCode;
     BOOL            bIsDynamic;
@@ -552,7 +529,7 @@ struct MSLAYOUT DacpMethodDescData : ZeroInit<DacpMethodDescData>
     }
 };
 
-struct MSLAYOUT DacpMethodDescTransparencyData : ZeroInit<DacpMethodDescTransparencyData>
+struct DacpMethodDescTransparencyData : ZeroInit<DacpMethodDescTransparencyData>
 {
     BOOL            bHasCriticalTransparentInfo;
     BOOL            bIsCritical;
@@ -567,7 +544,7 @@ struct MSLAYOUT DacpMethodDescTransparencyData : ZeroInit<DacpMethodDescTranspar
 // for JITType
 enum JITTypes {TYPE_UNKNOWN=0,TYPE_JIT,TYPE_PJIT};
 
-struct MSLAYOUT DacpCodeHeaderData : ZeroInit<DacpCodeHeaderData>
+struct DacpCodeHeaderData : ZeroInit<DacpCodeHeaderData>
 {        
     CLRDATA_ADDRESS GCInfo;
     JITTypes                   JITType;
@@ -584,7 +561,7 @@ struct MSLAYOUT DacpCodeHeaderData : ZeroInit<DacpCodeHeaderData>
     }
 };
 
-struct MSLAYOUT DacpWorkRequestData : ZeroInit<DacpWorkRequestData>
+struct DacpWorkRequestData : ZeroInit<DacpWorkRequestData>
 {
     CLRDATA_ADDRESS Function;
     CLRDATA_ADDRESS Context;
@@ -596,7 +573,7 @@ struct MSLAYOUT DacpWorkRequestData : ZeroInit<DacpWorkRequestData>
     }
 };
 
-struct MSLAYOUT DacpHillClimbingLogEntry : ZeroInit<DacpHillClimbingLogEntry>
+struct DacpHillClimbingLogEntry : ZeroInit<DacpHillClimbingLogEntry>
 {
     DWORD TickCount;
     int Transition;
@@ -612,7 +589,7 @@ struct MSLAYOUT DacpHillClimbingLogEntry : ZeroInit<DacpHillClimbingLogEntry>
 
 
 // Used for CLR versions >= 4.0
-struct MSLAYOUT DacpThreadpoolData : ZeroInit<DacpThreadpoolData>
+struct DacpThreadpoolData : ZeroInit<DacpThreadpoolData>
 {
     LONG cpuUtilization;    
     int NumIdleWorkerThreads;
@@ -646,7 +623,7 @@ struct MSLAYOUT DacpThreadpoolData : ZeroInit<DacpThreadpoolData>
     }
 };
 
-struct MSLAYOUT DacpGenerationData : ZeroInit<DacpGenerationData>
+struct DacpGenerationData : ZeroInit<DacpGenerationData>
 {    
     CLRDATA_ADDRESS start_segment;
     CLRDATA_ADDRESS allocation_start;
@@ -659,18 +636,18 @@ struct MSLAYOUT DacpGenerationData : ZeroInit<DacpGenerationData>
 #define DAC_NUMBERGENERATIONS 4
 
 
-struct MSLAYOUT DacpAllocData : ZeroInit<DacpAllocData>
+struct DacpAllocData : ZeroInit<DacpAllocData>
 {
     CLRDATA_ADDRESS allocBytes;
     CLRDATA_ADDRESS allocBytesLoh;
 };
 
-struct MSLAYOUT DacpGenerationAllocData : ZeroInit<DacpGenerationAllocData>
+struct DacpGenerationAllocData : ZeroInit<DacpGenerationAllocData>
 {
     DacpAllocData allocData[DAC_NUMBERGENERATIONS]; 
 };
 
-struct MSLAYOUT DacpGcHeapDetails : ZeroInit<DacpGcHeapDetails>
+struct DacpGcHeapDetails : ZeroInit<DacpGcHeapDetails>
 {
     CLRDATA_ADDRESS heapAddr; // Only filled in in server mode, otherwise NULL
     CLRDATA_ADDRESS alloc_allocated;
@@ -704,7 +681,7 @@ struct MSLAYOUT DacpGcHeapDetails : ZeroInit<DacpGcHeapDetails>
     }
 };
 
-struct MSLAYOUT DacpGcHeapData
+struct DacpGcHeapData
     : ZeroInit<DacpGcHeapData>
 {
     BOOL bServerMode;
@@ -718,7 +695,7 @@ struct MSLAYOUT DacpGcHeapData
     }
 };
 
-struct MSLAYOUT DacpHeapSegmentData
+struct DacpHeapSegmentData
     : ZeroInit<DacpHeapSegmentData>
 {
     CLRDATA_ADDRESS segmentAddr;
@@ -753,7 +730,7 @@ struct MSLAYOUT DacpHeapSegmentData
     }
 };
 
-struct MSLAYOUT DacpOomData : ZeroInit<DacpOomData>
+struct DacpOomData : ZeroInit<DacpOomData>
 {
     int reason;
     ULONG64 alloc_size;
@@ -784,7 +761,7 @@ struct MSLAYOUT DacpOomData : ZeroInit<DacpOomData>
 #define MAX_GC_MECHANISM_BITS_COUNT 2
 // This is from ndp\clr\src\vm\common.h
 #define MAX_GLOBAL_GC_MECHANISMS_COUNT 6
-struct MSLAYOUT DacpGCInterestingInfoData : ZeroInit<DacpGCInterestingInfoData>
+struct DacpGCInterestingInfoData : ZeroInit<DacpGCInterestingInfoData>
 {
     size_t interestingDataPoints[NUM_GC_DATA_POINTS];
     size_t compactReasons[MAX_COMPACT_REASONS_COUNT];
@@ -831,7 +808,7 @@ struct MSLAYOUT DacpGCInterestingInfoData : ZeroInit<DacpGCInterestingInfoData>
     }
 };
 
-struct MSLAYOUT DacpGcHeapAnalyzeData
+struct DacpGcHeapAnalyzeData
     : ZeroInit<DacpGcHeapAnalyzeData>
 {
     CLRDATA_ADDRESS heapAddr; // Only filled in in server mode, otherwise NULL
@@ -859,7 +836,7 @@ struct MSLAYOUT DacpGcHeapAnalyzeData
 #define SYNCBLOCKDATA_COMFLAGS_RCW 2
 #define SYNCBLOCKDATA_COMFLAGS_CF 4
 
-struct MSLAYOUT DacpSyncBlockData : ZeroInit<DacpSyncBlockData>
+struct DacpSyncBlockData : ZeroInit<DacpSyncBlockData>
 {        
     CLRDATA_ADDRESS Object;
     BOOL            bFree; // if set, no other fields are useful
@@ -886,7 +863,7 @@ struct MSLAYOUT DacpSyncBlockData : ZeroInit<DacpSyncBlockData>
     }
 };
 
-struct MSLAYOUT DacpSyncBlockCleanupData : ZeroInit<DacpSyncBlockCleanupData>
+struct DacpSyncBlockCleanupData : ZeroInit<DacpSyncBlockCleanupData>
 {
     CLRDATA_ADDRESS SyncBlockPointer;
     
@@ -906,7 +883,7 @@ struct MSLAYOUT DacpSyncBlockCleanupData : ZeroInit<DacpSyncBlockCleanupData>
 
 enum EHClauseType {EHFault, EHFinally, EHFilter, EHTyped, EHUnknown};
                 
-struct MSLAYOUT DACEHInfo : ZeroInit<DACEHInfo>
+struct DACEHInfo : ZeroInit<DACEHInfo>
 {
     EHClauseType clauseType;
     CLRDATA_ADDRESS tryStartOffset;
@@ -921,7 +898,7 @@ struct MSLAYOUT DACEHInfo : ZeroInit<DACEHInfo>
     mdToken tokCatch;          // the type token of the TYPED clause type
 };
 
-struct MSLAYOUT DacpGetModuleAddress : ZeroInit<DacpGetModuleAddress>
+struct DacpGetModuleAddress : ZeroInit<DacpGetModuleAddress>
 {
     CLRDATA_ADDRESS ModulePtr;
     HRESULT Request(IXCLRDataModule* pDataModule)
@@ -930,7 +907,7 @@ struct MSLAYOUT DacpGetModuleAddress : ZeroInit<DacpGetModuleAddress>
     }
 };
 
-struct MSLAYOUT DacpGetModuleData : ZeroInit<DacpGetModuleData>
+struct DacpGetModuleData : ZeroInit<DacpGetModuleData>
 {
     BOOL IsDynamic;
     BOOL IsInMemory;
@@ -947,7 +924,7 @@ struct MSLAYOUT DacpGetModuleData : ZeroInit<DacpGetModuleData>
     }
 };
 
-struct MSLAYOUT DacpFrameData : ZeroInit<DacpFrameData>
+struct DacpFrameData : ZeroInit<DacpFrameData>
 {
     CLRDATA_ADDRESS frameAddr;
 
@@ -960,7 +937,7 @@ struct MSLAYOUT DacpFrameData : ZeroInit<DacpFrameData>
     }
 };
 
-struct MSLAYOUT DacpJitManagerInfo : ZeroInit<DacpJitManagerInfo>
+struct DacpJitManagerInfo : ZeroInit<DacpJitManagerInfo>
 {
     CLRDATA_ADDRESS managerAddr;
     DWORD codeType; // for union below
@@ -969,14 +946,14 @@ struct MSLAYOUT DacpJitManagerInfo : ZeroInit<DacpJitManagerInfo>
 
 enum CodeHeapType {CODEHEAP_LOADER=0,CODEHEAP_HOST,CODEHEAP_UNKNOWN};
 
-struct MSLAYOUT DacpJitCodeHeapInfo : ZeroInit<DacpJitCodeHeapInfo>
+struct DacpJitCodeHeapInfo : ZeroInit<DacpJitCodeHeapInfo>
 {
     DWORD codeHeapType; // for union below
 
     union
     {
         CLRDATA_ADDRESS LoaderHeap;    // if CODEHEAP_LOADER
-        struct MSLAYOUT
+        struct
         {
             CLRDATA_ADDRESS baseAddr; // if CODEHEAP_HOST
             CLRDATA_ADDRESS currentAddr;

@@ -7,7 +7,6 @@
 using System;
 using System.Security;
 using System.Reflection;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -30,7 +29,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         public CustomPropertyImpl(PropertyInfo propertyInfo)
         {
             if (propertyInfo == null)
-                throw new ArgumentNullException(nameof(propertyInfo));
+                throw new ArgumentNullException("propertyInfo");
 
             m_property = propertyInfo;
         }
@@ -89,6 +88,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             InvokeInternal(target, new object[] { indexValue, value }, false);
         }
 
+        [SecuritySafeCritical]
         private object InvokeInternal(object target, object[] args, bool getValue)
         {
             // Forward to the right object if we are dealing with a proxy
@@ -123,7 +123,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
 
             // We can safely skip access check because this is only used in full trust scenarios.
             // And we have already verified that the property accessor is public.
-            Debug.Assert(AppDomain.CurrentDomain.PermissionSet.IsUnrestricted());
+            Contract.Assert(AppDomain.CurrentDomain.PermissionSet.IsUnrestricted());
             return rtMethod.UnsafeInvoke(target, BindingFlags.Default, null, args, null);
         }
 

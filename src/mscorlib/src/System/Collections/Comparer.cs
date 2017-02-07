@@ -36,7 +36,7 @@ namespace System.Collections {
 
         public Comparer(CultureInfo culture) {
             if (culture==null) {
-                throw new ArgumentNullException(nameof(culture));
+                throw new ArgumentNullException("culture");
             }
             Contract.EndContractBlock();
             m_compareInfo = culture.CompareInfo;
@@ -83,9 +83,10 @@ namespace System.Collections {
             throw new ArgumentException(Environment.GetResourceString("Argument_ImplementIComparable"));
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info==null) {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
             Contract.EndContractBlock();
 

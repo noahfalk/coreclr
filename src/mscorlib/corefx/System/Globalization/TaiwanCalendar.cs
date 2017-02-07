@@ -37,7 +37,7 @@ namespace System.Globalization
         //m_EraInfo[0] = new EraInfo(1, new DateTime(1912, 1, 1).Ticks, 1911, 1, GregorianCalendar.MaxYear - 1911);
 
         // Initialize our era info.
-        internal static EraInfo[] taiwanEraInfo = new EraInfo[] {
+        static internal EraInfo[] taiwanEraInfo = new EraInfo[] {
             new EraInfo( 1, 1912, 1, 1, 1911, 1, GregorianCalendar.MaxYear - 1911)    // era #, start year/month/day, yearOffset, minEraYear 
         };
 
@@ -80,15 +80,6 @@ namespace System.Globalization
             get
             {
                 return (DateTime.MaxValue);
-            }
-        }
-
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public override CalendarAlgorithmType AlgorithmType
-        {
-            get
-            {
-                return CalendarAlgorithmType.SolarCalendar;
             }
         }
 
@@ -269,7 +260,7 @@ namespace System.Globalization
         {
             if (year <= 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedPosNum);
             }
             Contract.EndContractBlock();
@@ -277,7 +268,7 @@ namespace System.Globalization
             if (year > helper.MaxYear)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,

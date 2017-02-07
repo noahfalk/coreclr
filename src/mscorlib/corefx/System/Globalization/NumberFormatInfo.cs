@@ -42,10 +42,11 @@ namespace System.Globalization
     //
 
     [Serializable]
-    sealed public class NumberFormatInfo : IFormatProvider, ICloneable
+    [System.Runtime.InteropServices.ComVisible(true)]
+    sealed public partial class NumberFormatInfo : IFormatProvider, ICloneable
     {
         // invariantInfo is constant irrespective of your current culture.
-        private static volatile NumberFormatInfo s_invariantInfo;
+        private static volatile NumberFormatInfo invariantInfo;
 
         // READTHIS READTHIS READTHIS
         // This class has an exact mapping onto a native structure defined in COMNumber.cpp
@@ -83,8 +84,6 @@ namespace System.Globalization
         internal int percentNegativePattern = 0;
         internal int percentDecimalDigits = 2;
 
-        [OptionalField(VersionAdded = 2)]
-        internal int digitSubstitution = (int) DigitShapes.None;
 
         internal bool isReadOnly = false;
 
@@ -106,7 +105,7 @@ namespace System.Globalization
         [OnDeserialized]
         private void OnDeserialized(StreamingContext ctx) { }
 
-        private static void VerifyDecimalSeparator(String decSep, String propertyName)
+        static private void VerifyDecimalSeparator(String decSep, String propertyName)
         {
             if (decSep == null)
             {
@@ -121,7 +120,7 @@ namespace System.Globalization
             Contract.EndContractBlock();
         }
 
-        private static void VerifyGroupSeparator(String groupSep, String propertyName)
+        static private void VerifyGroupSeparator(String groupSep, String propertyName)
         {
             if (groupSep == null)
             {
@@ -131,65 +130,8 @@ namespace System.Globalization
             Contract.EndContractBlock();
         }
 
-        private static void VerifyNativeDigits(string [] nativeDig, string propertyName)
-        {
-            if (nativeDig == null)
-            {
-                throw new ArgumentNullException(propertyName, SR.ArgumentNull_Array);
-            }
 
-            if (nativeDig.Length != 10)
-            {
-                throw new ArgumentException(SR.Argument_InvalidNativeDigitCount, propertyName);
-            }
-            Contract.EndContractBlock();
-
-            for (int i = 0; i < nativeDig.Length; i++)
-            {
-                if (nativeDig[i] == null)
-                {
-                    throw new ArgumentNullException(propertyName, SR.ArgumentNull_ArrayValue);
-                }
-
-                if (nativeDig[i].Length != 1)
-                {
-                    if (nativeDig[i].Length != 2)
-                    {
-                        // Not 1 or 2 UTF-16 code points
-                        throw new ArgumentException(SR.Argument_InvalidNativeDigitValue, propertyName);
-                    } 
-                    else if (!char.IsSurrogatePair(nativeDig[i][0], nativeDig[i][1]))
-                    {
-                        // 2 UTF-6 code points, but not a surrogate pair
-                        throw new ArgumentException(SR.Argument_InvalidNativeDigitValue, propertyName);
-                    }
-                }
-
-                if (CharUnicodeInfo.GetDecimalDigitValue(nativeDig[i], 0) != i &&
-                    CharUnicodeInfo.GetUnicodeCategory(nativeDig[i], 0) != UnicodeCategory.PrivateUse)
-                {
-                    // Not the appropriate digit according to the Unicode data properties
-                    // (Digit 0 must be a 0, etc.).
-                    throw new ArgumentException(SR.Argument_InvalidNativeDigitValue, propertyName);
-                }
-            }
-        }
-
-         private static void VerifyDigitSubstitution(DigitShapes digitSub, string propertyName)
-         {
-            switch (digitSub)
-            {
-                case DigitShapes.Context:
-                case DigitShapes.None:
-                case DigitShapes.NativeNational:
-                    // Success.
-                    break;
-
-                default:
-                    throw new ArgumentException(SR.Argument_InvalidDigitSubstitution, propertyName);
-            }
-        }
-
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal NumberFormatInfo(CultureData cultureData)
         {
             if (cultureData != null)
@@ -225,17 +167,18 @@ namespace System.Globalization
         {
             get
             {
-                if (s_invariantInfo == null)
+                if (invariantInfo == null)
                 {
                     // Lazy create the invariant info. This cannot be done in a .cctor because exceptions can
                     // be thrown out of a .cctor stack that will need this.
                     NumberFormatInfo nfi = new NumberFormatInfo();
                     nfi.m_isInvariant = true;
-                    s_invariantInfo = ReadOnly(nfi);
+                    invariantInfo = ReadOnly(nfi);
                 }
-                return s_invariantInfo;
+                return invariantInfo;
             }
         }
+
 
         public static NumberFormatInfo GetInstance(IFormatProvider formatProvider)
         {
@@ -329,7 +272,7 @@ namespace System.Globalization
         // Every element in the groupSize array should be between 1 and 9
         // excpet the last element could be zero.
         //
-        internal static void CheckGroupSize(String propName, int[] groupSize)
+        static internal void CheckGroupSize(String propName, int[] groupSize)
         {
             for (int i = 0; i < groupSize.Length; i++)
             {
@@ -807,28 +750,6 @@ namespace System.Globalization
             }
         }
 
-        public string [] NativeDigits
-        {
-            get { return (String[]) nativeDigits.Clone(); }
-            set
-            {
-                VerifyWritable();
-                VerifyNativeDigits(value, "NativeDigits");
-                nativeDigits = value;
-            }
-        }
-
-        public DigitShapes DigitSubstitution
-        {
-            get { return (DigitShapes) digitSubstitution; } 
-            set
-            {
-                VerifyWritable();
-                VerifyDigitSubstitution(value, "DigitSubstitution");
-                digitSubstitution = (int) value;
-            }
-        }
-
         public Object GetFormat(Type formatType)
         {
             return formatType == typeof(NumberFormatInfo) ? this : null;
@@ -838,7 +759,7 @@ namespace System.Globalization
         {
             if (nfi == null)
             {
-                throw new ArgumentNullException(nameof(nfi));
+                throw new ArgumentNullException("nfi");
             }
             Contract.EndContractBlock();
             if (nfi.IsReadOnly)
@@ -862,7 +783,7 @@ namespace System.Globalization
             // Check for undefined flags
             if ((style & InvalidNumberStyles) != 0)
             {
-                throw new ArgumentException(SR.Argument_InvalidNumberStyles, nameof(style));
+                throw new ArgumentException(SR.Argument_InvalidNumberStyles, "style");
             }
             Contract.EndContractBlock();
             if ((style & NumberStyles.AllowHexSpecifier) != 0)
@@ -879,7 +800,7 @@ namespace System.Globalization
             // Check for undefined flags
             if ((style & InvalidNumberStyles) != 0)
             {
-                throw new ArgumentException(SR.Argument_InvalidNumberStyles, nameof(style));
+                throw new ArgumentException(SR.Argument_InvalidNumberStyles, "style");
             }
             Contract.EndContractBlock();
             if ((style & NumberStyles.AllowHexSpecifier) != 0)

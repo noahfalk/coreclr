@@ -48,7 +48,7 @@ namespace System.Globalization
     [System.Runtime.InteropServices.ComVisible(true)]
     public partial class HijriCalendar : Calendar
     {
-        public static readonly int HijriEra = 1;
+        internal static readonly int HijriEra = 1;
 
         internal const int DatePartYear = 0;
         internal const int DatePartDayOfYear = 1;
@@ -60,7 +60,9 @@ namespace System.Globalization
 
         internal static readonly int[] HijriMonthDays = { 0, 30, 59, 89, 118, 148, 177, 207, 236, 266, 295, 325, 355 };
 
-        private int _hijriAdvance = Int32.MinValue;
+        //internal static Calendar m_defaultInstance;
+
+        private int m_HijriAdvance = Int32.MinValue;
 
         // DateTime.MaxValue = Hijri calendar (year:9666, month: 4, day: 3).
         internal const int MaxCalendarYear = 9666;
@@ -91,14 +93,23 @@ namespace System.Globalization
             }
         }
 
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public override CalendarAlgorithmType AlgorithmType
-        {
-            get
-            {
-                return CalendarAlgorithmType.LunarCalendar;
+        /*=================================GetDefaultInstance==========================
+        **Action: Internal method to provide a default intance of HijriCalendar.  Used by NLS+ implementation
+        **       and other calendars.
+        **Returns:
+        **Arguments:
+        **Exceptions:
+        ============================================================================*/
+        /*
+        internal static Calendar GetDefaultInstance() {
+            if (m_defaultInstance == null) {
+                m_defaultInstance = new HijriCalendar();
             }
+            return (m_defaultInstance);
         }
+        */
+
+        // Construct an instance of Hijri calendar.
 
         public HijriCalendar()
         {
@@ -132,7 +143,7 @@ namespace System.Globalization
         **Exceptions:
         ============================================================================*/
 
-        private long GetAbsoluteDateHijri(int y, int m, int d)
+        long GetAbsoluteDateHijri(int y, int m, int d)
         {
             return (long)(DaysUpToHijriYear(y) + HijriMonthDays[m - 1] + d - 1 - HijriAdjustment);
         }
@@ -146,7 +157,7 @@ namespace System.Globalization
         **Notes:
         ============================================================================*/
 
-        private long DaysUpToHijriYear(int HijriYear)
+        long DaysUpToHijriYear(int HijriYear)
         {
             long NumDays;           // number of absolute days
             int NumYear30;         // number of years up to current 30 year cycle
@@ -182,14 +193,15 @@ namespace System.Globalization
 
         public int HijriAdjustment
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
-                if (_hijriAdvance == Int32.MinValue)
+                if (m_HijriAdvance == Int32.MinValue)
                 {
                     // Never been set before.  Use the system value from registry.
-                    _hijriAdvance = GetHijriDateAdjustment();
+                    m_HijriAdvance = GetHijriDateAdjustment();
                 }
-                return (_hijriAdvance);
+                return (m_HijriAdvance);
             }
 
             set
@@ -208,11 +220,11 @@ namespace System.Globalization
                 Contract.EndContractBlock();
                 VerifyWritable();
 
-                _hijriAdvance = value;
+                m_HijriAdvance = value;
             }
         }
 
-        internal static void CheckTicksRange(long ticks)
+        static internal void CheckTicksRange(long ticks)
         {
             if (ticks < calendarMinValue.Ticks || ticks > calendarMaxValue.Ticks)
             {
@@ -226,21 +238,21 @@ namespace System.Globalization
             }
         }
 
-        internal static void CheckEraRange(int era)
+        static internal void CheckEraRange(int era)
         {
             if (era != CurrentEra && era != HijriEra)
             {
-                throw new ArgumentOutOfRangeException(nameof(era), SR.ArgumentOutOfRange_InvalidEraValue);
+                throw new ArgumentOutOfRangeException("era", SR.ArgumentOutOfRange_InvalidEraValue);
             }
         }
 
-        internal static void CheckYearRange(int year, int era)
+        static internal void CheckYearRange(int year, int era)
         {
             CheckEraRange(era);
             if (year < 1 || year > MaxCalendarYear)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
@@ -249,7 +261,7 @@ namespace System.Globalization
             }
         }
 
-        internal static void CheckYearMonthRange(int year, int month, int era)
+        static internal void CheckYearMonthRange(int year, int month, int era)
         {
             CheckYearRange(year, era);
             if (year == MaxCalendarYear)
@@ -257,7 +269,7 @@ namespace System.Globalization
                 if (month > MaxCalendarMonth)
                 {
                     throw new ArgumentOutOfRangeException(
-                                nameof(month),
+                                "month",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
@@ -268,7 +280,7 @@ namespace System.Globalization
 
             if (month < 1 || month > 12)
             {
-                throw new ArgumentOutOfRangeException(nameof(month), SR.ArgumentOutOfRange_Month);
+                throw new ArgumentOutOfRangeException("month", SR.ArgumentOutOfRange_Month);
             }
         }
 
@@ -395,7 +407,7 @@ namespace System.Globalization
             if (months < -120000 || months > 120000)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(months),
+                            "months",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
@@ -551,7 +563,7 @@ namespace System.Globalization
             if (day < 1 || day > daysInMonth)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(day),
+                            "day",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Day,
@@ -602,7 +614,7 @@ namespace System.Globalization
             if (day < 1 || day > daysInMonth)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(day),
+                            "day",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Day,
@@ -642,7 +654,7 @@ namespace System.Globalization
                 if (value < 99 || value > MaxCalendarYear)
                 {
                     throw new ArgumentOutOfRangeException(
-                                nameof(value),
+                                "value",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
@@ -658,7 +670,7 @@ namespace System.Globalization
         {
             if (year < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
             Contract.EndContractBlock();
@@ -671,7 +683,7 @@ namespace System.Globalization
             if (year > MaxCalendarYear)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,

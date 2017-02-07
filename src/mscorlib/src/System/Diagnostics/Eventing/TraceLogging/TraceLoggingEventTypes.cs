@@ -94,7 +94,7 @@ namespace System.Diagnostics.Tracing
         {
             if (name == null)
             {
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             }
 
             Contract.EndContractBlock();
@@ -132,7 +132,7 @@ namespace System.Diagnostics.Tracing
         {
             if (defaultName == null)
             {
-                throw new ArgumentNullException(nameof(defaultName));
+                throw new ArgumentNullException("defaultName");
             }
 
             Contract.EndContractBlock();
@@ -212,7 +212,7 @@ namespace System.Diagnostics.Tracing
         {
             if (paramInfos == null)
             {
-                throw new ArgumentNullException(nameof(paramInfos));
+                throw new ArgumentNullException("paramInfos");
             }
 
             Contract.EndContractBlock();
@@ -231,7 +231,7 @@ namespace System.Diagnostics.Tracing
         {
             if (types == null)
             {
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             }
 
             Contract.EndContractBlock();
@@ -251,7 +251,7 @@ namespace System.Diagnostics.Tracing
         {
             if (typeInfos == null)
             {
-                throw new ArgumentNullException(nameof(typeInfos));
+                throw new ArgumentNullException("typeInfos");
             }
 
             Contract.EndContractBlock();

@@ -55,7 +55,6 @@ public:
     BOOL IsCallback5Supported();
     BOOL IsCallback6Supported();
     BOOL IsCallback7Supported();
-    BOOL IsCallback8Supported();
 
     HRESULT SetEventMask(DWORD dwEventMask, DWORD dwEventMaskHigh);
 
@@ -169,17 +168,6 @@ public:
 
     HRESULT JITCompilationStarted(
         FunctionID  functionId,
-        BOOL        fIsSafeToBlock);
-
-    HRESULT DynamicMethodJITCompilationStarted(
-        FunctionID  functionId,
-        BOOL        fIsSafeToBlock,
-        LPCBYTE     pILHeader,
-        ULONG       cbILHeader);
-
-    HRESULT DynamicMethodJITCompilationFinished(
-        FunctionID  functionId,
-        HRESULT     hrStatus,
         BOOL        fIsSafeToBlock);
     
     HRESULT JITCachedFunctionSearchStarted(
@@ -541,14 +529,13 @@ private:
 
     // Pointer to the profiler's implementation of the callback interface(s).
     // Profilers MUST support ICorProfilerCallback2.
-    // Profilers MAY optionally support ICorProfilerCallback3,4,5,6,7,8
+    // Profilers MAY optionally support ICorProfilerCallback3,4,5,6,7
     ICorProfilerCallback2 * m_pCallback2;
     ICorProfilerCallback3 * m_pCallback3;
     ICorProfilerCallback4 * m_pCallback4;
     ICorProfilerCallback5 * m_pCallback5;
     ICorProfilerCallback6 * m_pCallback6;
     ICorProfilerCallback7 * m_pCallback7;
-    ICorProfilerCallback8 * m_pCallback8;
     HMODULE                 m_hmodProfilerDLL;
 
     BOOL                    m_fLoadedViaAttach;

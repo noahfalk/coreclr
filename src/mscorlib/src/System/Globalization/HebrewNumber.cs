@@ -6,7 +6,6 @@
 namespace System.Globalization {
     using System;
     using System.Text;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     ////////////////////////////////////////////////////////////////////////////
@@ -99,7 +98,7 @@ namespace System.Globalization {
                 Number -= 5000;
             }
 
-            Debug.Assert(Number > 0 && Number <= 999, "Number is out of range.");;
+            Contract.Assert(Number > 0 && Number <= 999, "Number is out of range.");;
 
             //
             //  Get the Hundreds.

@@ -6,7 +6,7 @@
  *
  * Port of the C code that uses GMP
  * Just switched it to use C#'s BigInteger instead
- *
+ * 
  * To compile use csc /o+ /r:System.Numerics.dll
  *
  * modified for use with xunit-performance
@@ -20,8 +20,6 @@ using System.Text;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace BenchmarksGame
-{
 public class pidigits
 {
 #if DEBUG
@@ -112,6 +110,5 @@ public class pidigits
             }
         }
     }
-}
 }
 

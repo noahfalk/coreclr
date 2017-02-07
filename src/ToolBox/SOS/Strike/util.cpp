@@ -254,49 +254,47 @@ HRESULT CreateInstanceCustomImpl(
 
         typedef HRESULT (__stdcall IDebugSymbols3::*GetPathFunc)(LPWSTR , ULONG, ULONG*);
 
+        // Handle both the image path and the symbol path
+        GetPathFunc rgGetPathFuncs[] = 
+            { &IDebugSymbols3::GetImagePathWide, &IDebugSymbols3::GetSymbolPathWide };
+
+        for (int i = 0; i < _countof(rgGetPathFuncs); ++i)
         {
-            // Handle both the image path and the symbol path
-            GetPathFunc rgGetPathFuncs[] = 
-                { &IDebugSymbols3::GetImagePathWide, &IDebugSymbols3::GetSymbolPathWide };
+            ULONG pathSize = 0;
 
-            for (int i = 0; i < _countof(rgGetPathFuncs); ++i)
+            // get the path buffer size
+            if ((spSym3.GetPtr()->*rgGetPathFuncs[i])(NULL, 0, &pathSize) != S_OK)
             {
-                ULONG pathSize = 0;
+                continue;
+            }
 
-                // get the path buffer size
-                if ((spSym3.GetPtr()->*rgGetPathFuncs[i])(NULL, 0, &pathSize) != S_OK)
-                {
-                    continue;
-                }
+            ArrayHolder<WCHAR> imgPath = new WCHAR[pathSize+MAX_LONGPATH+1];
+            if (imgPath == NULL)
+            {
+                continue;
+            }
 
-                ArrayHolder<WCHAR> imgPath = new WCHAR[pathSize+MAX_LONGPATH+1];
-                if (imgPath == NULL)
-                {
-                    continue;
-                }
+            // actually get the path
+            if ((spSym3.GetPtr()->*rgGetPathFuncs[i])(imgPath, pathSize, NULL) != S_OK)
+            {
+                continue;
+            }
 
-                // actually get the path
-                if ((spSym3.GetPtr()->*rgGetPathFuncs[i])(imgPath, pathSize, NULL) != S_OK)
+            LPWSTR ctx;
+            LPCWSTR pathElem = wcstok_s(imgPath, W(";"), &ctx);
+            while (pathElem != NULL)
+            {
+                WCHAR fullName[MAX_LONGPATH];
+                wcscpy_s(fullName, _countof(fullName), pathElem);
+                if (wcscat_s(fullName, W("\\")) == 0 && wcscat_s(fullName, dllName) == 0)
                 {
-                    continue;
-                }
-
-                LPWSTR ctx;
-                LPCWSTR pathElem = wcstok_s(imgPath, W(";"), &ctx);
-                while (pathElem != NULL)
-                {
-                    WCHAR fullName[MAX_LONGPATH];
-                    wcscpy_s(fullName, _countof(fullName), pathElem);
-                    if (wcscat_s(fullName, W("\\")) == 0 && wcscat_s(fullName, dllName) == 0)
+                    if (SUCCEEDED(CreateInstanceFromPath(clsid, iid, fullName, ppItf)))
                     {
-                        if (SUCCEEDED(CreateInstanceFromPath(clsid, iid, fullName, ppItf)))
-                        {
-                            return S_OK;
-                        }
+                        return S_OK;
                     }
-
-                    pathElem = wcstok_s(NULL, W(";"), &ctx);
                 }
+
+                pathElem = wcstok_s(NULL, W(";"), &ctx);
             }
         }
 
@@ -6134,7 +6132,7 @@ HRESULT SymbolReader::LoadSymbolsForWindowsPDB(___in IMetaDataImport* pMD, ___in
 int ReadMemoryForSymbols(ULONG64 address, char *buffer, int cb)
 {
     ULONG read;
-    if (SafeReadMemory(TO_TADDR(address), (PVOID)buffer, cb, &read))
+    if (SafeReadMemory(address, (PVOID)buffer, cb, &read))
     {
         return read;
     }

@@ -41,8 +41,6 @@ struct CallDescrData
 #endif
 };
 
-#define NUMBER_RETURNVALUE_SLOTS (ENREGISTERED_RETURNTYPE_MAXSIZE / sizeof(ARG_SLOT))
-
 #if !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 
 extern "C" void STDCALL CallDescrWorkerInternal(CallDescrData * pCallDescrData);
@@ -133,9 +131,9 @@ private:
 
 #ifdef FEATURE_INTERPRETER
 public:
-    void CallTargetWorker(const ARG_SLOT *pArguments, ARG_SLOT *pReturnValue, int cbReturnValue, bool transitionToPreemptive = false);
+    ARG_SLOT CallTargetWorker(const ARG_SLOT *pArguments, bool transitionToPreemptive = false);
 #else
-    void CallTargetWorker(const ARG_SLOT *pArguments, ARG_SLOT *pReturnValue, int cbReturnValue);
+    ARG_SLOT CallTargetWorker(const ARG_SLOT *pArguments);
 #endif
 
 public:
@@ -311,19 +309,8 @@ public:
                                   eltype == m_methodSig.GetReturnType());           \
             }                                                                       \
             ARG_SLOT retval;                                                        \
-            CallTargetWorker(pArguments, &retval, sizeof(retval));                  \
+            retval = CallTargetWorker(pArguments);                                  \
             return *(rettype *)ArgSlotEndianessFixup(&retval, sizeof(rettype));     \
-        }
-
-#define MDCALLDEF_ARGSLOT(wrappedmethod, ext)                                       \
-        FORCEINLINE void wrappedmethod##ext (const ARG_SLOT* pArguments, ARG_SLOT *pReturnValue, int cbReturnValue) \
-        {                                                                           \
-            WRAPPER_NO_CONTRACT;                                                    \
-            {                                                                       \
-                GCX_FORBID();  /* arg array is not protected */                     \
-            }                                                                       \
-            CallTargetWorker(pArguments, pReturnValue, cbReturnValue);              \
-            /* Bigendian layout not support */                                      \
         }
 
 #define MDCALLDEF_REFTYPE(wrappedmethod,  permitvaluetypes, ext, ptrtype, reftype)              \
@@ -335,7 +322,7 @@ public:
                 CONSISTENCY_CHECK(MetaSig::RETOBJ == m_pMD->ReturnsObject(true));               \
             }                                                                                   \
             ARG_SLOT retval;                                                                    \
-            CallTargetWorker(pArguments, &retval, sizeof(retval));                              \
+            retval = CallTargetWorker(pArguments);                                              \
             return ObjectTo##reftype(*(ptrtype *)                                               \
                         ArgSlotEndianessFixup(&retval, sizeof(ptrtype)));                       \
         }
@@ -349,7 +336,7 @@ public:
         FORCEINLINE void wrappedmethod (const ARG_SLOT* pArguments)     \
         {                                                               \
             WRAPPER_NO_CONTRACT;                                        \
-            CallTargetWorker(pArguments, NULL, 0);                      \
+            CallTargetWorker(pArguments);                               \
         }
 
 #define MDCALLDEFF_STD_RETTYPES(wrappedmethod,permitvaluetypes)                                         \
@@ -439,7 +426,7 @@ public:
 
         // XXX CallWithValueTypes_RetXXX(const ARG_SLOT* pArguments);
         MDCALLDEF_VOID(     CallWithValueTypes, TRUE)
-        MDCALLDEF_ARGSLOT(  CallWithValueTypes, _RetArgSlot)
+        MDCALLDEF(          CallWithValueTypes, TRUE,   _RetArgSlot,    ARG_SLOT,   OTHER_ELEMENT_TYPE)
         MDCALLDEF_REFTYPE(  CallWithValueTypes, TRUE,   _RetOBJECTREF,  Object*,    OBJECTREF)
         MDCALLDEF(          CallWithValueTypes, TRUE,   _RetOleColor,   OLE_COLOR,  OTHER_ELEMENT_TYPE)
 #undef OTHER_ELEMENT_TYPE

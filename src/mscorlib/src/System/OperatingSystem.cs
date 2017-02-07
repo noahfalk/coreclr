@@ -38,11 +38,11 @@ namespace System {
             if( platform < PlatformID.Win32S || platform > PlatformID.MacOSX) {
                 throw new ArgumentException(
                     Environment.GetResourceString("Arg_EnumIllegalVal", (int)platform),
-                    nameof(platform));
+                    "platform");
             }
 
             if ((Object) version == null)
-                throw new ArgumentNullException(nameof(version));
+                throw new ArgumentNullException("version");
             Contract.EndContractBlock();
 
             _platform = platform;
@@ -71,9 +71,10 @@ namespace System {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public void GetObjectData(SerializationInfo info, StreamingContext context) {
             if( info == null ) {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
             Contract.EndContractBlock();
 

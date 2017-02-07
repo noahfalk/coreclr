@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System.Diagnostics;
+using System;
+using System.Runtime.CompilerServices;
+using System.Globalization;
 using System.Diagnostics.Contracts;
 using System.Runtime.Serialization;
 
@@ -60,10 +62,10 @@ namespace System.Globalization
         internal const long MaxMillis = (long)DaysTo10000 * MillisPerDay;
 
 
-        private int _currentEraValue = -1;
+        private int m_currentEraValue = -1;
 
         [OptionalField(VersionAdded = 2)]
-        private bool _isReadOnly = false;
+        private bool m_isReadOnly = false;
 
 #if INSIDE_CLR
         internal const CalendarId CAL_HEBREW = CalendarId.HEBREW;
@@ -97,14 +99,8 @@ namespace System.Globalization
             }
         }
 
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public virtual CalendarAlgorithmType AlgorithmType
-        {
-            get
-            {
-                return CalendarAlgorithmType.Unknown;
-            }
-        }
+
+
 
         protected Calendar()
         {
@@ -141,7 +137,7 @@ namespace System.Globalization
         [System.Runtime.InteropServices.ComVisible(false)]
         public bool IsReadOnly
         {
-            get { return (_isReadOnly); }
+            get { return (m_isReadOnly); }
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -168,9 +164,9 @@ namespace System.Globalization
         //
         ////////////////////////////////////////////////////////////////////////
         [System.Runtime.InteropServices.ComVisible(false)]
-        public static Calendar ReadOnly(Calendar calendar)
+        internal static Calendar ReadOnly(Calendar calendar)
         {
-            if (calendar == null) { throw new ArgumentNullException(nameof(calendar)); }
+            if (calendar == null) { throw new ArgumentNullException("calendar"); }
             Contract.EndContractBlock();
             if (calendar.IsReadOnly) { return (calendar); }
 
@@ -182,7 +178,7 @@ namespace System.Globalization
 
         internal void VerifyWritable()
         {
-            if (_isReadOnly)
+            if (m_isReadOnly)
             {
                 throw new InvalidOperationException(SR.InvalidOperation_ReadOnly);
             }
@@ -190,7 +186,7 @@ namespace System.Globalization
 
         internal void SetReadOnlyState(bool readOnly)
         {
-            _isReadOnly = readOnly;
+            m_isReadOnly = readOnly;
         }
 
 
@@ -208,12 +204,12 @@ namespace System.Globalization
             get
             {
                 // The following code assumes that the current era value can not be -1.
-                if (_currentEraValue == -1)
+                if (m_currentEraValue == -1)
                 {
-                    Debug.Assert(BaseCalendarID != CalendarId.UNINITIALIZED_VALUE, "[Calendar.CurrentEraValue] Expected a real calendar ID");
-                    _currentEraValue = CalendarData.GetCalendarData(BaseCalendarID).iCurrentEra;
+                    Contract.Assert(BaseCalendarID != CalendarId.UNINITIALIZED_VALUE, "[Calendar.CurrentEraValue] Expected a real calendar ID");
+                    m_currentEraValue = CalendarData.GetCalendarData(BaseCalendarID).iCurrentEra;
                 }
-                return (_currentEraValue);
+                return (m_currentEraValue);
             }
         }
 
@@ -246,7 +242,7 @@ namespace System.Globalization
             double tempMillis = (value * scale + (value >= 0 ? 0.5 : -0.5));
             if (!((tempMillis > -(double)MaxMillis) && (tempMillis < (double)MaxMillis)))
             {
-                throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_AddValue);
+                throw new ArgumentOutOfRangeException("value", SR.ArgumentOutOfRange_AddValue);
             }
 
             long millis = (long)tempMillis;
@@ -525,7 +521,7 @@ namespace System.Globalization
             // this value can be less than 0.  It's fine since we are making it positive again in calculating offset.
             int dayForJan1 = (int)GetDayOfWeek(time) - (dayOfYear % 7);
             int offset = (dayForJan1 - firstDayOfWeek + 14) % 7;
-            Debug.Assert(offset >= 0, "Calendar.GetFirstDayWeekOfYear(): offset >= 0");
+            Contract.Assert(offset >= 0, "Calendar.GetFirstDayWeekOfYear(): offset >= 0");
             return ((dayOfYear + offset) / 7 + 1);
         }
 
@@ -650,7 +646,7 @@ namespace System.Globalization
             if ((int)firstDayOfWeek < 0 || (int)firstDayOfWeek > 6)
             {
                 throw new ArgumentOutOfRangeException(
-                    nameof(firstDayOfWeek), SR.Format(SR.ArgumentOutOfRange_Range,
+                    "firstDayOfWeek", SR.Format(SR.ArgumentOutOfRange_Range,
                     DayOfWeek.Sunday, DayOfWeek.Saturday));
             }
             Contract.EndContractBlock();
@@ -664,7 +660,7 @@ namespace System.Globalization
                     return (GetWeekOfYearFullDays(time, (int)firstDayOfWeek, 4));
             }
             throw new ArgumentOutOfRangeException(
-                nameof(rule), SR.Format(SR.ArgumentOutOfRange_Range,
+                "rule", SR.Format(SR.ArgumentOutOfRange_Range,
                 CalendarWeekRule.FirstDay, CalendarWeekRule.FirstFourDayWeek));
         }
 
@@ -703,16 +699,6 @@ namespace System.Globalization
         //
 
         public abstract bool IsLeapMonth(int year, int month, int era);
-
-        // Returns  the leap month in a calendar year of the current era. This method returns 0
-        // if this calendar does not have leap month, or this year is not a leap year.
-        //
-
-        [System.Runtime.InteropServices.ComVisible(false)]
-        public virtual int GetLeapMonth(int year)
-        {
-            return (GetLeapMonth(year, CurrentEra));
-        }
 
         // Returns  the leap month in a calendar year of the specified era. This method returns 0
         // if this calendar does not have leap month, or this year is not a leap year.
@@ -822,7 +808,7 @@ namespace System.Globalization
         {
             if (year < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
             Contract.EndContractBlock();
@@ -844,7 +830,7 @@ namespace System.Globalization
                 if (millisecond < 0 || millisecond >= MillisPerSecond)
                 {
                     throw new ArgumentOutOfRangeException(
-                                nameof(millisecond),
+                                "millisecond",
                                 String.Format(
                                     CultureInfo.InvariantCulture,
                                     SR.Format(SR.ArgumentOutOfRange_Range, 0, MillisPerSecond - 1)));
@@ -854,6 +840,7 @@ namespace System.Globalization
             throw new ArgumentOutOfRangeException(null, SR.ArgumentOutOfRange_BadHourMinuteSecond);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static int GetSystemTwoDigitYearSetting(CalendarId CalID, int defaultYearValue)
         {
             // Call nativeGetTwoDigitYearMax

@@ -473,17 +473,10 @@ inline unsigned Compiler::funGetFuncIdx(BasicBlock* block)
 
 #endif // !FEATURE_EH_FUNCLETS
 
-//------------------------------------------------------------------------------
-// genRegNumFromMask : Maps a single register mask to a register number.
-//
-// Arguments:
-//    mask - the register mask
-//
-// Return Value:
-//    The number of the register contained in the mask.
-//
-// Assumptions:
-//    The mask contains one and only one register.
+/*****************************************************************************
+ *
+ *  Map a register mask to a register number
+ */
 
 inline regNumber genRegNumFromMask(regMaskTP mask)
 {
@@ -775,8 +768,7 @@ inline double getR8LittleEndian(const BYTE* ptr)
 
 /*****************************************************************************
  *
- *  Return the normalized index to use in the EXPSET_TP for the CSE with
- *  the given CSE index.
+ *  Return the bitmask to use in the EXPSET_TP for the CSE with the given CSE index.
  *  Each GenTree has the following field:
  *    signed char       gtCSEnum;        // 0 or the CSE index (negated if def)
  *  So zero is reserved to mean this node is not a CSE
@@ -785,15 +777,15 @@ inline double getR8LittleEndian(const BYTE* ptr)
  *  This precondition is checked by the assert on the first line of this method.
  */
 
-inline unsigned int genCSEnum2bit(unsigned index)
+inline EXPSET_TP genCSEnum2bit(unsigned index)
 {
     assert((index > 0) && (index <= EXPSET_SZ));
 
-    return (index - 1);
+    return ((EXPSET_TP)1 << (index - 1));
 }
 
 #ifdef DEBUG
-const char* genES2str(BitVecTraits* traits, EXPSET_TP set);
+const char* genES2str(EXPSET_TP set);
 const char* refCntWtd2str(unsigned refCntWtd);
 #endif
 
@@ -876,10 +868,6 @@ inline GenTree::GenTree(genTreeOps oper, var_types type DEBUGARG(bool largeNode)
         assert(!"bogus node size");
     }
 #endif
-#endif
-
-#if COUNT_AST_OPERS
-    InterlockedIncrement(&s_gtNodeCounts[oper]);
 #endif
 
 #ifdef DEBUG
@@ -1297,11 +1285,11 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
     assert(GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_SMALL ||
            GenTree::s_gtNodeSizes[gtOper] == TREE_NODE_SZ_LARGE);
-
     assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_LARGE);
+
     assert(GenTree::s_gtNodeSizes[oper] == TREE_NODE_SZ_SMALL || (gtDebugFlags & GTF_DEBUG_NODE_LARGE));
 
-    SetOperRaw(oper);
+    gtOper = oper;
 
 #ifdef DEBUG
     // Maintain the invariant that unary operators always have NULL gtOp2.
@@ -1339,9 +1327,6 @@ inline void GenTree::CopyFrom(const GenTree* src, Compiler* comp)
     assert((gtDebugFlags & GTF_DEBUG_NODE_LARGE) || GenTree::s_gtNodeSizes[src->gtOper] == TREE_NODE_SZ_SMALL);
     GenTreePtr prev = gtPrev;
     GenTreePtr next = gtNext;
-
-    RecordOperBashing(OperGet(), src->OperGet()); // nop unless NODEBASH_STATS is enabled
-
     // The VTable pointer is copied intentionally here
     memcpy((void*)this, (void*)src, src->GetNodeSize());
     this->gtPrev = prev;
@@ -1388,7 +1373,7 @@ inline void GenTree::InitNodeSize()
 
 inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 {
-    SetOperRaw(oper);
+    gtOper = oper;
 
     if (vnUpdate == CLEAR_VN)
     {
@@ -1399,7 +1384,6 @@ inline void GenTree::SetOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 inline void GenTree::CopyFrom(GenTreePtr src)
 {
-    RecordOperBashing(OperGet(), src->OperGet()); // nop unless NODEBASH_STATS is enabled
     *this    = *src;
 #ifdef DEBUG
     gtSeqNum = 0;
@@ -1420,16 +1404,6 @@ inline GenTreePtr Compiler::gtNewCastNodeL(var_types typ, GenTreePtr op1, var_ty
 /*****************************************************************************/
 #endif // SMALL_TREE_NODES
 /*****************************************************************************/
-
-/*****************************************************************************/
-
-inline void GenTree::SetOperRaw(genTreeOps oper)
-{
-    // Please do not do anything here other than assign to gtOper (debug-only
-    // code is OK, but should be kept to a minimum).
-    RecordOperBashing(OperGet(), oper); // nop unless NODEBASH_STATS is enabled
-    gtOper = oper;
-}
 
 inline void GenTree::SetOperResetFlags(genTreeOps oper)
 {
@@ -1472,7 +1446,7 @@ inline void GenTree::ChangeOper(genTreeOps oper, ValueNumberUpdate vnUpdate)
 
 inline void GenTree::ChangeOperUnchecked(genTreeOps oper)
 {
-    SetOperRaw(oper); // Trust the caller and don't use SetOper()
+    gtOper = oper; // Trust the caller and don't use SetOper()
     gtFlags &= GTF_COMMON_MASK;
 }
 
@@ -1605,7 +1579,7 @@ inline unsigned Compiler::lvaGrabTemp(bool shortLifetime DEBUGARG(const char* re
 
 #if 0
         // TODO-Cleanup: Enable this and test.
-#ifdef DEBUG
+#ifdef DEBUG   
         // Fill the old table with junks. So to detect the un-intended use.
         memset(lvaTable, fDefaultFill2.val_DontUse_(CLRConfig::INTERNAL_JitDefaultFill, 0xFF), lvaCount * sizeof(*lvaTable));
 #endif
@@ -1681,7 +1655,7 @@ inline unsigned Compiler::lvaGrabTemps(unsigned cnt DEBUGARG(const char* reason)
         }
 
 #if 0
-#ifdef DEBUG
+#ifdef DEBUG   
         // TODO-Cleanup: Enable this and test.
         // Fill the old table with junks. So to detect the un-intended use.
         memset(lvaTable, fDefaultFill2.val_DontUse_(CLRConfig::INTERNAL_JitDefaultFill, 0xFF), lvaCount * sizeof(*lvaTable));
@@ -3935,7 +3909,7 @@ inline bool Compiler::IsSharedStaticHelper(GenTreePtr tree)
         helper == CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_DYNAMICCLASS ||
         helper == CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_DYNAMICCLASS ||
 #ifdef FEATURE_READYTORUN_COMPILER
-        helper == CORINFO_HELP_READYTORUN_STATIC_BASE || helper == CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE ||
+        helper == CORINFO_HELP_READYTORUN_STATIC_BASE ||
 #endif
         helper == CORINFO_HELP_CLASSINIT_SHARED_DYNAMICCLASS;
 #if 0
@@ -3970,7 +3944,7 @@ inline bool jitStaticFldIsGlobAddr(CORINFO_FIELD_HANDLE fldHnd)
     return (fldHnd == FLD_GLOBAL_DS || fldHnd == FLD_GLOBAL_FS);
 }
 
-#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD) || defined(FEATURE_TRACELOGGING)
+#if defined(DEBUG) || defined(FEATURE_JIT_METHOD_PERF) || defined(FEATURE_SIMD)
 
 inline bool Compiler::eeIsNativeMethod(CORINFO_METHOD_HANDLE method)
 {
@@ -4113,12 +4087,16 @@ inline bool Compiler::compIsProfilerHookNeeded()
 {
 #ifdef PROFILING_SUPPORTED
     return compProfilerHookNeeded
+
+#if defined(_TARGET_ARM_) || defined(_TARGET_AMD64_)
            // IL stubs are excluded by VM and we need to do the same even running
            // under a complus env hook to generate profiler hooks
-           || (opts.compJitELTHookEnabled && !opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IL_STUB));
-#else  // !PROFILING_SUPPORTED
+           || (opts.compJitELTHookEnabled && !(opts.eeFlags & CORJIT_FLG_IL_STUB))
+#endif
+        ;
+#else // PROFILING_SUPPORTED
     return false;
-#endif // !PROFILING_SUPPORTED
+#endif
 }
 
 /*****************************************************************************
@@ -4207,7 +4185,7 @@ inline bool Compiler::impIsDUP_LDVIRTFTN_TOKEN(const BYTE* delegateCreateStart, 
 
 inline bool Compiler::compIsForImportOnly()
 {
-    return opts.jitFlags->IsSet(JitFlags::JIT_FLAG_IMPORT_ONLY);
+    return ((opts.eeFlags & CORJIT_FLG_IMPORT_ONLY) != 0);
 }
 
 /*****************************************************************************
@@ -4374,12 +4352,10 @@ inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
 {
     if (varDsc->lvTracked && (varDsc->lvType == TYP_REF || varDsc->lvType == TYP_BYREF))
     {
-        // Stack parameters are always untracked w.r.t. GC reportings
-        const bool isStackParam = varDsc->lvIsParam && !varDsc->lvIsRegArg;
 #ifdef _TARGET_AMD64_
-        return !isStackParam && !lvaIsFieldOfDependentlyPromotedStruct(varDsc);
+        return !lvaIsFieldOfDependentlyPromotedStruct(varDsc);
 #else  // !_TARGET_AMD64_
-        return !isStackParam;
+        return true;
 #endif // !_TARGET_AMD64_
     }
     else
@@ -4391,10 +4367,8 @@ inline bool Compiler::lvaIsGCTracked(const LclVarDsc* varDsc)
 inline void Compiler::EndPhase(Phases phase)
 {
 #if defined(FEATURE_JIT_METHOD_PERF)
-    if (pCompJitTimer != nullptr)
-    {
+    if (pCompJitTimer != NULL)
         pCompJitTimer->EndPhase(phase);
-    }
 #endif
 #if DUMP_FLOWGRAPHS
     fgDumpFlowGraph(phase);
@@ -4429,36 +4403,6 @@ inline void Compiler::EndPhase(Phases phase)
     }
 #endif
 }
-
-/*****************************************************************************/
-#if MEASURE_CLRAPI_CALLS
-
-inline void Compiler::CLRApiCallEnter(unsigned apix)
-{
-    if (pCompJitTimer != nullptr)
-    {
-        pCompJitTimer->CLRApiCallEnter(apix);
-    }
-}
-inline void Compiler::CLRApiCallLeave(unsigned apix)
-{
-    if (pCompJitTimer != nullptr)
-    {
-        pCompJitTimer->CLRApiCallLeave(apix);
-    }
-}
-
-inline void Compiler::CLR_API_Enter(API_ICorJitInfo_Names ename)
-{
-    CLRApiCallEnter(ename);
-}
-
-inline void Compiler::CLR_API_Leave(API_ICorJitInfo_Names ename)
-{
-    CLRApiCallLeave(ename);
-}
-
-#endif // MEASURE_CLRAPI_CALLS
 
 /*****************************************************************************/
 bool Compiler::fgExcludeFromSsa(unsigned lclNum)
@@ -4626,6 +4570,7 @@ inline void BasicBlock::InitVarSets(Compiler* comp)
 {
     VarSetOps::AssignNoCopy(comp, bbVarUse, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbVarDef, VarSetOps::MakeEmpty(comp));
+    VarSetOps::AssignNoCopy(comp, bbVarTmp, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbLiveIn, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbLiveOut, VarSetOps::MakeEmpty(comp));
     VarSetOps::AssignNoCopy(comp, bbScope, VarSetOps::MakeEmpty(comp));
@@ -4755,6 +4700,13 @@ inline bool BasicBlock::endsWithTailCallConvertibleToLoop(Compiler* comp, GenTre
     bool fastTailCallsOnly              = false;
     bool tailCallsConvertibleToLoopOnly = true;
     return endsWithTailCall(comp, fastTailCallsOnly, tailCallsConvertibleToLoopOnly, tailCall);
+}
+
+inline GenTreeBlkOp* Compiler::gtCloneCpObjNode(GenTreeCpObj* source)
+{
+    GenTreeCpObj* result = new (this, GT_COPYOBJ) GenTreeCpObj(source->gtGcPtrCount, source->gtSlots, source->gtGcPtrs);
+    gtBlockOpInit(result, GT_COPYOBJ, source->Dest(), source->Source(), source->ClsTok(), source->IsVolatile());
+    return result;
 }
 
 inline static bool StructHasOverlappingFields(DWORD attribs)

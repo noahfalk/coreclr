@@ -19,8 +19,8 @@ private:
         static const WCHAR VolumeSeparatorChar;
 		#define UNCPATHPREFIX W("\\\\")
 #endif //FEATURE_PAL
-        static const WCHAR DirectorySeparatorChar;
-        static const WCHAR AltDirectorySeparatorChar;
+        static const WCHAR LongFile::DirectorySeparatorChar;
+        static const WCHAR LongFile::AltDirectorySeparatorChar;
 public:
         static BOOL IsExtended(SString & path);
         static BOOL IsUNCExtended(SString & path);

@@ -5,7 +5,8 @@
 
 #include <assert.h>
 #include <stdint.h>
-#include "icushim.h"
+#include <unicode/uchar.h>
+#include <unicode/utf16.h>
 
 /*
 Function:

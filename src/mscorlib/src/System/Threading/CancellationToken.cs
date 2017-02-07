@@ -8,9 +8,9 @@
 #pragma warning disable 0420 // turn off 'a reference to a volatile field will not be treated as volatile' during CAS.
 
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Permissions;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime;
 using System.Runtime.CompilerServices;
@@ -39,6 +39,7 @@ namespace System.Threading
     /// </para>
     /// </remarks>
     [ComVisible(false)]
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     [DebuggerDisplay("IsCancellationRequested = {IsCancellationRequested}")]
     public struct CancellationToken
     {
@@ -166,7 +167,7 @@ namespace System.Threading
         private static void ActionToActionObjShunt(object obj)
         {
             Action action = obj as Action;
-            Debug.Assert(action != null, "Expected an Action here");
+            Contract.Assert(action != null, "Expected an Action here");
             action();
         }
 
@@ -191,7 +192,7 @@ namespace System.Threading
         public CancellationTokenRegistration Register(Action callback)
         {
             if (callback == null)
-                throw new ArgumentNullException(nameof(callback));
+                throw new ArgumentNullException("callback");
             
             return Register(
                 s_ActionToActionObjShunt,
@@ -226,7 +227,7 @@ namespace System.Threading
         public CancellationTokenRegistration Register(Action callback, bool useSynchronizationContext)
         {
             if (callback == null)
-                throw new ArgumentNullException(nameof(callback));
+                throw new ArgumentNullException("callback");
             
             return Register(
                 s_ActionToActionObjShunt,
@@ -259,7 +260,7 @@ namespace System.Threading
         public CancellationTokenRegistration Register(Action<Object> callback, Object state)
         {
             if (callback == null)
-                throw new ArgumentNullException(nameof(callback));
+                throw new ArgumentNullException("callback");
 
             return Register(
                 callback,
@@ -317,13 +318,14 @@ namespace System.Threading
         }
 
         // the real work..
+        [SecuritySafeCritical]
         [MethodImpl(MethodImplOptions.NoInlining)]
         private CancellationTokenRegistration Register(Action<Object> callback, Object state, bool useSynchronizationContext, bool useExecutionContext)
         {
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
 
             if (callback == null)
-                throw new ArgumentNullException(nameof(callback));
+                throw new ArgumentNullException("callback");
 
             if (CanBeCanceled == false)
             {

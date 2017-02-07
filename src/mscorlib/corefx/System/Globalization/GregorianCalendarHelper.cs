@@ -148,7 +148,7 @@ namespace System.Globalization
         {
             if (year < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedNonNegNum);
             }
             Contract.EndContractBlock();
@@ -165,7 +165,7 @@ namespace System.Globalization
                     if (year < m_EraInfo[i].minEraYear || year > m_EraInfo[i].maxEraYear)
                     {
                         throw new ArgumentOutOfRangeException(
-                                    nameof(year),
+                                    "year",
                                     String.Format(
                                         CultureInfo.CurrentCulture,
                                         SR.ArgumentOutOfRange_Range,
@@ -175,7 +175,7 @@ namespace System.Globalization
                     return (m_EraInfo[i].yearOffset + year);
                 }
             }
-            throw new ArgumentOutOfRangeException(nameof(era), SR.ArgumentOutOfRange_InvalidEraValue);
+            throw new ArgumentOutOfRangeException("era", SR.ArgumentOutOfRange_InvalidEraValue);
         }
 
         internal bool IsValidYear(int year, int era)
@@ -248,7 +248,7 @@ namespace System.Globalization
             int[] days = leapYear ? DaysToMonth366 : DaysToMonth365;
             // All months have less than 32 days, so n >> 5 is a good conservative
             // estimate for the month
-            int m = (n >> 5) + 1;
+            int m = n >> 5 + 1;
             // m = 1-based month number
             while (n >= days[m]) m++;
             // If month was requested, return it
@@ -308,7 +308,7 @@ namespace System.Globalization
                 if (millisecond < 0 || millisecond >= MillisPerSecond)
                 {
                     throw new ArgumentOutOfRangeException(
-                                nameof(millisecond),
+                                "millisecond",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     SR.ArgumentOutOfRange_Range,
@@ -358,7 +358,7 @@ namespace System.Globalization
             if (months < -120000 || months > 120000)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(months),
+                            "months",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
@@ -446,7 +446,7 @@ namespace System.Globalization
             year = GetGregorianYear(year, era);
             if (month < 1 || month > 12)
             {
-                throw new ArgumentOutOfRangeException(nameof(month), SR.ArgumentOutOfRange_Month);
+                throw new ArgumentOutOfRangeException("month", SR.ArgumentOutOfRange_Month);
             }
             int[] days = ((year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) ? DaysToMonth366 : DaysToMonth365);
             return (days[month] - days[month - 1]);
@@ -476,7 +476,7 @@ namespace System.Globalization
                     return (m_EraInfo[i].era);
                 }
             }
-            throw new ArgumentOutOfRangeException(nameof(time), SR.ArgumentOutOfRange_Era);
+            throw new ArgumentOutOfRangeException("time", SR.ArgumentOutOfRange_Era);
         }
 
 
@@ -536,12 +536,12 @@ namespace System.Globalization
             long ticks = time.Ticks;
             for (int i = 0; i < m_EraInfo.Length; i++)
             {
-                // while calculating dates with JapaneseLuniSolarCalendar, we can run into cases right after the start of the era
-                // and still belong to the month which is started in previous era. Calculating equivalent calendar date will cause
-                // using the new era info which will have the year offset equal to the year we are calculating year = m_EraInfo[i].yearOffset
+                // while calculating dates with JapaneseLuniSolarCalendar, we can run into cases right after the start of the era  
+                // and still belong to the month which is started in previous era. Calculating equivalent calendar date will cause  
+                // using the new era info which will have the year offset equal to the year we are calculating year = m_EraInfo[i].yearOffset  
                 // which will end up with zero as calendar year.
                 // We should use the previous era info instead to get the right year number. Example of such date is Feb 2nd 1989
-                if (ticks >= m_EraInfo[i].ticks && year > m_EraInfo[i].yearOffset)
+                if (ticks >= m_EraInfo[i].ticks && year > m_EraInfo[i].yearOffset)                
                 {
                     return (year - m_EraInfo[i].yearOffset);
                 }
@@ -558,7 +558,7 @@ namespace System.Globalization
             if (day < 1 || day > GetDaysInMonth(year, month, era))
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(day),
+                            "day",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
@@ -598,7 +598,7 @@ namespace System.Globalization
             if (month < 1 || month > 12)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(month),
+                            "month",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range,
@@ -640,7 +640,7 @@ namespace System.Globalization
         {
             if (year < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     SR.ArgumentOutOfRange_NeedPosNum);
             }
             Contract.EndContractBlock();
@@ -654,7 +654,7 @@ namespace System.Globalization
             if (year < m_minYear || year > m_maxYear)
             {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 SR.ArgumentOutOfRange_Range, m_minYear, m_maxYear));

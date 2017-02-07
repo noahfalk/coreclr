@@ -19,6 +19,9 @@ namespace System.Reflection
     [Serializable]
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_EventInfo))]
+#pragma warning disable 618
+    [PermissionSetAttribute(SecurityAction.InheritanceDemand, Name = "FullTrust")]
+#pragma warning restore 618
     [System.Runtime.InteropServices.ComVisible(true)]
     public abstract class EventInfo : MemberInfo, _EventInfo
     {
@@ -120,7 +123,7 @@ namespace System.Reflection
                 throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_NotSupportedOnWinRTEvent"));
 
             // Must be a normal non-WinRT event
-            Debug.Assert(addMethod.ReturnType == typeof(void));
+            Contract.Assert(addMethod.ReturnType == typeof(void));
 #endif // FEATURE_COMINTEROP
 
             addMethod.Invoke(target, new object[] { handler });
@@ -137,13 +140,13 @@ namespace System.Reflection
 
 #if FEATURE_COMINTEROP
             ParameterInfo[] parameters = removeMethod.GetParametersNoCopy();
-            Debug.Assert(parameters != null && parameters.Length == 1);
+            Contract.Assert(parameters != null && parameters.Length == 1);
 
             if (parameters[0].ParameterType == typeof(System.Runtime.InteropServices.WindowsRuntime.EventRegistrationToken))
                 throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_NotSupportedOnWinRTEvent"));
 
             // Must be a normal non-WinRT event
-            Debug.Assert(parameters[0].ParameterType.BaseType == typeof(MulticastDelegate));
+            Contract.Assert(parameters[0].ParameterType.BaseType == typeof(MulticastDelegate));
 #endif // FEATURE_COMINTEROP
 
             removeMethod.Invoke(target, new object[] { handler });
@@ -187,6 +190,35 @@ namespace System.Reflection
             }
         }
         #endregion
+
+#if !FEATURE_CORECLR
+        Type _EventInfo.GetType()
+        {
+            return base.GetType();
+        }
+
+        void _EventInfo.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _EventInfo.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _EventInfo.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        // If you implement this method, make sure to include _EventInfo.Invoke in VM\DangerousAPIs.h and 
+        // include _EventInfo in SystemDomain::IsReflectionInvocationMethod in AppDomain.cpp.
+        void _EventInfo.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
     }
 
     [Serializable]
@@ -196,6 +228,7 @@ namespace System.Reflection
         private int m_token;
         private EventAttributes m_flags;
         private string m_name;
+        [System.Security.SecurityCritical]
         private void* m_utf8name;
         private RuntimeTypeCache m_reflectedTypeCache;
         private RuntimeMethodInfo m_addMethod;
@@ -211,11 +244,12 @@ namespace System.Reflection
         {
             // Used for dummy head node during population
         }
+        [System.Security.SecurityCritical]  // auto-generated
         internal RuntimeEventInfo(int tkEvent, RuntimeType declaredType, RuntimeTypeCache reflectedTypeCache, out bool isPrivate)
         {
             Contract.Requires(declaredType != null);
             Contract.Requires(reflectedTypeCache != null);
-            Debug.Assert(!reflectedTypeCache.IsGlobal);
+            Contract.Assert(!reflectedTypeCache.IsGlobal);
 
             MetadataImport scope = declaredType.GetRuntimeModule().MetadataImport;
 
@@ -271,27 +305,28 @@ namespace System.Reflection
         public override Object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsDefined(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.IsDefined(this, attributeRuntimeType);
         }
@@ -306,6 +341,7 @@ namespace System.Reflection
         public override MemberTypes MemberType { get { return MemberTypes.Event; } }
         public override String Name 
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get 
             {
                 if (m_name == null)
@@ -337,10 +373,11 @@ namespace System.Reflection
         #endregion
 
         #region ISerializable
+        [System.Security.SecurityCritical]  // auto-generated_required
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             MemberInfoSerializationHolder.GetSerializationInfo(

@@ -88,6 +88,9 @@ struct ThrowCallbackType
     MethodDesc * pProfilerNotify;   // Context for profiler callbacks -- see COMPlusFrameHandler().
     BOOL    bReplaceStack;  // Used to pass info to SaveStackTrace call
     BOOL    bSkipLastElement;// Used to pass info to SaveStackTrace call
+    HANDLE hCallerToken;
+    HANDLE hImpersonationToken;
+    BOOL bImpersonationTokenSet;
 #ifdef _DEBUG
     void * pCurrentExceptionRecord;
     void * pPrevExceptionRecord;
@@ -111,6 +114,10 @@ struct ThrowCallbackType
         pProfilerNotify = NULL;
         bReplaceStack = FALSE;
         bSkipLastElement = FALSE;
+        hCallerToken = NULL;
+        hImpersonationToken = NULL;
+        bImpersonationTokenSet = FALSE;
+        
 #ifdef _DEBUG
         pCurrentExceptionRecord = 0;
         pPrevExceptionRecord = 0;
@@ -415,11 +422,10 @@ VOID DECLSPEC_NORETURN RealCOMPlusThrowInvalidCastException(TypeHandle thCastFro
 VOID DECLSPEC_NORETURN RealCOMPlusThrowInvalidCastException(OBJECTREF *pObj, TypeHandle thCastTo);
 
 
-#ifndef WIN64EXCEPTIONS
-
 #include "eexcp.h"
 #include "exinfo.h"
 
+#ifdef _TARGET_X86_
 struct FrameHandlerExRecord
 {
     EXCEPTION_REGISTRATION_RECORD   m_ExReg;
@@ -454,7 +460,7 @@ struct NestedHandlerExRecord : public FrameHandlerExRecord
     }
 };
 
-#endif // !WIN64EXCEPTIONS
+#endif // _TARGET_X86_
 
 #if defined(ENABLE_CONTRACTS_IMPL)
 
@@ -520,6 +526,10 @@ extern "C" BOOL ExceptionIsOfRightType(TypeHandle clauseType, TypeHandle thrownT
 // The stuff below is what works "behind the scenes" of the public macros.
 //==========================================================================
 
+#ifdef _TARGET_X86_
+LPVOID COMPlusEndCatchWorker(Thread *pCurThread);
+EXTERN_C LPVOID STDCALL COMPlusEndCatch(LPVOID ebp, DWORD ebx, DWORD edi, DWORD esi, LPVOID* pRetAddress);
+#endif
 
 // Specify NULL for uTryCatchResumeAddress when not checking for a InducedThreadRedirectAtEndOfCatch
 EXTERN_C LPVOID COMPlusCheckForAbort(UINT_PTR uTryCatchResumeAddress = NULL);
@@ -942,9 +952,9 @@ public:
 
 #ifndef DACCESS_COMPILE
 
-#ifndef WIN64EXCEPTIONS
+#if defined(_TARGET_X86_)
 void ResetThreadAbortState(PTR_Thread pThread, void *pEstablisherFrame);
-#else
+#elif defined(WIN64EXCEPTIONS)
 void ResetThreadAbortState(PTR_Thread pThread, CrawlFrame *pCf, StackFrame sfCurrentStackFrame);
 #endif
 

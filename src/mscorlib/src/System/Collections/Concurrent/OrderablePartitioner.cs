@@ -61,6 +61,7 @@ namespace System.Collections.Concurrent
     /// </ol>
     /// </para>
     /// </remarks>
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     public abstract class OrderablePartitioner<TSource> : Partitioner<TSource>
     {
         /// <summary>

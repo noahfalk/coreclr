@@ -27,7 +27,7 @@ namespace System.Resources {
         public SatelliteContractVersionAttribute(String version)
         {
             if (version == null)
-                throw new ArgumentNullException(nameof(version));
+                throw new ArgumentNullException("version");
             Contract.EndContractBlock();
             _version = version;
         }

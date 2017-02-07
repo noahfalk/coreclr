@@ -15,12 +15,6 @@
 
 #include "gcenv.h"
 
-#ifdef Sleep // TODO(segilles)
-#undef Sleep
-#endif // Sleep
-
-#include "env/gcenv.os.h"
-
 #include "handletablepriv.h"
 
 /****************************************************************************

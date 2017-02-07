@@ -69,7 +69,9 @@ public:
 
     ExceptionTracker() :
         m_pThread(NULL),
-        m_hThrowable(NULL)
+        m_hThrowable(NULL),
+        m_hCallerToken(NULL),
+        m_hImpersonationToken(NULL)
     {
 #ifndef DACCESS_COMPILE
         m_StackTraceInfo.Init();
@@ -123,7 +125,9 @@ public:
 // these members were added for resume frame processing
         m_pClauseForCatchToken(NULL),
 // end resume frame members
-        m_ExceptionCode(pExceptionRecord->ExceptionCode)
+        m_ExceptionCode(pExceptionRecord->ExceptionCode),
+        m_hCallerToken(NULL),
+        m_hImpersonationToken(NULL)
     {
         m_ptrs.ExceptionRecord  = pExceptionRecord;
         m_ptrs.ContextRecord    = pContextRecord;
@@ -745,6 +749,10 @@ private: ;
     DWORD                   m_ExceptionCode;
 
     PTR_Frame               m_pLimitFrame;
+    
+    // Thread Security State
+    HANDLE                  m_hCallerToken;
+    HANDLE                  m_hImpersonationToken;
 
 #ifdef DEBUGGING_SUPPORTED
     //

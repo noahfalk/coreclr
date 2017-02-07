@@ -26,23 +26,19 @@ public:
     void PrepareForDecomposition();
     void DecomposeBlock(BasicBlock* block);
 
-    static void DecomposeRange(Compiler* compiler, unsigned blockWeight, LIR::Range& range);
-
 private:
-    inline LIR::Range& Range() const
+    inline LIR::Range& BlockRange() const
     {
-        return *m_range;
+        return LIR::AsRange(m_block);
     }
 
     // Driver functions
-    void     DecomposeRangeHelper();
-    GenTree* DecomposeNode(GenTree* tree);
+    GenTree* DecomposeNode(LIR::Use& use);
 
     // Per-node type decompose cases
     GenTree* DecomposeLclVar(LIR::Use& use);
     GenTree* DecomposeLclFld(LIR::Use& use);
     GenTree* DecomposeStoreLclVar(LIR::Use& use);
-    GenTree* DecomposeStoreLclFld(LIR::Use& use);
     GenTree* DecomposeCast(LIR::Use& use);
     GenTree* DecomposeCnsLng(LIR::Use& use);
     GenTree* DecomposeCall(LIR::Use& use);
@@ -51,23 +47,16 @@ private:
     GenTree* DecomposeNot(LIR::Use& use);
     GenTree* DecomposeNeg(LIR::Use& use);
     GenTree* DecomposeArith(LIR::Use& use);
-    GenTree* DecomposeShift(LIR::Use& use);
-    GenTree* DecomposeRotate(LIR::Use& use);
-    GenTree* DecomposeMul(LIR::Use& use);
-    GenTree* DecomposeUMod(LIR::Use& use);
 
     // Helper functions
-    GenTree* FinalizeDecomposition(LIR::Use& use, GenTree* loResult, GenTree* hiResult, GenTree* insertResultAfter);
-    GenTree* RepresentOpAsLocalVar(GenTree* op, GenTree* user, GenTree** edge);
+    GenTree* FinalizeDecomposition(LIR::Use& use, GenTree* loResult, GenTree* hiResult);
 
-    GenTree* StoreNodeToVar(LIR::Use& use);
     static genTreeOps GetHiOper(genTreeOps oper);
     static genTreeOps GetLoOper(genTreeOps oper);
 
     // Data
     Compiler*   m_compiler;
-    unsigned    m_blockWeight;
-    LIR::Range* m_range;
+    BasicBlock* m_block;
 };
 
 #endif // _DECOMPOSELONGS_H_

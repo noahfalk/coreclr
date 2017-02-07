@@ -17,7 +17,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "compiler.h"
 #include "phase.h"
 #include "lsra.h"
-#include "sideeffects.h"
 
 class Lowering : public Phase
 {
@@ -65,7 +64,6 @@ private:
     // Call Lowering
     // ------------------------------
     void LowerCall(GenTree* call);
-    void LowerCompare(GenTree* tree);
     void LowerJmpMethod(GenTree* jmp);
     void LowerRet(GenTree* ret);
     GenTree* LowerDelegateInvoke(GenTreeCall* call);
@@ -128,13 +126,7 @@ private:
     // return true if this call target is within range of a pc-rel call on the machine
     bool IsCallTargetInRange(void* addr);
 
-#ifdef _TARGET_X86_
-    bool ExcludeNonByteableRegisters(GenTree* tree);
-#endif
-
     void TreeNodeInfoInit(GenTree* stmt);
-
-    void TreeNodeInfoInitCheckByteable(GenTree* tree);
 
 #if defined(_TARGET_XARCH_)
     void TreeNodeInfoInitSimple(GenTree* tree);
@@ -197,9 +189,7 @@ private:
     void TreeNodeInfoInitReturn(GenTree* tree);
     void TreeNodeInfoInitShiftRotate(GenTree* tree);
     void TreeNodeInfoInitCall(GenTreeCall* call);
-    void TreeNodeInfoInitCmp(GenTreePtr tree);
-    void TreeNodeInfoInitStructArg(GenTreePtr structArg);
-    void TreeNodeInfoInitBlockStore(GenTreeBlk* blkNode);
+    void TreeNodeInfoInitBlockStore(GenTreeBlkOp* blkNode);
     void TreeNodeInfoInitLogicalOp(GenTree* tree);
     void TreeNodeInfoInitModDiv(GenTree* tree);
     void TreeNodeInfoInitIntrinsic(GenTree* tree);
@@ -208,14 +198,11 @@ private:
 #endif // FEATURE_SIMD
     void TreeNodeInfoInitCast(GenTree* tree);
 #ifdef _TARGET_ARM64_
-    void TreeNodeInfoInitPutArgStk(GenTreePutArgStk* argNode, fgArgTabEntryPtr info);
+    void TreeNodeInfoInitPutArgStk(GenTree* argNode, fgArgTabEntryPtr info);
 #endif // _TARGET_ARM64_
-#ifdef _TARGET_ARM_
-    void TreeNodeInfoInitPutArgStk(GenTreePutArgStk* argNode, fgArgTabEntryPtr info);
-#endif // _TARGET_ARM64_
-#ifdef FEATURE_PUT_STRUCT_ARG_STK
-    void TreeNodeInfoInitPutArgStk(GenTreePutArgStk* tree);
-#endif // FEATURE_PUT_STRUCT_ARG_STK
+#ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
+    void TreeNodeInfoInitPutArgStk(GenTree* tree);
+#endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
     void TreeNodeInfoInitLclHeap(GenTree* tree);
 
     void DumpNodeInfoMap();
@@ -225,7 +212,6 @@ private:
     GenTree* LowerAdd(GenTree* node);
     void LowerUnsignedDivOrMod(GenTree* node);
     GenTree* LowerSignedDivOrMod(GenTree* node);
-    void LowerBlockStore(GenTreeBlk* blkNode);
 
     GenTree* TryCreateAddrMode(LIR::Use&& use, bool isIndir);
     void AddrModeCleanupHelper(GenTreeAddrMode* addrMode, GenTree* node);
@@ -235,11 +221,11 @@ private:
 
 #if defined(_TARGET_XARCH_)
     void SetMulOpCounts(GenTreePtr tree);
-    void SetContainsAVXFlags(bool isFloatingPointType = true, unsigned sizeOfSIMDVector = 0);
 #endif // defined(_TARGET_XARCH_)
 
+    void LowerCmp(GenTreePtr tree);
+
 #if !CPU_LOAD_STORE_ARCH
-    bool IsRMWIndirCandidate(GenTree* operand, GenTree* storeInd);
     bool IsBinOpInRMWStoreInd(GenTreePtr tree);
     bool IsRMWMemOpRootedAtStoreInd(GenTreePtr storeIndTree, GenTreePtr* indirCandidate, GenTreePtr* indirOpSource);
     bool SetStoreIndOpCountsIfRMWMemOp(GenTreePtr storeInd);
@@ -259,7 +245,7 @@ public:
 private:
     static bool NodesAreEquivalentLeaves(GenTreePtr candidate, GenTreePtr storeInd);
 
-    bool AreSourcesPossiblyModifiedLocals(GenTree* addr, GenTree* base, GenTree* index);
+    bool AreSourcesPossiblyModified(GenTree* addr, GenTree* base, GenTree* index);
 
     // return true if 'childNode' is an immediate that can be contained
     //  by the 'parentNode' (i.e. folded into an instruction)
@@ -281,10 +267,9 @@ private:
         return LIR::AsRange(m_block);
     }
 
-    LinearScan*   m_lsra;
-    unsigned      vtableCallTemp;       // local variable we use as a temp for vtable calls
-    SideEffectSet m_scratchSideEffects; // SideEffectSet used for IsSafeToContainMem and isRMWIndirCandidate
-    BasicBlock*   m_block;
+    LinearScan* m_lsra;
+    unsigned    vtableCallTemp; // local variable we use as a temp for vtable calls
+    BasicBlock* m_block;
 };
 
 #endif // _LOWER_H_

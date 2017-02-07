@@ -10,6 +10,7 @@ namespace System.Reflection
 
     internal static class MdConstant
     {
+        [System.Security.SecurityCritical]  // auto-generated
         public static unsafe Object GetValue(MetadataImport scope, int token, RuntimeTypeHandle fieldTypeHandle, bool raw)
         {
             CorElementType corElementType = 0;

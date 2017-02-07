@@ -60,8 +60,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchF
-{
 public class LLoops
 {
 #if DEBUG
@@ -649,5 +647,4 @@ public class LLoops
         bool result = lloops.TestBase();
         return (result ? 100 : -1);
     }
-}
 }

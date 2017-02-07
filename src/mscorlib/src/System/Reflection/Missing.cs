@@ -24,10 +24,11 @@ namespace System.Reflection
         #endregion
 
         #region ISerializable
+        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             UnitySerializationHolder.GetUnitySerializationInfo(info, this);

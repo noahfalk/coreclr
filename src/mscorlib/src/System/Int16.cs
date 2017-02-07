@@ -71,11 +71,13 @@ namespace System {
         }
     
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override String ToString() {
             Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatInt32(m_value, null, NumberFormatInfo.CurrentInfo);
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public String ToString(IFormatProvider provider) {
             Contract.Ensures(Contract.Result<String>() != null);
             return Number.FormatInt32(m_value, null, NumberFormatInfo.GetInstance(provider));
@@ -91,6 +93,7 @@ namespace System {
             return ToString(format, NumberFormatInfo.GetInstance(provider));
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         private String ToString(String format, NumberFormatInfo info) {
             Contract.Ensures(Contract.Result<String>() != null);
 

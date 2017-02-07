@@ -234,22 +234,23 @@ public:
 class ZapDebugDirectory : public ZapNode
 {
     ZapNode * m_pNGenPdbDebugData;
-    DWORD m_nDebugDirectory;
-    IMAGE_DEBUG_DIRECTORY * m_pDebugDirectory;
-    ZapNode ** m_ppDebugData;
+    IMAGE_DEBUG_DIRECTORY m_debugDirectory;
+    ZapNode * m_pDebugData;
 
 public:
-    ZapDebugDirectory(ZapNode *pNGenPdbDebugData, DWORD nDebugDirectory, PIMAGE_DEBUG_DIRECTORY pDebugDirectory, ZapNode ** ppDebugData)
+    ZapDebugDirectory(ZapNode *pNGenPdbDebugData, PIMAGE_DEBUG_DIRECTORY pDebugDirectory, ZapNode * pDebugData)
         : m_pNGenPdbDebugData(pNGenPdbDebugData),
-          m_nDebugDirectory(nDebugDirectory),
-          m_pDebugDirectory(pDebugDirectory),
-          m_ppDebugData(ppDebugData)
+          m_pDebugData(pDebugData)
     {
+        if (pDebugDirectory == NULL)
+            memset(&m_debugDirectory, 0, sizeof(IMAGE_DEBUG_DIRECTORY));
+        else
+            memcpy(&m_debugDirectory, pDebugDirectory, sizeof(IMAGE_DEBUG_DIRECTORY));
     }
 
     virtual DWORD GetSize()
     {
-        return sizeof(IMAGE_DEBUG_DIRECTORY) * (m_nDebugDirectory + 1);
+        return m_pDebugData ? sizeof(IMAGE_DEBUG_DIRECTORY) * 2 : sizeof(IMAGE_DEBUG_DIRECTORY);
     }
 
     virtual UINT GetAlignment()
@@ -265,23 +266,6 @@ public:
     void SaveOriginalDebugDirectoryEntry(ZapWriter *pZapWriter);
     void SaveNGenDebugDirectoryEntry(ZapWriter *pZapWriter);
     virtual void Save(ZapWriter * pZapWriter);
-};
-
-//
-// PE Style exports.  Currently can only save an empty list of exports
-// but this is useful because it avoids the DLL being seen as Resource Only
-// (which then causes SymServer to avoid copying its PDB to the cloud).  
-//
-
-class ZapPEExports : public ZapNode
-{
-	LPCWSTR m_dllFileName;	// Just he DLL name without the path.
-
-public:
-	ZapPEExports(LPCWSTR dllPath);
-	virtual DWORD GetSize();
-	virtual UINT GetAlignment() { return sizeof(DWORD);  }
-	virtual void Save(ZapWriter * pZapWriter);
 };
 
 //

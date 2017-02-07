@@ -6738,11 +6738,13 @@ void emitter::emitIns_Call(EmitCallType          callType,
     assert(argSize % REGSIZE_BYTES == 0);
     argCnt = (int)(argSize / (int)sizeof(void*));
 
+#ifdef DEBUGGING_SUPPORT
     /* Managed RetVal: emit sequence point for the call */
     if (emitComp->opts.compDbgInfo && ilOffset != BAD_IL_OFFSET)
     {
         codeGen->genIPmappingAdd(ilOffset, false);
     }
+#endif
 
     /*
         We need to allocate the appropriate instruction descriptor based
@@ -10892,6 +10894,7 @@ void emitter::emitInsLoadStoreOp(instruction ins, emitAttr attr, regNumber dataR
     }
     else // addr is not contained, so we evaluate it into a register
     {
+        codeGen->genConsumeReg(addr);
         // Then load/store dataReg from/to [addrReg]
         emitIns_R_R(ins, ldstAttr, dataReg, addr->gtRegNum);
     }

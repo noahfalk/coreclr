@@ -1091,11 +1091,11 @@ inline BOOL IsInvariantCasing(__in LPCWSTR lpLocaleName, __in DWORD dwMapFlags)
         int retVal = 0;
 
 #if !defined(ENABLE_DOWNLEVEL_FOR_NLS)
-        retVal = ::LCIDToLocaleName(Locale, lpName, cchName, dwFlags | LOCALE_ALLOW_NEUTRAL_NAMES);
+        retVal = ::LCIDToLocaleName(Locale, lpName, cchName, dwFlags);
 #else
 
 #ifdef FEATURE_CORECLR
-        retVal = DownLevel::LCIDToLocaleName(Locale, lpName,cchName,dwFlags | LOCALE_ALLOW_NEUTRAL_NAMES);
+        retVal = DownLevel::LCIDToLocaleName(Locale, lpName,cchName,dwFlags);
 #endif // FEATURE_CORECLR
 
         typedef int (WINAPI *PFNLCIDToLocaleName)(LCID, LPWSTR,int ,DWORD);
@@ -1136,10 +1136,10 @@ inline BOOL IsInvariantCasing(__in LPCWSTR lpLocaleName, __in DWORD dwMapFlags)
         LCID retVal = 0;
 
 #if !defined(ENABLE_DOWNLEVEL_FOR_NLS)
-        return ::LocaleNameToLCID(lpName, dwFlags | LOCALE_ALLOW_NEUTRAL_NAMES);
+        return ::LocaleNameToLCID(lpName, dwFlags);
 #else
 #ifdef FEATURE_CORECLR
-        retVal = DownLevel::LocaleNameToLCID(lpName, dwFlags | LOCALE_ALLOW_NEUTRAL_NAMES);
+        retVal = DownLevel::LocaleNameToLCID(lpName, dwFlags);
 #endif // FEATURE_CORECLR
 
         typedef int (WINAPI *PFNLocaleNameToLCID)(LPCWSTR,DWORD);

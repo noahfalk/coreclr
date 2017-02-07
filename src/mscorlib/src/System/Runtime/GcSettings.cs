@@ -40,6 +40,7 @@ namespace System.Runtime {
 
         public static GCLatencyMode LatencyMode
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             get 
             {
@@ -47,6 +48,8 @@ namespace System.Runtime {
             }
 
             // We don't want to allow this API when hosted.
+            [System.Security.SecurityCritical]  // auto-generated_required
+            [HostProtection(MayLeakOnAbort = true)]
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             set 
             {
@@ -63,6 +66,7 @@ namespace System.Runtime {
 
         public static GCLargeObjectHeapCompactionMode LargeObjectHeapCompactionMode
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             get 
             {
@@ -70,6 +74,8 @@ namespace System.Runtime {
             }
 
             // We don't want to allow this API when hosted.
+            [System.Security.SecurityCritical]  // auto-generated_required
+            [HostProtection(MayLeakOnAbort = true)]
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
             set 
             {
@@ -86,6 +92,7 @@ namespace System.Runtime {
 
         public static bool IsServerGC 
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return GC.IsServerGC();
             }

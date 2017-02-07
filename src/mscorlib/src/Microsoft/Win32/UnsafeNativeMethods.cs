@@ -16,6 +16,7 @@ namespace Microsoft.Win32 {
     using System.Text;
     using System.Diagnostics.Tracing;
 
+    [System.Security.SecurityCritical]  // auto-generated
     [SuppressUnmanagedCodeSecurityAttribute()]
     internal static class UnsafeNativeMethods {
 
@@ -63,6 +64,7 @@ namespace Microsoft.Win32 {
         internal static extern bool FreeLibrary(IntPtr hModule);
 
 
+        [SecurityCritical]
         [SuppressUnmanagedCodeSecurityAttribute()]
         internal static unsafe class ManifestEtw
         {
@@ -94,6 +96,7 @@ namespace Microsoft.Win32 {
             //
             // Callback
             //
+            [SecurityCritical]
             internal unsafe delegate void EtwEnableCallback(
                 [In] ref Guid sourceId,
                 [In] int isEnabled,
@@ -107,6 +110,7 @@ namespace Microsoft.Win32 {
             //
             // Registration APIs
             //
+            [SecurityCritical]
             [DllImport(Win32Native.ADVAPI32, ExactSpelling = true, EntryPoint = "EventRegister", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
             internal static extern unsafe uint EventRegister(
                         [In] ref Guid providerId,
@@ -116,6 +120,7 @@ namespace Microsoft.Win32 {
                         );
 
             // 
+            [SecurityCritical]
             [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security", "CA2118:ReviewSuppressUnmanagedCodeSecurityUsage")]
             [DllImport(Win32Native.ADVAPI32, ExactSpelling = true, EntryPoint = "EventUnregister", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
             internal static extern uint EventUnregister([In] long registrationHandle);
@@ -124,6 +129,7 @@ namespace Microsoft.Win32 {
             // Writing (Publishing/Logging) APIs
             //
             // 
+            [SecurityCritical]
             [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security", "CA2118:ReviewSuppressUnmanagedCodeSecurityUsage")]
             [DllImport(Win32Native.ADVAPI32, ExactSpelling = true, EntryPoint = "EventWrite", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
             internal static extern unsafe int EventWrite(
@@ -133,6 +139,7 @@ namespace Microsoft.Win32 {
                     [In] EventProvider.EventData* userData
                     );
 
+            [SecurityCritical]
             [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Security", "CA2118:ReviewSuppressUnmanagedCodeSecurityUsage")]
             [DllImport(Win32Native.ADVAPI32, ExactSpelling = true, EntryPoint = "EventWriteString", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
             internal static extern unsafe int EventWriteString(
@@ -263,6 +270,7 @@ namespace Microsoft.Win32 {
 
         }
 #if FEATURE_COMINTEROP
+        [SecurityCritical]
         [DllImport("combase.dll", PreserveSig = true)]
         internal static extern int RoGetActivationFactory(
             [MarshalAs(UnmanagedType.HString)] string activatableClassId,

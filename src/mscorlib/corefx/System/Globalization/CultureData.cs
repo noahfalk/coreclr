@@ -1,24 +1,26 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text;
 using System.Threading;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Diagnostics.Contracts;
 
 namespace System.Globalization
 {
 
 #if INSIDE_CLR
     using StringStringDictionary = Dictionary<string, string>;
-    using StringCultureDataDictionary = Dictionary<string, CultureData>;
-    using LcidToCultureNameDictionary = Dictionary<int, string>;
+    using StringCultureDataDictionary = Dictionary<String, CultureData>;
     using Lock = Object;
 #else
     using StringStringDictionary = LowLevelDictionary<string, string>;
     using StringCultureDataDictionary = LowLevelDictionary<string, CultureData>;
-    using LcidToCultureNameDictionary = LowLevelDictionary<int, string>;
 #endif
 
     //
@@ -54,93 +56,88 @@ namespace System.Globalization
     //
     internal partial class CultureData
     {
-        private const int undef = -1;
+        const int undef = -1;
+        const int LOCALE_CUSTOM_UNSPECIFIED = 0x1000;
+        const int LOCALE_CUSTOM_DEFAULT = 0x0c00;
 
         // Override flag
-        private String _sRealName; // Name you passed in (ie: en-US, en, or de-DE_phoneb)
-        private String _sWindowsName; // Name OS thinks the object is (ie: de-DE_phoneb, or en-US (even if en was passed in))
+        private String sRealName; // Name you passed in (ie: en-US, en, or de-DE_phoneb)
+        private String sWindowsName; // Name OS thinks the object is (ie: de-DE_phoneb, or en-US (even if en was passed in))
 
         // Identity
-        private String _sName; // locale name (ie: en-us, NO sort info, but could be neutral)
-        private String _sParent; // Parent name (which may be a custom locale/culture)
-        private String _sLocalizedDisplayName; // Localized pretty name for this locale
-        private String _sEnglishDisplayName; // English pretty name for this locale
-        private String _sNativeDisplayName; // Native pretty name for this locale
-        private String _sSpecificCulture; // The culture name to be used in CultureInfo.CreateSpecificCulture(), en-US form if neutral, sort name if sort
+        private String sName; // locale name (ie: en-us, NO sort info, but could be neutral)
+        private String sParent; // Parent name (which may be a custom locale/culture)
+        private String sLocalizedDisplayName; // Localized pretty name for this locale
+        private String sEnglishDisplayName; // English pretty name for this locale
+        private String sNativeDisplayName; // Native pretty name for this locale
+        private String sSpecificCulture; // The culture name to be used in CultureInfo.CreateSpecificCulture(), en-US form if neutral, sort name if sort
 
         // Language
-        private String _sISO639Language; // ISO 639 Language Name
-        private String _sISO639Language2; // ISO 639 Language Name
-        private String _sLocalizedLanguage; // Localized name for this language
-        private String _sEnglishLanguage; // English name for this language
-        private String _sNativeLanguage; // Native name of this language
-        private String _sAbbrevLang; // abbreviated language name (Windows Language Name) ex: ENU
-        private string _sConsoleFallbackName; // The culture name for the console fallback UI culture
-        private int    _iInputLanguageHandle=undef;// input language handle
+        private String sISO639Language; // ISO 639 Language Name
+        private String sLocalizedLanguage; // Localized name for this language
+        private String sEnglishLanguage; // English name for this language
+        private String sNativeLanguage; // Native name of this language
 
         // Region
-        private String _sRegionName; // (RegionInfo)
-        private String _sLocalizedCountry; // localized country name
-        private String _sEnglishCountry; // english country name (RegionInfo)
-        private String _sNativeCountry; // native country name
-        private String _sISO3166CountryName; // ISO 3166 (RegionInfo), ie: US
-        private String _sISO3166CountryName2; // 3 char ISO 3166 country name 2 2(RegionInfo) ex: USA (ISO)
-        private int    _iGeoId = undef; // GeoId
+        private String sRegionName; // (RegionInfo)
+        private String sLocalizedCountry; // localized country name
+        private String sEnglishCountry; // english country name (RegionInfo)
+        private String sNativeCountry; // native country name
+        private String sISO3166CountryName; // ISO 3166 (RegionInfo), ie: US
 
         // Numbers
-        private String _sPositiveSign; // (user can override) positive sign
-        private String _sNegativeSign; // (user can override) negative sign
+        private String sPositiveSign; // (user can override) positive sign
+        private String sNegativeSign; // (user can override) negative sign
+        private String[] saNativeDigits; // (user can override) native characters for digits 0-9
         // (nfi populates these 5, don't have to be = undef)
-        private int _iDigits; // (user can override) number of fractional digits
-        private int _iNegativeNumber; // (user can override) negative number format
-        private int[] _waGrouping; // (user can override) grouping of digits
-        private String _sDecimalSeparator; // (user can override) decimal separator
-        private String _sThousandSeparator; // (user can override) thousands separator
-        private String _sNaN; // Not a Number
-        private String _sPositiveInfinity; // + Infinity
-        private String _sNegativeInfinity; // - Infinity
+        private int iDigits; // (user can override) number of fractional digits
+        private int iNegativeNumber; // (user can override) negative number format
+        private int[] waGrouping; // (user can override) grouping of digits
+        private String sDecimalSeparator; // (user can override) decimal separator
+        private String sThousandSeparator; // (user can override) thousands separator
+        private String sNaN; // Not a Number
+        private String sPositiveInfinity; // + Infinity
+        private String sNegativeInfinity; // - Infinity
 
         // Percent
-        private int _iNegativePercent = undef; // Negative Percent (0-3)
-        private int _iPositivePercent = undef; // Positive Percent (0-11)
-        private String _sPercent; // Percent (%) symbol
-        private String _sPerMille; // PerMille symbol
+        private int iNegativePercent = undef; // Negative Percent (0-3)
+        private int iPositivePercent = undef; // Positive Percent (0-11)
+        private String sPercent; // Percent (%) symbol
+        private String sPerMille; // PerMille (‰) symbol
 
         // Currency
-        private String _sCurrency; // (user can override) local monetary symbol
-        private String _sIntlMonetarySymbol; // international monetary symbol (RegionInfo)
-        private String _sEnglishCurrency; // English name for this currency
-        private String _sNativeCurrency; // Native name for this currency
+        private String sCurrency; // (user can override) local monetary symbol
+        private String sIntlMonetarySymbol; // international monetary symbol (RegionInfo)
         // (nfi populates these 4, don't have to be = undef)
-        private int _iCurrencyDigits; // (user can override) # local monetary fractional digits
-        private int _iCurrency; // (user can override) positive currency format
-        private int _iNegativeCurrency; // (user can override) negative currency format
-        private int[] _waMonetaryGrouping; // (user can override) monetary grouping of digits
-        private String _sMonetaryDecimal; // (user can override) monetary decimal separator
-        private String _sMonetaryThousand; // (user can override) monetary thousands separator
+        private int iCurrencyDigits; // (user can override) # local monetary fractional digits
+        private int iCurrency; // (user can override) positive currency format
+        private int iNegativeCurrency; // (user can override) negative currency format
+        private int[] waMonetaryGrouping; // (user can override) monetary grouping of digits
+        private String sMonetaryDecimal; // (user can override) monetary decimal separator
+        private String sMonetaryThousand; // (user can override) monetary thousands separator
 
         // Misc
-        private int _iMeasure = undef; // (user can override) system of measurement 0=metric, 1=US (RegionInfo)
-        private String _sListSeparator; // (user can override) list separator
+        private int iMeasure = undef; // (user can override) system of measurement 0=metric, 1=US (RegionInfo)
+        private String sListSeparator; // (user can override) list separator
 
         // Time
-        private String _sAM1159; // (user can override) AM designator
-        private String _sPM2359; // (user can override) PM designator
-        private String _sTimeSeparator;
-        private volatile String[] _saLongTimes; // (user can override) time format
-        private volatile String[] _saShortTimes; // short time format
-        private volatile String[] _saDurationFormats; // time duration format
+        private String sAM1159; // (user can override) AM designator
+        private String sPM2359; // (user can override) PM designator
+        private String sTimeSeparator;
+        private volatile String[] saLongTimes; // (user can override) time format
+        private volatile String[] saShortTimes; // short time format
+        private volatile String[] saDurationFormats; // time duration format
 
         // Calendar specific data
-        private int _iFirstDayOfWeek = undef; // (user can override) first day of week (gregorian really)
-        private int _iFirstWeekOfYear = undef; // (user can override) first week of year (gregorian really)
-        private volatile CalendarId[] _waCalendars; // all available calendar type(s).  The first one is the default calendar
+        private int iFirstDayOfWeek = undef; // (user can override) first day of week (gregorian really)
+        private int iFirstWeekOfYear = undef; // (user can override) first week of year (gregorian really)
+        private volatile CalendarId[] waCalendars; // all available calendar type(s).  The first one is the default calendar
 
         // Store for specific data about each calendar
-        private CalendarData[] _calendars; // Store for specific calendar data
+        private CalendarData[] calendars; // Store for specific calendar data
 
         // Text information
-        private int _iReadingLayout = undef; // Reading layout data
+        private int iReadingLayout = undef; // Reading layout data
         // 0 - Left to right (eg en-US)
         // 1 - Right to left (eg arabic locales)
         // 2 - Vertical top to bottom with columns to the left and also left to right (ja-JP locales)
@@ -148,14 +145,9 @@ namespace System.Globalization
 
         // CoreCLR depends on this even though its not exposed publicly.
 
-        private int _iDefaultAnsiCodePage = undef; // default ansi code page ID (ACP)
-        private int _iDefaultOemCodePage = undef; // default oem code page ID (OCP or OEM)
-        private int _iDefaultMacCodePage = undef; // default macintosh code page
-        private int _iDefaultEbcdicCodePage = undef; // default EBCDIC code page
-
-        private int _iLanguage; // locale ID (0409) - NO sort information
-        private bool _bUseOverrides; // use user overrides?
-        private bool _bNeutral; // Flags for the culture (ie: neutral or not right now)
+        private int iLanguage; // locale ID (0409) - NO sort information
+        private bool bUseOverrides; // use user overrides?
+        private bool bNeutral; // Flags for the culture (ie: neutral or not right now)
 
 
         // Region Name to Culture Name mapping table
@@ -310,6 +302,7 @@ namespace System.Globalization
         private static volatile StringCultureDataDictionary s_cachedRegions;
         private static volatile StringStringDictionary s_RegionNames;
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal static CultureData GetCultureDataForRegion(String cultureName, bool useUserOverride)
         {
             // First do a shortcut for Invariant
@@ -343,7 +336,7 @@ namespace System.Globalization
             else
             {
                 // Check the hash table
-                lock (s_lock)
+                lock (m_lock)
                 {
                     tempHashTable.TryGetValue(hashName, out retVal);
                 }
@@ -379,7 +372,7 @@ namespace System.Globalization
             if (retVal != null && (retVal.IsNeutralCulture == false))
             {
                 // first add it to the cache
-                lock (s_lock)
+                lock (m_lock)
                 {
                     tempHashTable[hashName] = retVal;
                 }
@@ -399,42 +392,6 @@ namespace System.Globalization
             return retVal;
         }
 
-        // Clear our internal caches
-        internal static void ClearCachedData()
-        {
-            s_cachedCultures = null;
-            s_cachedRegions = null;
-        }
-
-        internal static CultureInfo[] GetCultures(CultureTypes types)
-        {
-            // Disable  warning 618: System.Globalization.CultureTypes.FrameworkCultures' is obsolete
-#pragma warning disable 618
-            // Validate flags
-            if ((int)types <= 0 || ((int)types & (int)~(CultureTypes.NeutralCultures | CultureTypes.SpecificCultures |
-                                                        CultureTypes.InstalledWin32Cultures | CultureTypes.UserCustomCulture |
-                                                        CultureTypes.ReplacementCultures | CultureTypes.WindowsOnlyCultures |
-                                                        CultureTypes.FrameworkCultures)) != 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(types), 
-                              SR.Format(SR.ArgumentOutOfRange_Range, CultureTypes.NeutralCultures, CultureTypes.FrameworkCultures));
-            }
-
-            // We have deprecated CultureTypes.FrameworkCultures.
-            // When this enum is used, we will enumerate Whidbey framework cultures (for compatibility).
-            //
-
-            // We have deprecated CultureTypes.WindowsOnlyCultures.
-            // When this enum is used, we will return an empty array for this enum.
-            if ((types & CultureTypes.WindowsOnlyCultures) != 0)
-            {
-                // Remove the enum as it is an no-op.
-                types &= (~CultureTypes.WindowsOnlyCultures);
-            }
-            
-#pragma warning restore 618
-            return EnumCultures(types);
-        }
 
         /////////////////////////////////////////////////////////////////////////
         // Build our invariant information
@@ -452,97 +409,85 @@ namespace System.Globalization
 
                     // Basics
                     // Note that we override the resources since this IS NOT supposed to change (by definition)
-                    invariant._bUseOverrides = false;
-                    invariant._sRealName = "";                     // Name you passed in (ie: en-US, en, or de-DE_phoneb)
-                    invariant._sWindowsName = "";                     // Name OS thinks the object is (ie: de-DE_phoneb, or en-US (even if en was passed in))
+                    invariant.bUseOverrides = false;
+                    invariant.sRealName = "";                     // Name you passed in (ie: en-US, en, or de-DE_phoneb)
+                    invariant.sWindowsName = "";                     // Name OS thinks the object is (ie: de-DE_phoneb, or en-US (even if en was passed in))
 
                     // Identity
-                    invariant._sName = "";                     // locale name (ie: en-us)
-                    invariant._sParent = "";                     // Parent name (which may be a custom locale/culture)
-                    invariant._bNeutral = false;                   // Flags for the culture (ie: neutral or not right now)
-                    invariant._sEnglishDisplayName = "Invariant Language (Invariant Country)"; // English pretty name for this locale
-                    invariant._sNativeDisplayName = "Invariant Language (Invariant Country)";  // Native pretty name for this locale
-                    invariant._sSpecificCulture = "";                     // The culture name to be used in CultureInfo.CreateSpecificCulture()
+                    invariant.sName = "";                     // locale name (ie: en-us)
+                    invariant.sParent = "";                     // Parent name (which may be a custom locale/culture)
+                    invariant.bNeutral = false;                   // Flags for the culture (ie: neutral or not right now)
+                    invariant.sEnglishDisplayName = "Invariant Language (Invariant Country)"; // English pretty name for this locale
+                    invariant.sNativeDisplayName = "Invariant Language (Invariant Country)";  // Native pretty name for this locale
+                    invariant.sSpecificCulture = "";                     // The culture name to be used in CultureInfo.CreateSpecificCulture()
 
                     // Language
-                    invariant._sISO639Language = "iv";                   // ISO 639 Language Name
-                    invariant._sISO639Language2 = "ivl";                  // 3 char ISO 639 lang name 2
-                    invariant._sLocalizedLanguage = "Invariant Language";   // Display name for this Language
-                    invariant._sEnglishLanguage = "Invariant Language";   // English name for this language
-                    invariant._sNativeLanguage = "Invariant Language";   // Native name of this language
-                    invariant._sAbbrevLang = "IVL";                  // abbreviated language name (Windows Language Name)
-                    invariant._sConsoleFallbackName = "";            // The culture name for the console fallback UI culture
-                    invariant._iInputLanguageHandle = 0x07F;         // input language handle
+                    invariant.sISO639Language = "iv";                   // ISO 639 Language Name
+                    invariant.sLocalizedLanguage = "Invariant Language";   // Display name for this Language
+                    invariant.sEnglishLanguage = "Invariant Language";   // English name for this language
+                    invariant.sNativeLanguage = "Invariant Language";   // Native name of this language
 
                     // Region
-                    invariant._sRegionName = "IV";                    // (RegionInfo)
-                    invariant._sEnglishCountry = "Invariant Country"; // english country name (RegionInfo)
-                    invariant._sNativeCountry = "Invariant Country";  // native country name (Windows Only)
-                    invariant._sISO3166CountryName = "IV";            // (RegionInfo), ie: US
-                    invariant._sISO3166CountryName2 = "ivc";          // 3 char ISO 3166 country name 2 2(RegionInfo)
-                    invariant._iGeoId = 244;                          // GeoId (Windows Only)
+                    invariant.sRegionName = "IV";                   // (RegionInfo)
+                    invariant.sEnglishCountry = "Invariant Country";    // english country name (RegionInfo)
+                    invariant.sNativeCountry = "Invariant Country";    // native country name (Windows Only)
+                    invariant.sISO3166CountryName = "IV";                   // (RegionInfo), ie: US
 
                     // Numbers
-                    invariant._sPositiveSign = "+";                    // positive sign
-                    invariant._sNegativeSign = "-";                    // negative sign
-                    invariant._iDigits = 2;                      // number of fractional digits
-                    invariant._iNegativeNumber = 1;                      // negative number format
-                    invariant._waGrouping = new int[] { 3 };          // grouping of digits
-                    invariant._sDecimalSeparator = ".";                    // decimal separator
-                    invariant._sThousandSeparator = ",";                    // thousands separator
-                    invariant._sNaN = "NaN";                  // Not a Number
-                    invariant._sPositiveInfinity = "Infinity";             // + Infinity
-                    invariant._sNegativeInfinity = "-Infinity";            // - Infinity
+                    invariant.sPositiveSign = "+";                    // positive sign
+                    invariant.sNegativeSign = "-";                    // negative sign
+                    invariant.saNativeDigits = new String[] { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9" }; // native characters for digits 0-9
+                    invariant.iDigits = 2;                      // number of fractional digits
+                    invariant.iNegativeNumber = 1;                      // negative number format
+                    invariant.waGrouping = new int[] { 3 };          // grouping of digits
+                    invariant.sDecimalSeparator = ".";                    // decimal separator
+                    invariant.sThousandSeparator = ",";                    // thousands separator
+                    invariant.sNaN = "NaN";                  // Not a Number
+                    invariant.sPositiveInfinity = "Infinity";             // + Infinity
+                    invariant.sNegativeInfinity = "-Infinity";            // - Infinity
 
                     // Percent
-                    invariant._iNegativePercent = 0;                      // Negative Percent (0-3)
-                    invariant._iPositivePercent = 0;                      // Positive Percent (0-11)
-                    invariant._sPercent = "%";                    // Percent (%) symbol
-                    invariant._sPerMille = "\x2030";               // PerMille symbol
+                    invariant.iNegativePercent = 0;                      // Negative Percent (0-3)
+                    invariant.iPositivePercent = 0;                      // Positive Percent (0-11)
+                    invariant.sPercent = "%";                    // Percent (%) symbol
+                    invariant.sPerMille = "\x2030";               // PerMille(‰) symbol
 
                     // Currency
-                    invariant._sCurrency = "\x00a4";                // local monetary symbol: for international monetary symbol
-                    invariant._sIntlMonetarySymbol = "XDR";                  // international monetary symbol (RegionInfo)
-		            invariant._sEnglishCurrency = "International Monetary Fund"; // English name for this currency (Windows Only)
-		            invariant._sNativeCurrency = "International Monetary Fund"; // Native name for this currency (Windows Only)
-                    invariant._iCurrencyDigits = 2;                      // # local monetary fractional digits
-                    invariant._iCurrency = 0;                      // positive currency format
-                    invariant._iNegativeCurrency = 0;                      // negative currency format
-                    invariant._waMonetaryGrouping = new int[] { 3 };          // monetary grouping of digits
-                    invariant._sMonetaryDecimal = ".";                    // monetary decimal separator
-                    invariant._sMonetaryThousand = ",";                    // monetary thousands separator
+                    invariant.sCurrency = "\x00a4";         // local monetary symbol "¤: for international monetary symbol
+                    invariant.sIntlMonetarySymbol = "XDR";                  // international monetary symbol (RegionInfo)
+                    invariant.iCurrencyDigits = 2;                      // # local monetary fractional digits
+                    invariant.iCurrency = 0;                      // positive currency format
+                    invariant.iNegativeCurrency = 0;                      // negative currency format
+                    invariant.waMonetaryGrouping = new int[] { 3 };          // monetary grouping of digits
+                    invariant.sMonetaryDecimal = ".";                    // monetary decimal separator
+                    invariant.sMonetaryThousand = ",";                    // monetary thousands separator
 
                     // Misc
-                    invariant._iMeasure = 0;                      // system of measurement 0=metric, 1=US (RegionInfo)
-                    invariant._sListSeparator = ",";                    // list separator
+                    invariant.iMeasure = 0;                      // system of measurement 0=metric, 1=US (RegionInfo)
+                    invariant.sListSeparator = ",";                    // list separator
 
                     // Time
-                    invariant._sAM1159 = "AM";                   // AM designator
-                    invariant._sPM2359 = "PM";                   // PM designator
-                    invariant._saLongTimes = new String[] { "HH:mm:ss" };                             // time format
-                    invariant._saShortTimes = new String[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }; // short time format
-                    invariant._saDurationFormats = new String[] { "HH:mm:ss" };                             // time duration format
-
+                    invariant.sAM1159 = "AM";                   // AM designator
+                    invariant.sPM2359 = "PM";                   // PM designator
+                    invariant.saLongTimes = new String[] { "HH:mm:ss" };                             // time format
+                    invariant.saShortTimes = new String[] { "HH:mm", "hh:mm tt", "H:mm", "h:mm tt" }; // short time format
+                    invariant.saDurationFormats = new String[] { "HH:mm:ss" };                             // time duration format
 
                     // Calendar specific data
-                    invariant._iFirstDayOfWeek = 0;                      // first day of week
-                    invariant._iFirstWeekOfYear = 0;                      // first week of year
-                    invariant._waCalendars = new CalendarId[] { CalendarId.GREGORIAN };       // all available calendar type(s).  The first one is the default calendar
+                    invariant.iFirstDayOfWeek = 0;                      // first day of week
+                    invariant.iFirstWeekOfYear = 0;                      // first week of year
+                    invariant.waCalendars = new CalendarId[] { CalendarId.GREGORIAN };       // all available calendar type(s).  The first one is the default calendar
 
                     // Store for specific data about each calendar
-                    invariant._calendars = new CalendarData[CalendarData.MAX_CALENDARS];
-                    invariant._calendars[0] = CalendarData.Invariant;
+                    invariant.calendars = new CalendarData[CalendarData.MAX_CALENDARS];
+                    invariant.calendars[0] = CalendarData.Invariant;
 
                     // Text information
-                    invariant._iReadingLayout = 0;
+                    invariant.iReadingLayout = 0;
 
-                    // These are desktop only, not coreclr
+                    // Language
+                    invariant.iLanguage = 0x007f;                 // locale ID (0409) - NO sort information
 
-                    invariant._iLanguage = CultureInfo.LOCALE_INVARIANT;   // locale ID (0409) - NO sort information
-                    invariant._iDefaultAnsiCodePage = 1252;         // default ansi code page ID (ACP)
-                    invariant._iDefaultOemCodePage = 437;           // default oem code page ID (OCP or OEM)
-                    invariant._iDefaultMacCodePage = 10000;         // default macintosh code page
-                    invariant._iDefaultEbcdicCodePage = 037;        // default EBCDIC code page
                     // Remember it
                     s_Invariant = invariant;
                 }
@@ -556,7 +501,7 @@ namespace System.Globalization
         ///////////////
         // Cache of cultures we've already looked up
         private static volatile StringCultureDataDictionary s_cachedCultures;
-        private static readonly Lock s_lock = new Lock();
+        private static readonly Lock m_lock = new Lock();
 
         internal static CultureData GetCultureData(String cultureName, bool useUserOverride)
         {
@@ -579,7 +524,7 @@ namespace System.Globalization
                 // Check the hash table
                 bool ret;
                 CultureData retVal;
-                lock (s_lock)
+                lock (m_lock)
                 {
                     ret = tempHashTable.TryGetValue(hashName, out retVal);
                 }
@@ -597,7 +542,7 @@ namespace System.Globalization
             }
 
             // Found one, add it to the cache
-            lock (s_lock)
+            lock (m_lock)
             {
                 tempHashTable[hashName] = culture;
             }
@@ -612,8 +557,8 @@ namespace System.Globalization
         private static CultureData CreateCultureData(string cultureName, bool useUserOverride)
         {
             CultureData culture = new CultureData();
-            culture._bUseOverrides = useUserOverride;
-            culture._sRealName = cultureName;
+            culture.bUseOverrides = useUserOverride;
+            culture.sRealName = cultureName;
 
             // Ask native code if that one's real
             if (culture.InitCultureData() == false)
@@ -630,7 +575,7 @@ namespace System.Globalization
         private bool InitCompatibilityCultureData()
         {
             // for compatibility handle the deprecated ids: zh-chs, zh-cht
-            string cultureName = _sRealName;
+            string cultureName = this.sRealName;
 
             string fallbackCultureName;
             string realCultureName;
@@ -648,43 +593,16 @@ namespace System.Globalization
                     return false;
             }
 
-            _sRealName = fallbackCultureName;
+            this.sRealName = fallbackCultureName;
             if (InitCultureData() == false)
             {
                 return false;
             }
             // fixup our data
-            _sName = realCultureName; // the name that goes back to the user
-            _sParent = fallbackCultureName;
+            this.sName = realCultureName; // the name that goes back to the user
+            this.sParent = fallbackCultureName;
 
             return true;
-        }
-
-        // We'd rather people use the named version since this doesn't allow custom locales
-        internal static CultureData GetCultureData(int culture, bool bUseUserOverride)
-        {
-            string localeName = null;
-            CultureData retVal = null;
-
-            if (culture == CultureInfo.LOCALE_INVARIANT)
-                return Invariant;
-
-            // Convert the lcid to a name, then use that
-            // Note that this'll return neutral names (unlike Vista native API)
-            localeName = LCIDToLocaleName(culture);
-
-            if (!String.IsNullOrEmpty(localeName))
-            {
-                // Valid name, use it
-                retVal = GetCultureData(localeName, bUseUserOverride);
-            }
-
-            // If not successful, throw
-            if (retVal == null)
-                throw new CultureNotFoundException(nameof(culture), culture, SR.Argument_CultureNotSupported);
-
-            // Return the one we found
-            return retVal;
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -704,17 +622,17 @@ namespace System.Globalization
         {
             get
             {
-                Debug.Assert(_sRealName != null, "[CultureData.CultureName] Expected _sRealName to be populated by already");
+                Contract.Assert(this.sRealName != null, "[CultureData.CultureName] Expected this.sRealName to be populated by already");
                 // since windows doesn't know about zh-CHS and zh-CHT,
                 // we leave sRealName == zh-Hanx but we still need to
                 // pretend that it was zh-CHX.
-                switch (_sName)
+                switch (this.sName)
                 {
                     case "zh-CHS":
                     case "zh-CHT":
-                        return _sName;
+                        return this.sName;
                 }
-                return _sRealName;
+                return this.sRealName;
             }
         }
 
@@ -723,7 +641,7 @@ namespace System.Globalization
         {
             get
             {
-                return _bUseOverrides;
+                return this.bUseOverrides;
             }
         }
 
@@ -732,11 +650,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sName == null)
+                if (this.sName == null)
                 {
-                    _sName = String.Empty;
+                    this.sName = String.Empty;
                 }
-                return _sName;
+                return this.sName;
             }
         }
 
@@ -745,31 +663,32 @@ namespace System.Globalization
         {
             get
             {
-                if (_sParent == null)
+                if (this.sParent == null)
                 {
                     // Ask using the real name, so that we get parents of neutrals
-                    _sParent = GetLocaleInfo(_sRealName, LocaleStringData.ParentName);
+                    this.sParent = GetLocaleInfo(this.sRealName, LocaleStringData.ParentName);
                 }
-                return _sParent;
+                return this.sParent;
             }
         }
 
         // Localized pretty name for this locale (ie: Inglis (estados Unitos))
         internal String SLOCALIZEDDISPLAYNAME
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sLocalizedDisplayName == null)
+                if (this.sLocalizedDisplayName == null)
                 {
                     if (this.IsSupplementalCustomCulture)
                     {
                         if (this.IsNeutralCulture)
                         {
-                            _sLocalizedDisplayName = this.SNATIVELANGUAGE;
+                            this.sLocalizedDisplayName = this.SNATIVELANGUAGE;
                         }
                         else
                         {
-                            _sLocalizedDisplayName = this.SNATIVEDISPLAYNAME;
+                            this.sLocalizedDisplayName = this.SNATIVEDISPLAYNAME;
                         }
                     }
                     else
@@ -781,15 +700,15 @@ namespace System.Globalization
 
                             if (SNAME.Equals(ZH_CHT, StringComparison.OrdinalIgnoreCase))
                             {
-                                _sLocalizedDisplayName = GetLanguageDisplayName("zh-Hant");
+                                this.sLocalizedDisplayName = GetLanguageDisplayName("zh-Hant");
                             }
-                            else if (SNAME.Equals(ZH_CHS, StringComparison.OrdinalIgnoreCase))
+                            else if (SNAME.Equals(ZH_CHS, StringComparison.OrdinalIgnoreCase)) 
                             {
-                                _sLocalizedDisplayName = GetLanguageDisplayName("zh-Hans");
+                                this.sLocalizedDisplayName = GetLanguageDisplayName("zh-Hans");
                             }
                             else
                             {
-                                _sLocalizedDisplayName = GetLanguageDisplayName(SNAME);
+                                this.sLocalizedDisplayName = GetLanguageDisplayName(SNAME);
                             }
                         }
                         catch (Exception)
@@ -798,12 +717,12 @@ namespace System.Globalization
                         }
                     }
                     // If it hasn't been found (Windows 8 and up), fallback to the system
-                    if (String.IsNullOrEmpty(_sLocalizedDisplayName))
+                    if (String.IsNullOrEmpty(this.sLocalizedDisplayName))
                     {
                         // If its neutral use the language name
                         if (this.IsNeutralCulture)
                         {
-                            _sLocalizedDisplayName = this.SLOCALIZEDLANGUAGE;
+                            this.sLocalizedDisplayName = this.SLOCALIZEDLANGUAGE;
                         }
                         else
                         {
@@ -815,46 +734,47 @@ namespace System.Globalization
                                 ((ci = GetUserDefaultCulture()) != null) &&
                                 !CultureInfo.DefaultThreadCurrentUICulture.Name.Equals(ci.Name))
                             {
-                                _sLocalizedDisplayName = this.SNATIVEDISPLAYNAME;
+                                this.sLocalizedDisplayName = this.SNATIVEDISPLAYNAME;
                             }
                             else
                             {
-                                _sLocalizedDisplayName = GetLocaleInfo(LocaleStringData.LocalizedDisplayName);
+                                this.sLocalizedDisplayName = GetLocaleInfo(LocaleStringData.LocalizedDisplayName);
                             }
                         }
                     }
                 }
 
-                return _sLocalizedDisplayName;
+                return this.sLocalizedDisplayName;
             }
         }
 
         // English pretty name for this locale (ie: English (United States))
         internal String SENGDISPLAYNAME
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sEnglishDisplayName == null)
+                if (this.sEnglishDisplayName == null)
                 {
                     // If its neutral use the language name
                     if (this.IsNeutralCulture)
                     {
-                        _sEnglishDisplayName = this.SENGLISHLANGUAGE;
+                        this.sEnglishDisplayName = this.SENGLISHLANGUAGE;
                         // differentiate the legacy display names
-                        switch (_sName)
+                        switch (this.sName)
                         {
                             case "zh-CHS":
                             case "zh-CHT":
-                                _sEnglishDisplayName += " Legacy";
+                                this.sEnglishDisplayName += " Legacy";
                                 break;
                         }
                     }
                     else
                     {
-                        _sEnglishDisplayName = GetLocaleInfo(LocaleStringData.EnglishDisplayName);
+                        this.sEnglishDisplayName = GetLocaleInfo(LocaleStringData.EnglishDisplayName);
 
                         // if it isn't found build one:
-                        if (String.IsNullOrEmpty(_sEnglishDisplayName))
+                        if (String.IsNullOrEmpty(this.sEnglishDisplayName))
                         {
                             // Our existing names mostly look like:
                             // "English" + "United States" -> "English (United States)"
@@ -862,68 +782,58 @@ namespace System.Globalization
                             if (this.SENGLISHLANGUAGE[this.SENGLISHLANGUAGE.Length - 1] == ')')
                             {
                                 // "Azeri (Latin)" + "Azerbaijan" -> "Azeri (Latin, Azerbaijan)"
-                                _sEnglishDisplayName =
-                                    this.SENGLISHLANGUAGE.Substring(0, _sEnglishLanguage.Length - 1) +
+                                this.sEnglishDisplayName =
+                                    this.SENGLISHLANGUAGE.Substring(0, this.sEnglishLanguage.Length - 1) +
                                     ", " + this.SENGCOUNTRY + ")";
                             }
                             else
                             {
                                 // "English" + "United States" -> "English (United States)"
-                                _sEnglishDisplayName = this.SENGLISHLANGUAGE + " (" + this.SENGCOUNTRY + ")";
+                                this.sEnglishDisplayName = this.SENGLISHLANGUAGE + " (" + this.SENGCOUNTRY + ")";
                             }
                         }
                     }
                 }
-                return _sEnglishDisplayName;
+                return this.sEnglishDisplayName;
             }
         }
 
         // Native pretty name for this locale (ie: Deutsch (Deutschland))
         internal String SNATIVEDISPLAYNAME
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sNativeDisplayName == null)
+                if (this.sNativeDisplayName == null)
                 {
                     // If its neutral use the language name
                     if (this.IsNeutralCulture)
                     {
-                        _sNativeDisplayName = this.SNATIVELANGUAGE;
+                        this.sNativeDisplayName = this.SNATIVELANGUAGE;
                         // differentiate the legacy display names
-                        switch (_sName)
+                        switch (this.sName)
                         {
                             case "zh-CHS":
-                                _sNativeDisplayName += " \u65E7\u7248";
+                                this.sNativeDisplayName += " \u65E7\u7248";
                                 break;
                             case "zh-CHT":
-                                _sNativeDisplayName += " \u820A\u7248";
+                                this.sNativeDisplayName += " \u820A\u7248";
                                 break;
                         }
                     }
                     else
                     {
-                        _sNativeDisplayName = GetLocaleInfo(LocaleStringData.NativeDisplayName);
+                        this.sNativeDisplayName = GetLocaleInfo(LocaleStringData.NativeDisplayName);
 
                         // if it isn't found build one:
-                        if (String.IsNullOrEmpty(_sNativeDisplayName))
+                        if (String.IsNullOrEmpty(this.sNativeDisplayName))
                         {
                             // These should primarily be "Deutsch (Deutschland)" type names
-                            _sNativeDisplayName = this.SNATIVELANGUAGE + " (" + this.SNATIVECOUNTRY + ")";
+                            this.sNativeDisplayName = this.SNATIVELANGUAGE + " (" + this.SNATIVECOUNTRY + ")";
                         }
                     }
                 }
-                return _sNativeDisplayName;
-            }
-        }
-
-        // The culture name to be used in CultureInfo.CreateSpecificCulture()
-        internal string SSPECIFICCULTURE
-        {
-            get
-            {
-                // This got populated during the culture initialization
-                Debug.Assert(_sSpecificCulture != null, "[CultureData.SSPECIFICCULTURE] Expected this.sSpecificCulture to be populated by culture data initialization already");
-                return _sSpecificCulture;
+                return this.sNativeDisplayName;
             }
         }
 
@@ -936,37 +846,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sISO639Language == null)
+                if (this.sISO639Language == null)
                 {
-                    _sISO639Language = GetLocaleInfo(LocaleStringData.Iso639LanguageTwoLetterName);
+                    this.sISO639Language = GetLocaleInfo(LocaleStringData.Iso639LanguageName);
                 }
-                return _sISO639Language;
-            }
-        }
-
-        // iso 639 language name, ie: eng
-        internal string SISO639LANGNAME2
-        {
-            get
-            {
-                if (_sISO639Language2 == null)
-                {
-                    _sISO639Language2 = GetLocaleInfo(LocaleStringData.Iso639LanguageThreeLetterName);
-                }
-                return _sISO639Language2;
-            }
-        }
-
-        // abbreviated windows language name (ie: enu) (non-standard, avoid this)
-        internal string SABBREVLANGNAME
-        {
-            get
-            {
-                if (_sAbbrevLang == null)
-                {
-                    _sAbbrevLang = GetThreeLetterWindowsLanguageName(_sRealName);
-                }
-                return _sAbbrevLang;
+                return this.sISO639Language;
             }
         }
 
@@ -974,9 +858,10 @@ namespace System.Globalization
         // This is only valid for Windows 8 and higher neutrals:
         internal String SLOCALIZEDLANGUAGE
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sLocalizedLanguage == null)
+                if (this.sLocalizedLanguage == null)
                 {
                     // Usually the UI culture shouldn't be different than what we got from WinRT except 
                     // if DefaultThreadCurrentUICulture was set
@@ -986,41 +871,43 @@ namespace System.Globalization
                         ((ci = GetUserDefaultCulture()) != null) &&
                         !CultureInfo.DefaultThreadCurrentUICulture.Name.Equals(ci.Name))
                     {
-                        _sLocalizedLanguage = SNATIVELANGUAGE;
+                        this.sLocalizedLanguage = SNATIVELANGUAGE;
                     }
                     else
                     {
-                        _sLocalizedLanguage = GetLocaleInfo(LocaleStringData.LocalizedLanguageName);
+                        this.sLocalizedLanguage = GetLocaleInfo(LocaleStringData.LocalizedLanguageName);
                     }
                 }
 
-                return _sLocalizedLanguage;
+                return this.sLocalizedLanguage;
             }
         }
 
         // English name for this language (Windows Only) ie: German
         internal String SENGLISHLANGUAGE
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sEnglishLanguage == null)
+                if (this.sEnglishLanguage == null)
                 {
-                    _sEnglishLanguage = GetLocaleInfo(LocaleStringData.EnglishLanguageName);
+                    this.sEnglishLanguage = GetLocaleInfo(LocaleStringData.EnglishLanguageName);
                 }
-                return _sEnglishLanguage;
+                return this.sEnglishLanguage;
             }
         }
 
         // Native name of this language (Windows Only) ie: Deutsch
         internal String SNATIVELANGUAGE
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sNativeLanguage == null)
+                if (this.sNativeLanguage == null)
                 {
-                    _sNativeLanguage = GetLocaleInfo(LocaleStringData.NativeLanguageName);
+                    this.sNativeLanguage = GetLocaleInfo(LocaleStringData.NativeLanguageName);
                 }
-                return _sNativeLanguage;
+                return this.sNativeLanguage;
             }
         }
 
@@ -1031,148 +918,108 @@ namespace System.Globalization
         // region name (eg US)
         internal String SREGIONNAME
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sRegionName == null)
+                if (this.sRegionName == null)
                 {
-                    _sRegionName = GetLocaleInfo(LocaleStringData.Iso3166CountryName);
+                    this.sRegionName = GetLocaleInfo(LocaleStringData.Iso3166CountryName);
                 }
-                return _sRegionName;
+                return this.sRegionName;
             }
         }
 
-        internal int IGEOID
-        {
-            get
-            {
-                if (_iGeoId == undef)
-                {
-                    _iGeoId = GetGeoId(_sRealName);
-                }
-                return _iGeoId;
-            }
-        }
 
         // localized name for the country
         internal string SLOCALIZEDCOUNTRY
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sLocalizedCountry == null)
+                if (this.sLocalizedCountry == null)
                 {
                     try
                     {
-                        _sLocalizedCountry = GetRegionDisplayName(SISO3166CTRYNAME);
+                        this.sLocalizedCountry = GetRegionDisplayName(SISO3166CTRYNAME);
                     }
                     catch (Exception)
                     {
                         // do nothing. we'll fallback 
                     }
 
-                    if (_sLocalizedCountry == null)
+                    if (this.sLocalizedCountry == null)
                     {
-                        _sLocalizedCountry = SNATIVECOUNTRY;
+                        this.sLocalizedCountry = SNATIVECOUNTRY;
                     }
                 }
-                return _sLocalizedCountry;
+                return this.sLocalizedCountry;
             }
         }
 
         // english country name (RegionInfo) ie: Germany
         internal String SENGCOUNTRY
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sEnglishCountry == null)
+                if (this.sEnglishCountry == null)
                 {
-                    _sEnglishCountry = GetLocaleInfo(LocaleStringData.EnglishCountryName);
+                    this.sEnglishCountry = GetLocaleInfo(LocaleStringData.EnglishCountryName);
                 }
-                return _sEnglishCountry;
+                return this.sEnglishCountry;
             }
         }
 
         // native country name (RegionInfo) ie: Deutschland
         internal String SNATIVECOUNTRY
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sNativeCountry == null)
+                if (this.sNativeCountry == null)
                 {
-                    _sNativeCountry = GetLocaleInfo(LocaleStringData.NativeCountryName);
+                    this.sNativeCountry = GetLocaleInfo(LocaleStringData.NativeCountryName);
                 }
-                return _sNativeCountry;
+                return this.sNativeCountry;
             }
         }
 
         // ISO 3166 Country Name
         internal String SISO3166CTRYNAME
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sISO3166CountryName == null)
+                if (this.sISO3166CountryName == null)
                 {
-                    _sISO3166CountryName = GetLocaleInfo(LocaleStringData.Iso3166CountryName);
+                    this.sISO3166CountryName = GetLocaleInfo(LocaleStringData.Iso3166CountryName);
                 }
-                return _sISO3166CountryName;
+                return this.sISO3166CountryName;
             }
         }
 
-        // 3 letter ISO 3166 country code
-        internal String SISO3166CTRYNAME2
-        {
-            get
-            {
-                if (_sISO3166CountryName2 == null)
-                {
-                    _sISO3166CountryName2 = GetLocaleInfo(LocaleStringData.Iso3166CountryName2);
-                }
-                return _sISO3166CountryName2;
-            }
-        }
+        /////////////
+        // Numbers //
+        ////////////
 
-        internal int IINPUTLANGUAGEHANDLE
-        {
-            get
-            {
-                if (_iInputLanguageHandle == undef)
-                {
-                    if (IsSupplementalCustomCulture)
-                    {
-                        _iInputLanguageHandle = 0x0409;
-                    }
-                    else
-                    {
-                        // Input Language is same as LCID for built-in cultures
-                        _iInputLanguageHandle = this.ILANGUAGE;
-                    }
-                }
-                return _iInputLanguageHandle;
-            }
-        }
+        //                internal String sPositiveSign            ; // (user can override) positive sign
+        //                internal String sNegativeSign            ; // (user can override) negative sign
+        //                internal String[] saNativeDigits         ; // (user can override) native characters for digits 0-9
+        //                internal int iDigits                  ; // (user can override) number of fractional digits
+        //                internal int iNegativeNumber          ; // (user can override) negative number format
 
-        // Console fallback name (ie: locale to use for console apps for unicode-only locales)
-        internal string SCONSOLEFALLBACKNAME
-        {
-            get
-            {
-                if (_sConsoleFallbackName == null)
-                {
-                    _sConsoleFallbackName = GetConsoleFallbackName(_sRealName);
-                }
-                return _sConsoleFallbackName;
-            }
-        }
+
 
         // (user can override) grouping of digits
         internal int[] WAGROUPING
         {
             get
             {
-                if (_waGrouping == null)
+                if (this.waGrouping == null)
                 {
-                    _waGrouping = GetLocaleInfo(LocaleGroupingData.Digit);
+                    this.waGrouping = GetLocaleInfo(LocaleGroupingData.Digit);
                 }
-                return _waGrouping;
+                return this.waGrouping;
             }
         }
 
@@ -1185,11 +1032,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sNaN == null)
+                if (this.sNaN == null)
                 {
-                    _sNaN = GetLocaleInfo(LocaleStringData.NaNSymbol);
+                    this.sNaN = GetLocaleInfo(LocaleStringData.NaNSymbol);
                 }
-                return _sNaN;
+                return this.sNaN;
             }
         }
 
@@ -1198,11 +1045,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sPositiveInfinity == null)
+                if (this.sPositiveInfinity == null)
                 {
-                    _sPositiveInfinity = GetLocaleInfo(LocaleStringData.PositiveInfinitySymbol);
+                    this.sPositiveInfinity = GetLocaleInfo(LocaleStringData.PositiveInfinitySymbol);
                 }
-                return _sPositiveInfinity;
+                return this.sPositiveInfinity;
             }
         }
 
@@ -1211,11 +1058,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sNegativeInfinity == null)
+                if (this.sNegativeInfinity == null)
                 {
-                    _sNegativeInfinity = GetLocaleInfo(LocaleStringData.NegativeInfinitySymbol);
+                    this.sNegativeInfinity = GetLocaleInfo(LocaleStringData.NegativeInfinitySymbol);
                 }
-                return _sNegativeInfinity;
+                return this.sNegativeInfinity;
             }
         }
 
@@ -1229,12 +1076,12 @@ namespace System.Globalization
         {
             get
             {
-                if (_iNegativePercent == undef)
+                if (this.iNegativePercent == undef)
                 {
                     // Note that <= Windows Vista this is synthesized by native code
-                    _iNegativePercent = GetLocaleInfo(LocaleNumberData.NegativePercentFormat);
+                    this.iNegativePercent = GetLocaleInfo(LocaleNumberData.NegativePercentFormat);
                 }
-                return _iNegativePercent;
+                return this.iNegativePercent;
             }
         }
 
@@ -1243,12 +1090,12 @@ namespace System.Globalization
         {
             get
             {
-                if (_iPositivePercent == undef)
+                if (this.iPositivePercent == undef)
                 {
                     // Note that <= Windows Vista this is synthesized by native code
-                    _iPositivePercent = GetLocaleInfo(LocaleNumberData.PositivePercentFormat);
+                    this.iPositivePercent = GetLocaleInfo(LocaleNumberData.PositivePercentFormat);
                 }
-                return _iPositivePercent;
+                return this.iPositivePercent;
             }
         }
 
@@ -1257,24 +1104,24 @@ namespace System.Globalization
         {
             get
             {
-                if (_sPercent == null)
+                if (this.sPercent == null)
                 {
-                    _sPercent = GetLocaleInfo(LocaleStringData.PercentSymbol);
+                    this.sPercent = GetLocaleInfo(LocaleStringData.PercentSymbol);
                 }
-                return _sPercent;
+                return this.sPercent;
             }
         }
 
-        // PerMille symbol
+        // PerMille (‰) symbol
         internal String SPERMILLE
         {
             get
             {
-                if (_sPerMille == null)
+                if (this.sPerMille == null)
                 {
-                    _sPerMille = GetLocaleInfo(LocaleStringData.PerMilleSymbol);
+                    this.sPerMille = GetLocaleInfo(LocaleStringData.PerMilleSymbol);
                 }
-                return _sPerMille;
+                return this.sPerMille;
             }
         }
 
@@ -1285,52 +1132,28 @@ namespace System.Globalization
         // (user can override) local monetary symbol, eg: $
         internal String SCURRENCY
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sCurrency == null)
+                if (this.sCurrency == null)
                 {
-                    _sCurrency = GetLocaleInfo(LocaleStringData.MonetarySymbol);
+                    this.sCurrency = GetLocaleInfo(LocaleStringData.MonetarySymbol);
                 }
-                return _sCurrency;
+                return this.sCurrency;
             }
         }
 
         // international monetary symbol (RegionInfo), eg: USD
         internal String SINTLSYMBOL
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
-                if (_sIntlMonetarySymbol == null)
+                if (this.sIntlMonetarySymbol == null)
                 {
-                    _sIntlMonetarySymbol = GetLocaleInfo(LocaleStringData.Iso4217MonetarySymbol);
+                    this.sIntlMonetarySymbol = GetLocaleInfo(LocaleStringData.Iso4217MonetarySymbol);
                 }
-                return _sIntlMonetarySymbol;
-            }
-        }
-
-        // English name for this currency (RegionInfo), eg: US Dollar
-        internal String SENGLISHCURRENCY
-        {
-            get
-            {
-                if (_sEnglishCurrency == null)
-                {
-                    _sEnglishCurrency = GetLocaleInfo(LocaleStringData.CurrencyEnglishName);
-                }
-                return _sEnglishCurrency;
-            }
-        }
-
-        // Native name for this currency (RegionInfo), eg: Schweiz Frank
-        internal String SNATIVECURRENCY
-        {
-            get
-            {
-                if (_sNativeCurrency == null)
-                {
-                    _sNativeCurrency = GetLocaleInfo(LocaleStringData.CurrencyNativeName);
-                }
-                return _sNativeCurrency;
+                return this.sIntlMonetarySymbol;
             }
         }
 
@@ -1343,11 +1166,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_waMonetaryGrouping == null)
+                if (this.waMonetaryGrouping == null)
                 {
-                    _waMonetaryGrouping = GetLocaleInfo(LocaleGroupingData.Monetary);
+                    this.waMonetaryGrouping = GetLocaleInfo(LocaleGroupingData.Monetary);
                 }
-                return _waMonetaryGrouping;
+                return this.waMonetaryGrouping;
             }
         }
 
@@ -1356,11 +1179,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_iMeasure == undef)
+                if (this.iMeasure == undef)
                 {
-                    _iMeasure = GetLocaleInfo(LocaleNumberData.MeasurementSystem);
+                    this.iMeasure = GetLocaleInfo(LocaleNumberData.MeasurementSystem);
                 }
-                return _iMeasure;
+                return this.iMeasure;
             }
         }
 
@@ -1369,11 +1192,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sListSeparator == null)
+                if (this.sListSeparator == null)
                 {
-                    _sListSeparator = GetLocaleInfo(LocaleStringData.ListSeparator);
+                    this.sListSeparator = GetLocaleInfo(LocaleStringData.ListSeparator);
                 }
-                return _sListSeparator;
+                return this.sListSeparator;
             }
         }
 
@@ -1387,11 +1210,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sAM1159 == null)
+                if (this.sAM1159 == null)
                 {
-                    _sAM1159 = GetLocaleInfo(LocaleStringData.AMDesignator);
+                    this.sAM1159 = GetLocaleInfo(LocaleStringData.AMDesignator);
                 }
-                return _sAM1159;
+                return this.sAM1159;
             }
         }
 
@@ -1400,11 +1223,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_sPM2359 == null)
+                if (this.sPM2359 == null)
                 {
-                    _sPM2359 = GetLocaleInfo(LocaleStringData.PMDesignator);
+                    this.sPM2359 = GetLocaleInfo(LocaleStringData.PMDesignator);
                 }
-                return _sPM2359;
+                return this.sPM2359;
             }
         }
 
@@ -1413,19 +1236,19 @@ namespace System.Globalization
         {
             get
             {
-                if (_saLongTimes == null)
+                if (this.saLongTimes == null)
                 {
                     String[] longTimes = GetTimeFormats();
                     if (longTimes == null || longTimes.Length == 0)
                     {
-                        _saLongTimes = Invariant._saLongTimes;
+                        this.saLongTimes = Invariant.saLongTimes;
                     }
                     else
                     {
-                        _saLongTimes = longTimes;
+                        this.saLongTimes = longTimes;
                     }
                 }
-                return _saLongTimes;
+                return this.saLongTimes;
             }
         }
 
@@ -1436,7 +1259,7 @@ namespace System.Globalization
         {
             get
             {
-                if (_saShortTimes == null)
+                if (this.saShortTimes == null)
                 {
                     // Try to get the short times from the OS/culture.dll
                     String[] shortTimes = null;
@@ -1458,9 +1281,9 @@ namespace System.Globalization
                     shortTimes = AdjustShortTimesForMac(shortTimes);
 
                     // Found short times, use them
-                    _saShortTimes = shortTimes;
+                    this.saShortTimes = shortTimes;
                 }
-                return _saShortTimes;
+                return this.saShortTimes;
             }
         }
 
@@ -1599,11 +1422,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_iFirstDayOfWeek == undef)
+                if (this.iFirstDayOfWeek == undef)
                 {
-                    _iFirstDayOfWeek = GetFirstDayOfWeek();
+                    this.iFirstDayOfWeek = GetFirstDayOfWeek();
                 }
-                return _iFirstDayOfWeek;
+                return this.iFirstDayOfWeek;
             }
         }
 
@@ -1612,11 +1435,11 @@ namespace System.Globalization
         {
             get
             {
-                if (_iFirstWeekOfYear == undef)
+                if (this.iFirstWeekOfYear == undef)
                 {
-                    _iFirstWeekOfYear = GetLocaleInfo(LocaleNumberData.FirstWeekOfYear);
+                    this.iFirstWeekOfYear = GetLocaleInfo(LocaleNumberData.FirstWeekOfYear);
                 }
-                return _iFirstWeekOfYear;
+                return this.iFirstWeekOfYear;
             }
         }
 
@@ -1706,26 +1529,26 @@ namespace System.Globalization
         {
             get
             {
-                if (_waCalendars == null)
+                if (this.waCalendars == null)
                 {
                     // We pass in an array of ints, and native side fills it up with count calendars.
                     // We then have to copy that list to a new array of the right size.
                     // Default calendar should be first
                     CalendarId[] calendars = new CalendarId[23];
-                    Debug.Assert(_sWindowsName != null, "[CultureData.CalendarIds] Expected _sWindowsName to be populated by already");
-                    int count = CalendarData.GetCalendars(_sWindowsName, _bUseOverrides, calendars);
+                    Contract.Assert(this.sWindowsName != null, "[CultureData.CalendarIds] Expected this.sWindowsName to be populated by already");
+                    int count = CalendarData.GetCalendars(this.sWindowsName, this.bUseOverrides, calendars);
 
                     // See if we had a calendar to add.
                     if (count == 0)
                     {
                         // Failed for some reason, just grab Gregorian from Invariant
-                        _waCalendars = Invariant._waCalendars;
+                        this.waCalendars = Invariant.waCalendars;
                     }
                     else
                     {
                         // The OS may not return calendar 4 for zh-TW, but we've always allowed it.
-                        // TODO: Is this hack necessary long-term?
-                        if (_sWindowsName == "zh-TW")
+                        // TODO: Is this necessary long-term?
+                        if (this.sWindowsName == "zh-TW")
                         {
                             bool found = false;
 
@@ -1767,45 +1590,38 @@ namespace System.Globalization
                             }
                         }
 
-                        _waCalendars = temp;
+                        this.waCalendars = temp;
                     }
                 }
 
-                return _waCalendars;
+                return this.waCalendars;
             }
-        }
-
-        // Native calendar names.  index of optional calendar - 1, empty if no optional calendar at that number
-        internal string CalendarName(CalendarId calendarId)
-        {
-            // Get the calendar
-            return GetCalendar(calendarId).sNativeName;
         }
 
         internal CalendarData GetCalendar(CalendarId calendarId)
         {
-            Debug.Assert(calendarId > 0 && calendarId <= CalendarId.LAST_CALENDAR,
+            Contract.Assert(calendarId > 0 && calendarId <= CalendarId.LAST_CALENDAR,
                 "[CultureData.GetCalendar] Expect calendarId to be in a valid range");
 
             // arrays are 0 based, calendarIds are 1 based
             int calendarIndex = (int)calendarId - 1;
 
             // Have to have calendars
-            if (_calendars == null)
+            if (calendars == null)
             {
-                _calendars = new CalendarData[CalendarData.MAX_CALENDARS];
+                calendars = new CalendarData[CalendarData.MAX_CALENDARS];
             }
 
             // we need the following local variable to avoid returning null
             // when another thread creates a new array of CalendarData (above)
             // right after we insert the newly created CalendarData (below)
-            CalendarData calendarData = _calendars[calendarIndex];
+            CalendarData calendarData = calendars[calendarIndex];
             // Make sure that calendar has data
             if (calendarData == null)
             {
-                Debug.Assert(_sWindowsName != null, "[CultureData.GetCalendar] Expected _sWindowsName to be populated by already");
-                calendarData = new CalendarData(_sWindowsName, calendarId, this.UseUserOverride);
-                _calendars[calendarIndex] = calendarData;
+                Contract.Assert(this.sWindowsName != null, "[CultureData.GetCalendar] Expected this.sWindowsName to be populated by already");
+                calendarData = new CalendarData(this.sWindowsName, calendarId, this.UseUserOverride);
+                calendars[calendarIndex] = calendarData;
             }
 
             return calendarData;
@@ -1841,13 +1657,13 @@ namespace System.Globalization
         {
             get
             {
-                if (_iReadingLayout == undef)
+                if (this.iReadingLayout == undef)
                 {
-                    Debug.Assert(_sRealName != null, "[CultureData.IsRightToLeft] Expected _sRealName to be populated by already");
-                    _iReadingLayout = GetLocaleInfo(LocaleNumberData.ReadingLayout);
+                    Contract.Assert(this.sRealName != null, "[CultureData.IsRightToLeft] Expected this.sRealName to be populated by already");
+                    this.iReadingLayout = GetLocaleInfo(LocaleNumberData.ReadingLayout);
                 }
 
-                return (_iReadingLayout);
+                return (this.iReadingLayout);
             }
         }
 
@@ -1864,8 +1680,8 @@ namespace System.Globalization
             {
                 // Note: Custom cultures might point at another culture's textinfo, however windows knows how
                 // to redirect it to the desired textinfo culture, so this is OK.
-                Debug.Assert(_sRealName != null, "[CultureData.STEXTINFO] Expected _sRealName to be populated by already");
-                return (_sRealName);
+                Contract.Assert(this.sRealName != null, "[CultureData.STEXTINFO] Expected this.sRealName to be populated by already");
+                return (this.sRealName);
             }
         }
 
@@ -1874,8 +1690,8 @@ namespace System.Globalization
         {
             get
             {
-                Debug.Assert(_sRealName != null, "[CultureData.SCOMPAREINFO] Expected _sRealName to be populated by already");
-                return (_sRealName);
+                Contract.Assert(this.sRealName != null, "[CultureData.SCOMPAREINFO] Expected this.sRealName to be populated by already");
+                return (this.sRealName);
             }
         }
 
@@ -1887,64 +1703,11 @@ namespace System.Globalization
             }
         }
 
-        internal int IDEFAULTANSICODEPAGE   // default ansi code page ID (ACP)
-        {
-            get
-            {
-                if (_iDefaultAnsiCodePage == undef)
-                {
-                    _iDefaultAnsiCodePage = GetAnsiCodePage(_sRealName);
-                }
-                return _iDefaultAnsiCodePage;
-            }
-        }
-
-        internal int IDEFAULTOEMCODEPAGE   // default oem code page ID (OCP or OEM)
-        {
-            get
-            {
-                if (_iDefaultOemCodePage == undef)
-                {
-                    _iDefaultOemCodePage = GetOemCodePage(_sRealName);
-                }
-                return _iDefaultOemCodePage;
-            }
-        }
-
-        internal int IDEFAULTMACCODEPAGE   // default macintosh code page
-        {
-            get
-            {
-                if (_iDefaultMacCodePage == undef)
-                {
-                    _iDefaultMacCodePage = GetMacCodePage(_sRealName);
-                }
-                return _iDefaultMacCodePage;
-            }
-        }
-
-        internal int IDEFAULTEBCDICCODEPAGE   // default EBCDIC code page
-        {
-            get
-            {
-                if (_iDefaultEbcdicCodePage == undef)
-                {
-                    _iDefaultEbcdicCodePage = GetEbcdicCodePage(_sRealName);
-                }
-                return _iDefaultEbcdicCodePage;
-            }
-        }
-
         internal int ILANGUAGE
         {
             get
             {
-                if (_iLanguage == 0)
-                {
-                    Debug.Assert(_sRealName != null, "[CultureData.ILANGUAGE] Expected this.sRealName to be populated by COMNlsInfo::nativeInitCultureData already");
-                    _iLanguage = LocaleNameToLCID(_sRealName);
-                }
-                return _iLanguage;
+                return this.iLanguage;
             }
         }
 
@@ -1953,7 +1716,7 @@ namespace System.Globalization
             get
             {
                 // InitCultureData told us if we're neutral or not
-                return _bNeutral;
+                return this.bNeutral;
             }
         }
 
@@ -1970,7 +1733,7 @@ namespace System.Globalization
         {
             get
             {
-                CalendarId defaultCalId = (CalendarId)GetLocaleInfo(LocaleNumberData.CalendarType);
+                CalendarId defaultCalId = (CalendarId) GetLocaleInfo(LocaleNumberData.CalendarType);
 
                 if (defaultCalId == 0)
                 {
@@ -1984,21 +1747,21 @@ namespace System.Globalization
         // All of our era names
         internal String[] EraNames(CalendarId calendarId)
         {
-            Debug.Assert(calendarId > 0, "[CultureData.saEraNames] Expected Calendar.ID > 0");
+            Contract.Assert(calendarId > 0, "[CultureData.saEraNames] Expected Calendar.ID > 0");
 
             return this.GetCalendar(calendarId).saEraNames;
         }
 
         internal String[] AbbrevEraNames(CalendarId calendarId)
         {
-            Debug.Assert(calendarId > 0, "[CultureData.saAbbrevEraNames] Expected Calendar.ID > 0");
+            Contract.Assert(calendarId > 0, "[CultureData.saAbbrevEraNames] Expected Calendar.ID > 0");
 
             return this.GetCalendar(calendarId).saAbbrevEraNames;
         }
 
         internal String[] AbbreviatedEnglishEraNames(CalendarId calendarId)
         {
-            Debug.Assert(calendarId > 0, "[CultureData.saAbbrevEraNames] Expected Calendar.ID > 0");
+            Contract.Assert(calendarId > 0, "[CultureData.saAbbrevEraNames] Expected Calendar.ID > 0");
 
             return this.GetCalendar(calendarId).saAbbrevEnglishEraNames;
         }
@@ -2012,7 +1775,7 @@ namespace System.Globalization
         {
             get
             {
-                if (_sTimeSeparator == null)
+                if (sTimeSeparator == null)
                 {
                     string longTimeFormat = GetTimeFormatString();
                     if (String.IsNullOrEmpty(longTimeFormat))
@@ -2021,9 +1784,9 @@ namespace System.Globalization
                     }
 
                     // Compute STIME from time format
-                    _sTimeSeparator = GetTimeSeparator(longTimeFormat);
+                    sTimeSeparator = GetTimeSeparator(longTimeFormat);
                 }
-                return _sTimeSeparator;
+                return sTimeSeparator;
             }
         }
 
@@ -2058,9 +1821,9 @@ namespace System.Globalization
         ////////////////////////////////////////////////////////////////////////////
         private static String UnescapeNlsString(String str, int start, int end)
         {
-            Debug.Assert(str != null);
-            Debug.Assert(start >= 0);
-            Debug.Assert(end >= 0);
+            Contract.Requires(str != null);
+            Contract.Requires(start >= 0);
+            Contract.Requires(end >= 0);
             StringBuilder result = null;
 
             for (int i = start; i < str.Length && i <= end; i++)
@@ -2158,8 +1921,8 @@ namespace System.Globalization
 
         private static int IndexOfTimePart(string format, int startIndex, string timeParts)
         {
-            Debug.Assert(startIndex >= 0, "startIndex cannot be negative");
-            Debug.Assert(timeParts.IndexOfAny(new char[] { '\'', '\\' }) == -1, "timeParts cannot include quote characters");
+            Contract.Assert(startIndex >= 0, "startIndex cannot be negative");
+            Contract.Assert(timeParts.IndexOfAny(new char[] { '\'', '\\' }) == -1, "timeParts cannot include quote characters");
             bool inQuote = false;
             for (int i = startIndex; i < format.Length; ++i)
             {
@@ -2194,34 +1957,33 @@ namespace System.Globalization
             return -1;
         }
 
-        internal static bool IsCustomCultureId(int cultureId)
+        private static bool IsCustomCultureId(int cultureId)
         {
-            return (cultureId == CultureInfo.LOCALE_CUSTOM_DEFAULT || cultureId == CultureInfo.LOCALE_CUSTOM_UNSPECIFIED);
+            return (cultureId == LOCALE_CUSTOM_DEFAULT || cultureId == LOCALE_CUSTOM_UNSPECIFIED);
         }
 
         internal void GetNFIValues(NumberFormatInfo nfi)
         {
             if (this.IsInvariantCulture)
             {
-                // FUTURE: NumberFormatInfo already has default values for many of these fields.  Can we not do this?
-                nfi.positiveSign = _sPositiveSign;
-                nfi.negativeSign = _sNegativeSign;
+                nfi.positiveSign = this.sPositiveSign;
+                nfi.negativeSign = this.sNegativeSign;
 
-                nfi.numberGroupSeparator = _sThousandSeparator;
-                nfi.numberDecimalSeparator = _sDecimalSeparator;
-                nfi.numberDecimalDigits = _iDigits;
-                nfi.numberNegativePattern = _iNegativeNumber;
+                nfi.numberGroupSeparator = this.sThousandSeparator;
+                nfi.numberDecimalSeparator = this.sDecimalSeparator;
+                nfi.numberDecimalDigits = this.iDigits;
+                nfi.numberNegativePattern = this.iNegativeNumber;
 
-                nfi.currencySymbol = _sCurrency;
-                nfi.currencyGroupSeparator = _sMonetaryThousand;
-                nfi.currencyDecimalSeparator = _sMonetaryDecimal;
-                nfi.currencyDecimalDigits = _iCurrencyDigits;
-                nfi.currencyNegativePattern = _iNegativeCurrency;
-                nfi.currencyPositivePattern = _iCurrency;
+                nfi.currencySymbol = this.sCurrency;
+                nfi.currencyGroupSeparator = this.sMonetaryThousand;
+                nfi.currencyDecimalSeparator = this.sMonetaryDecimal;
+                nfi.currencyDecimalDigits = this.iCurrencyDigits;
+                nfi.currencyNegativePattern = this.iNegativeCurrency;
+                nfi.currencyPositivePattern = this.iCurrency;
             }
             else
             {
-                Debug.Assert(_sWindowsName != null, "[CultureData.GetNFIValues] Expected _sWindowsName to be populated by already");
+                Contract.Assert(this.sWindowsName != null, "[CultureData.GetNFIValues] Expected this.sWindowsName to be populated by already");
                 // String values
                 nfi.positiveSign = GetLocaleInfo(LocaleStringData.PositiveSign);
                 nfi.negativeSign = GetLocaleInfo(LocaleStringData.NegativeSign);
@@ -2246,8 +2008,6 @@ namespace System.Globalization
                 {
                     nfi.nativeDigits[i] = new string(digits[i], 1);
                 }
-
-                nfi.digitSubstitution = GetDigitSubstitution(_sRealName);
             }
 
             //
@@ -2283,7 +2043,7 @@ namespace System.Globalization
 
             //Special case for Italian.  The currency decimal separator in the control panel is the empty string. When the user
             //specifies C4 as the currency format, this results in the number apparently getting multiplied by 10000 because the
-            //decimal point doesn't show up.  We'll just hack this here because our default currency format will never use nfi.
+            //decimal point doesn't show up.  Our default currency format will never use nfi.
             if (nfi.currencyDecimalSeparator == null || nfi.currencyDecimalSeparator.Length == 0)
             {
                 nfi.currencyDecimalSeparator = nfi.numberDecimalSeparator;
@@ -2294,26 +2054,9 @@ namespace System.Globalization
         // This is ONLY used for caching names and shouldn't be used for anything else
         internal static string AnsiToLower(string testString)
         {
-            int index = 0; 
-            
-            while (index<testString.Length && (testString[index]<'A' || testString[index]>'Z' ))
-            {
-                index++;
-            }
-            if (index >= testString.Length)
-            {
-                return testString; // we didn't really change the string
-            }
-            
             StringBuilder sb = new StringBuilder(testString.Length);
-            for (int i=0; i<index; i++)
-            {
-                sb.Append(testString[i]);
-            }
 
-            sb.Append((char) (testString[index] -'A' + 'a'));
-
-            for (int ich = index+1; ich < testString.Length; ich++)
+            for (int ich = 0; ich < testString.Length; ich++)
             {
                 char ch = testString[ich];
                 sb.Append(ch <= 'Z' && ch >= 'A' ? (char)(ch - 'A' + 'a') : ch);
@@ -2340,14 +2083,10 @@ namespace System.Globalization
             EnglishLanguageName = 0x00001001,
             /// <summary>native name of language, eg "Deutsch" (coresponds to LOCALE_SNATIVELANGUAGENAME)</summary>
             NativeLanguageName = 0x00000004,
-            /// <summary>localized name of country, eg "Germany" in UI language (coresponds to LOCALE_SLOCALIZEDCOUNTRYNAME)</summary>
-            LocalizedCountryName = 0x00000006,
             /// <summary>English name of country, eg "Germany" (coresponds to LOCALE_SENGLISHCOUNTRYNAME)</summary>
             EnglishCountryName = 0x00001002,
             /// <summary>native name of country, eg "Deutschland" (coresponds to LOCALE_SNATIVECOUNTRYNAME)</summary>
             NativeCountryName = 0x00000008,
-            /// <summary>abbreviated language name (coresponds to LOCALE_SABBREVLANGNAME)</summary>
-            AbbreviatedWindowsLanguageName = 0x00000003,
             /// <summary>list item separator (coresponds to LOCALE_SLIST)</summary>
             ListSeparator = 0x0000000C,
             /// <summary>decimal separator (coresponds to LOCALE_SDECIMAL)</summary>
@@ -2358,10 +2097,6 @@ namespace System.Globalization
             Digits = 0x00000013,
             /// <summary>local monetary symbol (coresponds to LOCALE_SCURRENCY)</summary>
             MonetarySymbol = 0x00000014,
-            /// <summary>English currency name (coresponds to LOCALE_SENGCURRNAME)</summary>
-            CurrencyEnglishName = 0x00001007,
-            /// <summary>Native currency name (coresponds to LOCALE_SNATIVECURRNAME)</summary>
-            CurrencyNativeName = 0x00001008,
             /// <summary>uintl monetary symbol (coresponds to LOCALE_SINTLSYMBOL)</summary>
             Iso4217MonetarySymbol = 0x00000015,
             /// <summary>monetary decimal separator (coresponds to LOCALE_SMONDECIMALSEP)</summary>
@@ -2377,15 +2112,9 @@ namespace System.Globalization
             /// <summary>negative sign (coresponds to LOCALE_SNEGATIVESIGN)</summary>
             NegativeSign = 0x00000051,
             /// <summary>ISO abbreviated language name (coresponds to LOCALE_SISO639LANGNAME)</summary>
-            Iso639LanguageTwoLetterName = 0x00000059,
-            /// <summary>ISO abbreviated country name (coresponds to LOCALE_SISO639LANGNAME2)</summary>
-            Iso639LanguageThreeLetterName = 0x00000067,
-            /// <summary>ISO abbreviated language name (coresponds to LOCALE_SISO639LANGNAME)</summary>
             Iso639LanguageName = 0x00000059,
             /// <summary>ISO abbreviated country name (coresponds to LOCALE_SISO3166CTRYNAME)</summary>
             Iso3166CountryName = 0x0000005A,
-            /// <summary>3 letter ISO country code (coresponds to LOCALE_SISO3166CTRYNAME2)</summary>
-            Iso3166CountryName2 = 0x00000068,   // 3 character ISO country name
             /// <summary>Not a Number (coresponds to LOCALE_SNAN)</summary>
             NaNSymbol = 0x00000069,
             /// <summary>+ Infinity (coresponds to LOCALE_SPOSINFINITY)</summary>
@@ -2394,8 +2123,6 @@ namespace System.Globalization
             NegativeInfinitySymbol = 0x0000006b,
             /// <summary>Fallback name for resources (coresponds to LOCALE_SPARENT)</summary>
             ParentName = 0x0000006d,
-            /// <summary>Fallback name for within the console (coresponds to LOCALE_SCONSOLEFALLBACKNAME)</summary>
-            ConsoleFallbackName = 0x0000006e,
             /// <summary>Returns the percent symbol (coresponds to LOCALE_SPERCENT)</summary>
             PercentSymbol = 0x00000076,
             /// <summary>Returns the permille (U+2030) symbol (coresponds to LOCALE_SPERMILLE)</summary>
@@ -2422,10 +2149,6 @@ namespace System.Globalization
         {
             /// <summary>language id (coresponds to LOCALE_ILANGUAGE)</summary>
             LanguageId = 0x00000001,
-            /// <summary>geographical location id, (coresponds to LOCALE_IGEOID)</summary>
-            GeoId = 0x00000008,
-            /// <summary>0 = context, 1 = none, 2 = national (coresponds to LOCALE_IDIGITSUBSTITUTION)</summary>
-            DigitSubstitution = 0x00001014,
             /// <summary>0 = metric, 1 = US (coresponds to LOCALE_IMEASURE)</summary>
             MeasurementSystem = 0x0000000D,
             /// <summary>number of fractional digits (coresponds to LOCALE_IDIGITS)</summary>
@@ -2456,15 +2179,7 @@ namespace System.Globalization
             /// <summary>Returns 0-11 for the negative percent format (coresponds to LOCALE_INEGATIVEPERCENT)</summary>
             NegativePercentFormat = 0x00000074,
             /// <summary>Returns 0-3 for the positive percent format (coresponds to LOCALE_IPOSITIVEPERCENT)</summary>
-            PositivePercentFormat = 0x00000075,
-            /// <summary>default ansi code page (coresponds to LOCALE_IDEFAULTCODEPAGE)</summary>
-            OemCodePage = 0x0000000B,
-            /// <summary>default ansi code page (coresponds to LOCALE_IDEFAULTANSICODEPAGE)</summary>
-            AnsiCodePage = 0x00001004,
-            /// <summary>default mac code page (coresponds to LOCALE_IDEFAULTMACCODEPAGE)</summary>
-            MacCodePage = 0x00001011,
-            /// <summary>default ebcdic code page (coresponds to LOCALE_IDEFAULTEBCDICCODEPAGE)</summary>
-            EbcdicCodePage = 0x00001012,
+            PositivePercentFormat = 0x00000075
         }
     }
 }

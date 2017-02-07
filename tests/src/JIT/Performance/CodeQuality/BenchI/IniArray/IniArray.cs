@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public static class IniArray
 {
 
@@ -54,10 +52,9 @@ public static class IniArray
         bool result = Bench();
         return result;
     }
-
+    
     public static int Main() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

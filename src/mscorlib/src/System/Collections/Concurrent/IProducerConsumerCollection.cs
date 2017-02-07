@@ -97,7 +97,7 @@ namespace System.Collections.Concurrent
         {
             if (collection == null)
             {
-                throw new ArgumentNullException(nameof(collection));
+                throw new ArgumentNullException("collection");
             }
 
             m_collection = collection;

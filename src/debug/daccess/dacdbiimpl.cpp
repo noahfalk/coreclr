@@ -90,7 +90,7 @@ IDacDbiInterface::IAllocator * g_pAllocator = NULL;
 //
 
 // Need a class to serve as a tag that we can use to overload New/Delete.
-forDbiWorker forDbi;
+#define forDbi (*(forDbiWorker *)NULL)
 
 void * operator new(size_t lenBytes, const forDbiWorker &)
 {
@@ -2364,12 +2364,10 @@ TypeHandle DacDbiInterfaceImpl::FindLoadedFnptrType(DWORD numTypeArgs, TypeHandl
     // Lookup operations run the class loader in non-load mode.
     ENABLE_FORBID_GC_LOADER_USE_IN_THIS_SCOPE();
 
-    // @dbgtodo : Do we need to worry about calling convention here?
-    // LoadFnptrTypeThrowing expects the count of arguments, not
-    // including return value, so we subtract 1 from numTypeArgs.
-    return  ClassLoader::LoadFnptrTypeThrowing(0,
-                                               numTypeArgs - 1,
-                                               pInst,
+    // @dbgtodo : Do we need to worry about calling convention here? 
+    return  ClassLoader::LoadFnptrTypeThrowing(0, 
+                                               numTypeArgs, 
+                                               pInst, 
                                                ClassLoader::DontLoadTypes);
 } // DacDbiInterfaceImpl::FindLoadedFnptrType
 
@@ -6519,7 +6517,7 @@ HRESULT DacHeapWalker::Init(CORDB_ADDRESS start, CORDB_ADDRESS end)
             if (thread == NULL)
                 continue;
 
-            gc_alloc_context *ctx = thread->GetAllocContext();
+            alloc_context *ctx = thread->GetAllocContext();
             if (ctx == NULL)
                 continue;
 
@@ -6535,7 +6533,7 @@ HRESULT DacHeapWalker::Init(CORDB_ADDRESS start, CORDB_ADDRESS end)
     }
 
 #ifdef FEATURE_SVR_GC
-    HRESULT hr = GCHeapUtilities::IsServerHeap() ? InitHeapDataSvr(mHeaps, mHeapCount) : InitHeapDataWks(mHeaps, mHeapCount);
+    HRESULT hr = GCHeap::IsServerHeap() ? InitHeapDataSvr(mHeaps, mHeapCount) : InitHeapDataWks(mHeaps, mHeapCount);
 #else
     HRESULT hr = InitHeapDataWks(mHeaps, mHeapCount);
 #endif
@@ -6779,7 +6777,7 @@ HRESULT DacDbiInterfaceImpl::GetHeapSegments(OUT DacDbiArrayList<COR_SEGMENT> *p
     HeapData *heaps = 0;
     
 #ifdef FEATURE_SVR_GC
-    HRESULT hr = GCHeapUtilities::IsServerHeap() ? DacHeapWalker::InitHeapDataSvr(heaps, heapCount) : DacHeapWalker::InitHeapDataWks(heaps, heapCount);
+    HRESULT hr = GCHeap::IsServerHeap() ? DacHeapWalker::InitHeapDataSvr(heaps, heapCount) : DacHeapWalker::InitHeapDataWks(heaps, heapCount);
 #else
     HRESULT hr = DacHeapWalker::InitHeapDataWks(heaps, heapCount);
 #endif
@@ -6989,21 +6987,6 @@ HRESULT DacDbiInterfaceImpl::GetTypeID(CORDB_ADDRESS dbgObj, COR_TYPEID *pID)
     return hr;
 }
 
-HRESULT DacDbiInterfaceImpl::GetTypeIDForType(VMPTR_TypeHandle vmTypeHandle, COR_TYPEID *pID)
-{
-    DD_ENTER_MAY_THROW;
-
-    _ASSERTE(pID != NULL);
-    _ASSERTE(!vmTypeHandle.IsNull());
-
-    TypeHandle th = TypeHandle::FromPtr(vmTypeHandle.GetDacPtr());
-    PTR_MethodTable pMT = th.GetMethodTable();
-    pID->token1 = pMT.GetAddr();
-    _ASSERTE(pID->token1 != 0);
-    pID->token2 = 0;
-    return S_OK;
-}
-
 HRESULT DacDbiInterfaceImpl::GetObjectFields(COR_TYPEID id, ULONG32 celt, COR_FIELD *layout, ULONG32 *pceltFetched)
 {
     if (layout == NULL || pceltFetched == NULL)
@@ -7188,7 +7171,7 @@ void DacDbiInterfaceImpl::GetGCHeapInformation(COR_HEAPINFO * pHeapInfo)
     pHeapInfo->areGCStructuresValid = GCScan::GetGcRuntimeStructuresValid();
     
 #ifdef FEATURE_SVR_GC
-    if (GCHeapUtilities::IsServerHeap())
+    if (GCHeap::IsServerHeap())
     {
         pHeapInfo->gcType = CorDebugServerGC;
         pHeapInfo->numHeaps = DacGetNumHeaps();

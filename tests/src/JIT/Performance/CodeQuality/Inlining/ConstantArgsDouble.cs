@@ -13,8 +13,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Inlining
-{
 public static class ConstantArgsDouble
 {
 
@@ -809,5 +807,4 @@ public static class ConstantArgsDouble
 
         return (result ? 100 : -1);
     }
-}
 }

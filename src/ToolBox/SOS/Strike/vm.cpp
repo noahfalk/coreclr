@@ -82,7 +82,7 @@ typedef struct _VM_STATS
 typedef struct PROTECT_MASK
 {
     DWORD Bit;
-    PCSTR Name;
+    PSTR Name;
 
 } PROTECT_MASK, *PPROTECT_MASK;
 
@@ -324,7 +324,7 @@ PrintVmStatsHeader(
 
 VOID
 PrintIndividualStat(
-    ___in __in_z IN PCSTR Name,
+    ___in __in_z IN PSTR Name,
     IN PINDIVIDUAL_STAT Stat
     )
 {
@@ -379,7 +379,7 @@ PrintIndividualStat(
 
 VOID
 PrintVmStats(
-    ___in __in_z IN PCSTR Name,
+    ___in __in_z IN PSTR Name,
     IN PVM_STATS Stats
     )
 {
@@ -443,7 +443,7 @@ VmStateToString(
     size_t capacity_Buffer
     )
 {
-    PCSTR result;
+    PSTR result;
     CHAR invalidStr[sizeof("12345678")];
 
     switch( State )
@@ -478,7 +478,7 @@ VmTypeToString(
     size_t capacity_Buffer
     )
 {
-    PCSTR result;
+    PSTR result;
     CHAR invalidStr[sizeof("12345678")];
 
     switch( Type )

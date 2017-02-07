@@ -34,11 +34,13 @@ namespace System.Globalization
         //
         // This points to a native data table which maps an encoding name to the correct code page.        
         //
+        [SecurityCritical]
         unsafe internal static InternalEncodingDataItem *encodingDataPtr = GetEncodingData();
         //
         // This points to a native data table which stores the properties for the code page, and
         // the table is indexed by code page.
         //
+        [SecurityCritical]
         unsafe internal static InternalCodePageDataItem *codePageDataPtr = GetCodePageData();
         //
         // This caches the mapping of an encoding name to a code page.
@@ -49,12 +51,14 @@ namespace System.Globalization
         //
         private static Hashtable hashByCodePage = Hashtable.Synchronized(new Hashtable());
 
+        [System.Security.SecuritySafeCritical] // static constructors should be safe to call
         static EncodingTable()
         { 
         }
 
         // Find the data item by binary searching the table that we have in native.
         // nativeCompareOrdinalWC is an internal-only function.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe private static int internalGetCodePageFromName(String name) {
             int left  = 0;
             int right = lastEncodingItem;
@@ -90,10 +94,11 @@ namespace System.Globalization
             throw new ArgumentException(
                 String.Format(
                     CultureInfo.CurrentCulture,
-                    Environment.GetResourceString("Argument_EncodingNotSupported"), name), nameof(name));
+                    Environment.GetResourceString("Argument_EncodingNotSupported"), name), "name");
         }
 
         // Return a list of all EncodingInfo objects describing all of our encodings
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static unsafe EncodingInfo[] GetEncodings()
         {
             if (lastCodePageItem == 0)
@@ -131,7 +136,7 @@ namespace System.Globalization
         internal static int GetCodePageFromName(String name)
         {   
             if (name==null) {
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             }
             Contract.EndContractBlock();
 
@@ -156,6 +161,7 @@ namespace System.Globalization
             return codePage;
         }
     
+        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe internal static CodePageDataItem GetCodePageDataItem(int codepage) {
             CodePageDataItem dataItem;
 
@@ -192,18 +198,22 @@ namespace System.Globalization
             return null;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private unsafe static extern InternalEncodingDataItem *GetEncodingData();
         
         //
         // Return the number of encoding data items.
         //
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern int GetNumEncodingItems();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private unsafe static extern InternalCodePageDataItem* GetCodePageData();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal unsafe static extern byte* nativeCreateOpenFileMapping(
             String inSectionName, int inBytesToAllocate, out IntPtr mappedFileHandle);   
@@ -218,6 +228,7 @@ namespace System.Globalization
     
     [System.Runtime.InteropServices.StructLayout(LayoutKind.Sequential)]
     internal unsafe struct InternalEncodingDataItem {
+        [SecurityCritical]
         internal sbyte  * webName;
         internal UInt16   codePage;
     }
@@ -232,6 +243,7 @@ namespace System.Globalization
         internal UInt16   codePage;
         internal UInt16   uiFamilyCodePage;
         internal uint     flags;
+        [SecurityCritical]
         internal sbyte  * Names;
     }
 

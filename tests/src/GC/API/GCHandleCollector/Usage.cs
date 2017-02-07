@@ -146,8 +146,7 @@ public class Usage
             // ensure threshold is increasing
             if (!CheckPercentageIncrease(handleCount, prevHandleCount))
             {
-                // see github#4093 for the rationale for fail-fast in this test.
-                Environment.FailFast(string.Empty);
+                Console.WriteLine("Case 3 failed: threshold not increasing!");
                 return false;
             }
             prevHandleCount = handleCount;

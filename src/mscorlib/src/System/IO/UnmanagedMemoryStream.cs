@@ -19,7 +19,6 @@ using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Permissions;
 using System.Threading;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Threading.Tasks; 
 
@@ -44,7 +43,7 @@ namespace System.IO {
      *
      * It may become necessary to add in some sort of 
      * DeallocationMode enum, specifying whether we unmap a section of memory, 
-     * call free, run a user-provided delegate to free the memory, etc.  
+     * call free, run a user-provided delegate to free the memory, etc etc.  
      * We'll suggest user write a subclass of UnmanagedMemoryStream that uses
      * a SafeHandle subclass to hold onto the memory.
      * Check for problems when using this in the negative parts of a 
@@ -77,7 +76,7 @@ namespace System.IO {
      *    a. a race condition in WriteX that could have allowed a thread to 
      *    read from unzeroed memory was fixed
      *    b. memory region cannot be expanded beyond _capacity; in other 
-     *    words, a UMS creator is saying a writable UMS is safe to 
+     *    words, a UMS creator is saying a writeable UMS is safe to 
      *    write to anywhere in the memory range up to _capacity, specified
      *    in the ctor. Even if the caller doesn't specify a capacity, then
      *    length is used as the capacity.
@@ -86,19 +85,22 @@ namespace System.IO {
     {
         private const long UnmanagedMemStreamMaxLength = Int64.MaxValue;
 
+        [System.Security.SecurityCritical] // auto-generated
         private SafeBuffer _buffer;
+        [SecurityCritical]
         private unsafe byte* _mem;
         private long _length;
         private long _capacity;
         private long _position;
         private long _offset;
         private FileAccess _access;
-        internal bool _isOpen;
+        internal bool _isOpen;        
         [NonSerialized] 
         private Task<Int32> _lastReadTask; // The last successful task returned from ReadAsync 
 
 
         // Needed for subclasses that need to map a file, etc.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         protected UnmanagedMemoryStream()
         {
             unsafe {
@@ -107,10 +109,12 @@ namespace System.IO {
             _isOpen = false;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public UnmanagedMemoryStream(SafeBuffer buffer, long offset, long length) {
             Initialize(buffer, offset, length, FileAccess.Read, false);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public UnmanagedMemoryStream(SafeBuffer buffer, long offset, long length, FileAccess access) {
             Initialize(buffer, offset, length, access, false);
         }
@@ -118,29 +122,32 @@ namespace System.IO {
         // We must create one of these without doing a security check.  This
         // class is created while security is trying to start up.  Plus, doing
         // a Demand from Assembly.GetManifestResourceStream isn't useful.
+        [System.Security.SecurityCritical]  // auto-generated
         internal UnmanagedMemoryStream(SafeBuffer buffer, long offset, long length, FileAccess access, bool skipSecurityCheck) {
             Initialize(buffer, offset, length, access, skipSecurityCheck);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         protected void Initialize(SafeBuffer buffer, long offset, long length, FileAccess access) {
             Initialize(buffer, offset, length, access, false);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal void Initialize(SafeBuffer buffer, long offset, long length, FileAccess access, bool skipSecurityCheck) {
             if (buffer == null) {
-                throw new ArgumentNullException(nameof(buffer));
+                throw new ArgumentNullException("buffer");
             }
             if (offset < 0) {
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
             if (length < 0) {
-                throw new ArgumentOutOfRangeException(nameof(length), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
             if (buffer.ByteLength < (ulong)(offset + length)) {
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidSafeBufferOffLen"));
             }
             if (access < FileAccess.Read || access > FileAccess.ReadWrite) {
-                throw new ArgumentOutOfRangeException(nameof(access));
+                throw new ArgumentOutOfRangeException("access");
             }
             Contract.EndContractBlock();
 
@@ -178,12 +185,14 @@ namespace System.IO {
             _isOpen = true;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         public unsafe UnmanagedMemoryStream(byte* pointer, long length)
         {
             Initialize(pointer, length, length, FileAccess.Read, false);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         public unsafe UnmanagedMemoryStream(byte* pointer, long length, long capacity, FileAccess access) 
         {
@@ -193,39 +202,41 @@ namespace System.IO {
         // We must create one of these without doing a security check.  This
         // class is created while security is trying to start up.  Plus, doing
         // a Demand from Assembly.GetManifestResourceStream isn't useful.
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe UnmanagedMemoryStream(byte* pointer, long length, long capacity, FileAccess access, bool skipSecurityCheck) 
         {
             Initialize(pointer, length, capacity, access, skipSecurityCheck);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [CLSCompliant(false)]
         protected unsafe void Initialize(byte* pointer, long length, long capacity, FileAccess access) 
         {
             Initialize(pointer, length, capacity, access, false);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe void Initialize(byte* pointer, long length, long capacity, FileAccess access, bool skipSecurityCheck) 
         {
             if (pointer == null)
-                throw new ArgumentNullException(nameof(pointer));
+                throw new ArgumentNullException("pointer");
             if (length < 0 || capacity < 0)
-                throw new ArgumentOutOfRangeException((length < 0) ? nameof(length) : nameof(capacity), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException((length < 0) ? "length" : "capacity", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (length > capacity)
-                throw new ArgumentOutOfRangeException(nameof(length), Environment.GetResourceString("ArgumentOutOfRange_LengthGreaterThanCapacity"));
+                throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_LengthGreaterThanCapacity"));
             Contract.EndContractBlock();
             // Check for wraparound.
             if (((byte*) ((long)pointer + capacity)) < pointer)
-                throw new ArgumentOutOfRangeException(nameof(capacity), Environment.GetResourceString("ArgumentOutOfRange_UnmanagedMemStreamWrapAround"));
+                throw new ArgumentOutOfRangeException("capacity", Environment.GetResourceString("ArgumentOutOfRange_UnmanagedMemStreamWrapAround"));
             if (access < FileAccess.Read || access > FileAccess.ReadWrite)
-                throw new ArgumentOutOfRangeException(nameof(access), Environment.GetResourceString("ArgumentOutOfRange_Enum"));
+                throw new ArgumentOutOfRangeException("access", Environment.GetResourceString("ArgumentOutOfRange_Enum"));
             if (_isOpen)
                 throw new InvalidOperationException(Environment.GetResourceString("InvalidOperation_CalledTwice"));
 
-            if (!skipSecurityCheck) {
+            if (!skipSecurityCheck)
 #pragma warning disable 618
                 new SecurityPermission(SecurityPermissionFlag.UnmanagedCode).Demand();
 #pragma warning restore 618
-            }
 
             _mem = pointer;
             _offset = 0;
@@ -250,6 +261,7 @@ namespace System.IO {
             get { return _isOpen && (_access & FileAccess.Write) != 0; }
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         protected override void Dispose(bool disposing)
         {
             _isOpen = false;
@@ -265,6 +277,7 @@ namespace System.IO {
             if (!_isOpen) __Error.StreamIsClosed();
         }
         
+        [HostProtection(ExternalThreading=true)] 
         [ComVisible(false)] 
         public override Task FlushAsync(CancellationToken cancellationToken) { 
         
@@ -303,9 +316,10 @@ namespace System.IO {
                 Contract.EndContractBlock();
                 return Interlocked.Read(ref _position);
             }
+            [System.Security.SecuritySafeCritical]  // auto-generated
             set {
                 if (value < 0)
-                    throw new ArgumentOutOfRangeException(nameof(value), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                    throw new ArgumentOutOfRangeException("value", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
                 Contract.EndContractBlock();
                 if (!CanSeek) __Error.StreamIsClosed();
                 
@@ -313,7 +327,7 @@ namespace System.IO {
                 unsafe {
                     // On 32 bit machines, ensure we don't wrap around.
                     if (value > (long) Int32.MaxValue || _mem + value < _mem)
-                        throw new ArgumentOutOfRangeException(nameof(value), Environment.GetResourceString("ArgumentOutOfRange_StreamLength"));
+                        throw new ArgumentOutOfRangeException("value", Environment.GetResourceString("ArgumentOutOfRange_StreamLength"));
                 }
 #endif
                 Interlocked.Exchange(ref _position, value);
@@ -322,6 +336,7 @@ namespace System.IO {
 
         [CLSCompliant(false)]
         public unsafe byte* PositionPointer {
+            [System.Security.SecurityCritical]  // auto-generated_required
             get {
                 if (_buffer != null) {
                     throw new NotSupportedException(Environment.GetResourceString("NotSupported_UmsSafeBuffer"));
@@ -335,6 +350,7 @@ namespace System.IO {
                 if (!_isOpen) __Error.StreamIsClosed();
                 return ptr;
             }
+            [System.Security.SecurityCritical]  // auto-generated_required
             set {
                 if (_buffer != null)
                     throw new NotSupportedException(Environment.GetResourceString("NotSupported_UmsSafeBuffer"));
@@ -352,6 +368,7 @@ namespace System.IO {
         }
 
         internal unsafe byte* Pointer {
+            [System.Security.SecurityCritical]  // auto-generated
             get {
                 if (_buffer != null)
                     throw new NotSupportedException(Environment.GetResourceString("NotSupported_UmsSafeBuffer"));
@@ -360,13 +377,14 @@ namespace System.IO {
             }
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override int Read([In, Out] byte[] buffer, int offset, int count) {
             if (buffer==null)
-                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
             if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - offset < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();  // Keep this in sync with contract validation in ReadAsync
@@ -386,49 +404,42 @@ namespace System.IO {
 
             int nInt = (int) n; // Safe because n <= count, which is an Int32
             if (nInt < 0)
-                return 0;  // _position could be beyond EOF
-            Debug.Assert(pos + nInt >= 0, "_position + n >= 0");  // len is less than 2^63 -1.
+                nInt = 0;  // _position could be beyond EOF
+            Contract.Assert(pos + nInt >= 0, "_position + n >= 0");  // len is less than 2^63 -1.
 
-            unsafe
-            {
-                fixed (byte* pBuffer = buffer)
-                {
-                    if (_buffer != null)
-                    {
-                        byte* pointer = null;
-
-                        RuntimeHelpers.PrepareConstrainedRegions();
-                        try
-                        {
-                            _buffer.AcquirePointer(ref pointer);
-                            Buffer.Memcpy(pBuffer + offset, pointer + pos + _offset, nInt);
-                        }
-                        finally
-                        {
-                            if (pointer != null)
-                            {
-                                _buffer.ReleasePointer();
-                            }
+            if (_buffer != null) {
+                unsafe {
+                    byte* pointer = null;
+                    RuntimeHelpers.PrepareConstrainedRegions();
+                    try {
+                        _buffer.AcquirePointer(ref pointer);
+                        Buffer.Memcpy(buffer, offset, pointer + pos + _offset, 0, nInt);
+                    }
+                    finally {
+                        if (pointer != null) {
+                            _buffer.ReleasePointer();
                         }
                     }
-                    else
-                    {
-                        Buffer.Memcpy(pBuffer + offset, _mem + pos, nInt);
-                    }
+                }
+            }
+            else {
+                unsafe {
+                    Buffer.Memcpy(buffer, offset, _mem + pos, 0, nInt);
                 }
             }
             Interlocked.Exchange(ref _position, pos + n);
             return nInt;
         }
         
+        [HostProtection(ExternalThreading = true)]
         [ComVisible(false)]
         public override Task<Int32> ReadAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) {        
             if (buffer==null)
-                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
             if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - offset < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();  // contract validation copied from Read(...) 
@@ -444,11 +455,12 @@ namespace System.IO {
                 
             } catch (Exception ex) { 
             
-                Debug.Assert(! (ex is OperationCanceledException));
+                Contract.Assert(! (ex is OperationCanceledException));
                 return Task.FromException<Int32>(ex); 
             } 
         } 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override int ReadByte() {
             if (!_isOpen) __Error.StreamIsClosed();
             if (!CanRead) __Error.ReadNotSupported();
@@ -485,7 +497,7 @@ namespace System.IO {
         public override long Seek(long offset, SeekOrigin loc) {
             if (!_isOpen) __Error.StreamIsClosed();
             if (offset > UnmanagedMemStreamMaxLength)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_UnmanagedMemStreamLength"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_UnmanagedMemStreamLength"));
             switch(loc) {
             case SeekOrigin.Begin:
                 if (offset < 0)
@@ -512,10 +524,11 @@ namespace System.IO {
             }
 
             long finalPos = Interlocked.Read(ref _position);
-            Debug.Assert(finalPos >= 0, "_position >= 0");
+            Contract.Assert(finalPos >= 0, "_position >= 0");
             return finalPos;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override void SetLength(long value) {
             if (value < 0)
                 throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
@@ -541,13 +554,14 @@ namespace System.IO {
             } 
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override void Write(byte[] buffer, int offset, int count) {
             if (buffer==null)
-                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
             if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - offset < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();  // Keep contract validation in sync with WriteAsync(..)
@@ -581,52 +595,46 @@ namespace System.IO {
                 }
             }
 
-            unsafe
-            {
-                fixed (byte* pBuffer = buffer)
-                {
-                    if (_buffer != null)
-                    {
-                        long bytesLeft = _capacity - pos;
-                        if (bytesLeft < count)
-                        {
-                            throw new ArgumentException(Environment.GetResourceString("Arg_BufferTooSmall"));
-                        }
+            if (_buffer != null) {
 
-                        byte* pointer = null;
-                        RuntimeHelpers.PrepareConstrainedRegions();
-                        try
-                        {
-                            _buffer.AcquirePointer(ref pointer);
-                            Buffer.Memcpy(pointer + pos + _offset, pBuffer + offset, count);
-                        }
-                        finally
-                        {
-                            if (pointer != null)
-                            {
-                                _buffer.ReleasePointer();
-                            }
+                long bytesLeft = _capacity - pos;
+                if (bytesLeft < count) {
+                    throw new ArgumentException(Environment.GetResourceString("Arg_BufferTooSmall"));
+                }
+
+                unsafe {
+                    byte* pointer = null;
+                    RuntimeHelpers.PrepareConstrainedRegions();
+                    try {
+                        _buffer.AcquirePointer(ref pointer);
+                        Buffer.Memcpy(pointer + pos + _offset, 0, buffer, offset, count);
+                    }
+                    finally {
+                        if (pointer != null) {
+                            _buffer.ReleasePointer();
                         }
                     }
-                    else
-                    {
-                        Buffer.Memcpy(_mem + pos, pBuffer + offset, count);
-                    }
+                }
+            }
+            else {
+                unsafe {
+                    Buffer.Memcpy(_mem + pos, 0, buffer, offset, count);
                 }
             }
             Interlocked.Exchange(ref _position, n);
             return;
         }
         
+        [HostProtection(ExternalThreading = true)] 
         [ComVisible(false)] 
         public override Task WriteAsync(Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken) { 
         
             if (buffer==null)
-                throw new ArgumentNullException(nameof(buffer), Environment.GetResourceString("ArgumentNull_Buffer"));
+                throw new ArgumentNullException("buffer", Environment.GetResourceString("ArgumentNull_Buffer"));
             if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
+                throw new ArgumentOutOfRangeException("count", Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             if (buffer.Length - offset < count)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidOffLen"));
             Contract.EndContractBlock();  // contract validation copied from Write(..) 
@@ -641,12 +649,13 @@ namespace System.IO {
                 
             } catch (Exception ex) { 
             
-                Debug.Assert(! (ex is OperationCanceledException));
+                Contract.Assert(! (ex is OperationCanceledException));
                 return Task.FromException<Int32>(ex); 
             } 
         } 
 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override void WriteByte(byte value) {
             if (!_isOpen) __Error.StreamIsClosed();
             if (!CanWrite) __Error.WriteNotSupported();
@@ -665,7 +674,7 @@ namespace System.IO {
                 // Check to see whether we are now expanding the stream and must 
                 // zero any memory in the middle.
                 // don't do if created from SafeBuffer
-                if (_buffer == null) {
+                if (_buffer == null) {                             
                     if (pos > len) {
                         unsafe {
                             Buffer.ZeroMemory(_mem+len, pos-len);

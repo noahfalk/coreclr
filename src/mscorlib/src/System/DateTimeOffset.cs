@@ -11,7 +11,6 @@ namespace System {
     using System.Runtime.CompilerServices;
     using System.Runtime.Serialization;
     using System.Security.Permissions;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
 
     // DateTimeOffset is a value type that consists of a DateTime and a time zone offset, 
@@ -88,12 +87,12 @@ namespace System {
         public DateTimeOffset(DateTime dateTime, TimeSpan offset) {
             if (dateTime.Kind == DateTimeKind.Local) {
                 if (offset != TimeZoneInfo.GetLocalUtcOffset(dateTime, TimeZoneInfoOptions.NoThrowOnInvalidTime)) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_OffsetLocalMismatch"), nameof(offset));
+                    throw new ArgumentException(Environment.GetResourceString("Argument_OffsetLocalMismatch"), "offset");
                 }
             }
             else if (dateTime.Kind == DateTimeKind.Utc) {
                 if (offset != TimeSpan.Zero) {
-                    throw new ArgumentException(Environment.GetResourceString("Argument_OffsetUtcMismatch"), nameof(offset));
+                    throw new ArgumentException(Environment.GetResourceString("Argument_OffsetUtcMismatch"), "offset");
                 }
             }
             m_offsetMinutes = ValidateOffset(offset);
@@ -480,7 +479,7 @@ namespace System {
 
         public static DateTimeOffset FromUnixTimeSeconds(long seconds) {
             if (seconds < UnixMinSeconds || seconds > UnixMaxSeconds) {
-                throw new ArgumentOutOfRangeException(nameof(seconds),
+                throw new ArgumentOutOfRangeException("seconds",
                     string.Format(Environment.GetResourceString("ArgumentOutOfRange_Range"), UnixMinSeconds, UnixMaxSeconds));
             }
 
@@ -493,7 +492,7 @@ namespace System {
             const long MaxMilliseconds = DateTime.MaxTicks / TimeSpan.TicksPerMillisecond - UnixEpochMilliseconds;
 
             if (milliseconds < MinMilliseconds || milliseconds > MaxMilliseconds) {
-                throw new ArgumentOutOfRangeException(nameof(milliseconds),
+                throw new ArgumentOutOfRangeException("milliseconds",
                     string.Format(Environment.GetResourceString("ArgumentOutOfRange_Range"), MinMilliseconds, MaxMilliseconds));
             }
 
@@ -514,9 +513,10 @@ namespace System {
         }
 
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info == null) {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
 
             Contract.EndContractBlock();
@@ -528,7 +528,7 @@ namespace System {
 
         DateTimeOffset(SerializationInfo info, StreamingContext context) {
             if (info == null) {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
 
             m_dateTime      = (DateTime)info.GetValue("DateTime", typeof(DateTime));
@@ -563,7 +563,7 @@ namespace System {
         }
         
         public static DateTimeOffset Parse(String input, IFormatProvider formatProvider, DateTimeStyles styles) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult = DateTimeParse.Parse(input, 
                                                       DateTimeFormatInfo.GetInstance(formatProvider), 
@@ -585,7 +585,7 @@ namespace System {
         // Leading and trailing whitespace characters are allowed.
         // 
         public static DateTimeOffset ParseExact(String input, String format, IFormatProvider formatProvider, DateTimeStyles styles) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult = DateTimeParse.ParseExact(input, 
                                                            format, 
@@ -596,7 +596,7 @@ namespace System {
         }    
 
         public static DateTimeOffset ParseExact(String input, String[] formats, IFormatProvider formatProvider, DateTimeStyles styles) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult = DateTimeParse.ParseExactMultiple(input, 
                                                                    formats, 
@@ -693,7 +693,7 @@ namespace System {
         }
         
         public static Boolean TryParse(String input, IFormatProvider formatProvider, DateTimeStyles styles, out DateTimeOffset result) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult;
             Boolean parsed = DateTimeParse.TryParse(input, 
@@ -707,7 +707,7 @@ namespace System {
             
         public static Boolean TryParseExact(String input, String format, IFormatProvider formatProvider, DateTimeStyles styles,
                                             out DateTimeOffset result) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult;
             Boolean parsed = DateTimeParse.TryParseExact(input, 
@@ -722,7 +722,7 @@ namespace System {
 
         public static Boolean TryParseExact(String input, String[] formats, IFormatProvider formatProvider, DateTimeStyles styles,
                                             out DateTimeOffset result) {
-            styles = ValidateStyles(styles, nameof(styles));
+            styles = ValidateStyles(styles, "styles");
             TimeSpan offset;
             DateTime dateResult;
             Boolean parsed = DateTimeParse.TryParseExactMultiple(input, 
@@ -739,10 +739,10 @@ namespace System {
         private static Int16 ValidateOffset(TimeSpan offset) {
             Int64 ticks = offset.Ticks;
             if (ticks % TimeSpan.TicksPerMinute != 0) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_OffsetPrecision"), nameof(offset));
+                throw new ArgumentException(Environment.GetResourceString("Argument_OffsetPrecision"), "offset");
             }
             if (ticks < MinOffset || ticks > MaxOffset) {
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("Argument_OffsetOutOfRange"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("Argument_OffsetOutOfRange"));
             }
             return (Int16)(offset.Ticks / TimeSpan.TicksPerMinute);
         }
@@ -751,12 +751,12 @@ namespace System {
         private static DateTime ValidateDate(DateTime dateTime, TimeSpan offset) {
             // The key validation is that both the UTC and clock times fit. The clock time is validated
             // by the DateTime constructor.
-            Debug.Assert(offset.Ticks >= MinOffset && offset.Ticks <= MaxOffset, "Offset not validated.");
+            Contract.Assert(offset.Ticks >= MinOffset && offset.Ticks <= MaxOffset, "Offset not validated.");
             // This operation cannot overflow because offset should have already been validated to be within
             // 14 hours and the DateTime instance is more than that distance from the boundaries of Int64.
             Int64 utcTicks = dateTime.Ticks - offset.Ticks;
             if (utcTicks < DateTime.MinTicks || utcTicks > DateTime.MaxTicks) {                
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("Argument_UTCOutOfRange"));                
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("Argument_UTCOutOfRange"));                
             }
             // make sure the Kind is set to Unspecified
             //

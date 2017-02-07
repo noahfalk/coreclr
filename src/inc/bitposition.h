@@ -25,11 +25,7 @@ inline
 unsigned            BitPosition(unsigned value)
 {
     _ASSERTE((value != 0) && ((value & (value-1)) == 0));
-#if defined(_ARM_) && defined(__llvm__)
-    // use intrinsic functions for arm32
-    // this is applied for LLVM only but it may work for some compilers
-    DWORD index = __builtin_clz(__builtin_arm_rbit(value));
-#elif !defined(_AMD64_)
+#ifndef _TARGET_AMD64_
     const unsigned PRIME = 37;
 
     static const char hashTable[PRIME] =

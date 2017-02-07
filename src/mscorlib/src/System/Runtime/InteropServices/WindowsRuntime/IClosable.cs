@@ -7,7 +7,6 @@
 using System;
 using System.Security;
 using System.Collections;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.CompilerServices;
 
@@ -28,9 +27,10 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     {
         private IDisposableToIClosableAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
+        [SecurityCritical]
         public void Close()
         {
             IDisposable _this = JitHelpers.UnsafeCast<IDisposable>(this);
@@ -39,13 +39,15 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     }
 
     // Adapter class which converts IDisposable.Dispose calls into IClosable.Close
+    [SecurityCritical]
     internal sealed class IClosableToIDisposableAdapter
     {
         private IClosableToIDisposableAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
+        [SecurityCritical]
         private void Dispose()
         {
             IClosable _this = JitHelpers.UnsafeCast<IClosable>(this);

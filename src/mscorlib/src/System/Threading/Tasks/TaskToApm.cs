@@ -22,7 +22,6 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System.IO;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 
 namespace System.Threading.Tasks
@@ -77,7 +76,7 @@ namespace System.Threading.Tasks
             if (twar != null)
             {
                 task = twar.Task;
-                Debug.Assert(task != null, "TaskWrapperAsyncResult should never wrap a null Task.");
+                Contract.Assert(task != null, "TaskWrapperAsyncResult should never wrap a null Task.");
             }
             // Otherwise, the IAsyncResult should be a Task.
             else
@@ -102,7 +101,7 @@ namespace System.Threading.Tasks
             if (twar != null)
             {
                 task = twar.Task as Task<TResult>;
-                Debug.Assert(twar.Task != null, "TaskWrapperAsyncResult should never wrap a null Task.");
+                Contract.Assert(twar.Task != null, "TaskWrapperAsyncResult should never wrap a null Task.");
             }
             // Otherwise, the IAsyncResult should be a Task<TResult>.
             else

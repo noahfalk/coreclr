@@ -32,7 +32,6 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Contracts;
 
@@ -288,7 +287,7 @@ namespace System.Diagnostics.Contracts {
         /// </summary>
         /// <param name="condition">Expression to assume will always be true.</param>
         /// <remarks>
-        /// At runtime this is equivalent to an <seealso cref="System.Diagnostics.Contracts.Debug.Assert(bool)"/>.
+        /// At runtime this is equivalent to an <seealso cref="System.Diagnostics.Contracts.Contract.Assert(bool)"/>.
         /// </remarks>
         [Pure]
         [Conditional("DEBUG")]
@@ -309,7 +308,7 @@ namespace System.Diagnostics.Contracts {
         /// <param name="condition">Expression to assume will always be true.</param>
         /// <param name="userMessage">If it is not a constant string literal, then the contract may not be understood by tools.</param>
         /// <remarks>
-        /// At runtime this is equivalent to an <seealso cref="System.Diagnostics.Contracts.Debug.Assert(bool)"/>.
+        /// At runtime this is equivalent to an <seealso cref="System.Diagnostics.Contracts.Contract.Assert(bool)"/>.
         /// </remarks>
         [Pure]
         [Conditional("DEBUG")]
@@ -655,7 +654,7 @@ namespace System.Diagnostics.Contracts {
                 throw new ArgumentException("fromInclusive must be less than or equal to toExclusive.");
 #endif
             if (predicate == null)
-                throw new ArgumentNullException(nameof(predicate));
+                throw new ArgumentNullException("predicate");
             Contract.EndContractBlock();
 
             for (int i = fromInclusive; i < toExclusive; i++)
@@ -680,9 +679,9 @@ namespace System.Diagnostics.Contracts {
         public static bool ForAll<T>(IEnumerable<T> collection, Predicate<T> predicate)
         {
             if (collection == null)
-                throw new ArgumentNullException(nameof(collection));
+                throw new ArgumentNullException("collection");
             if (predicate == null)
-                throw new ArgumentNullException(nameof(predicate));
+                throw new ArgumentNullException("predicate");
             Contract.EndContractBlock();
 
             foreach (T t in collection)
@@ -717,7 +716,7 @@ namespace System.Diagnostics.Contracts {
                 throw new ArgumentException("fromInclusive must be less than or equal to toExclusive.");
 #endif
             if (predicate == null)
-                throw new ArgumentNullException(nameof(predicate));
+                throw new ArgumentNullException("predicate");
             Contract.EndContractBlock();
 
             for (int i = fromInclusive; i < toExclusive; i++)
@@ -741,9 +740,9 @@ namespace System.Diagnostics.Contracts {
         public static bool Exists<T>(IEnumerable<T> collection, Predicate<T> predicate)
         {
             if (collection == null)
-                throw new ArgumentNullException(nameof(collection));
+                throw new ArgumentNullException("collection");
             if (predicate == null)
-                throw new ArgumentNullException(nameof(predicate));
+                throw new ArgumentNullException("predicate");
             Contract.EndContractBlock();
 
             foreach (T t in collection)
@@ -806,6 +805,7 @@ namespace System.Diagnostics.Contracts {
         [CLSCompliant(false)]
         [Pure]
         [ContractRuntimeIgnored]
+        [SecurityCritical]
 #if FEATURE_RELIABILITY_CONTRACTS
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
 #endif
@@ -852,6 +852,7 @@ namespace System.Diagnostics.Contracts {
         [CLSCompliant(false)]
         [Pure]
         [ContractRuntimeIgnored]
+        [SecurityCritical]
 #if FEATURE_RELIABILITY_CONTRACTS
         [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
 #endif

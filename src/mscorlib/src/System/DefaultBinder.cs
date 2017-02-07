@@ -14,7 +14,6 @@ namespace System {
     using System.Reflection;
     using System.Runtime.CompilerServices;
     using System.Runtime.Versioning;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using CultureInfo = System.Globalization.CultureInfo;
     //Marked serializable even though it has no state.
@@ -34,12 +33,13 @@ namespace System {
         // 
         // The most specific match will be selected.  
         // 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override MethodBase BindToMethod(
             BindingFlags bindingAttr, MethodBase[] match, ref Object[] args, 
             ParameterModifier[] modifiers, CultureInfo cultureInfo, String[] names, out Object state)
         {
             if (match == null || match.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), nameof(match));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), "match");
             Contract.EndContractBlock();
 
             MethodBase[] candidates = (MethodBase[]) match.Clone();
@@ -437,10 +437,11 @@ namespace System {
         
         // Given a set of fields that match the base criteria, select a field.
         // if value is null then we have no way to select a field
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override FieldInfo BindToField(BindingFlags bindingAttr,FieldInfo[] match, Object value,CultureInfo cultureInfo)
         {
             if (match == null) {
-                throw new ArgumentNullException(nameof(match));
+                throw new ArgumentNullException("match");
             }
 
             int i;
@@ -513,6 +514,7 @@ namespace System {
         // Given a set of methods that match the base criteria, select a method based
         // upon an array of types.  This method should return null if no method matchs
         // the criteria.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override MethodBase SelectMethod(BindingFlags bindingAttr,MethodBase[] match,Type[] types,ParameterModifier[] modifiers)
         {
             int i;
@@ -522,13 +524,13 @@ namespace System {
             for (i=0;i<types.Length;i++) {
                 realTypes[i] = types[i].UnderlyingSystemType;
                 if (!(realTypes[i] is RuntimeType))
-                    throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(types));
+                    throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"types");
             }
             types = realTypes;
             
             // We don't automatically jump out on exact match.
             if (match == null || match.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), nameof(match));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), "match");
 
             MethodBase[] candidates = (MethodBase[]) match.Clone();
             
@@ -587,16 +589,17 @@ namespace System {
         }
         
         // Given a set of properties that match the base criteria, select one.
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override PropertyInfo SelectProperty(BindingFlags bindingAttr,PropertyInfo[] match,Type returnType,
                     Type[] indexes,ParameterModifier[] modifiers)
         {
             // Allow a null indexes array. But if it is not null, every element must be non-null as well.
             if (indexes != null && !Contract.ForAll(indexes, delegate(Type t) { return t != null; }))
             {
-                throw new ArgumentNullException(nameof(indexes));
+                throw new ArgumentNullException("indexes");
             }
             if (match == null || match.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), nameof(match));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EmptyArray"), "match");
             Contract.EndContractBlock();
 
             PropertyInfo[] candidates = (PropertyInfo[]) match.Clone();
@@ -729,7 +732,7 @@ namespace System {
         public static MethodBase ExactBinding(MethodBase[] match,Type[] types,ParameterModifier[] modifiers)
         {
             if (match==null)
-                throw new ArgumentNullException(nameof(match));
+                throw new ArgumentNullException("match");
             Contract.EndContractBlock();
             MethodBase[] aExactMatches = new MethodBase[match.Length];
             int cExactMatches = 0;
@@ -769,7 +772,7 @@ namespace System {
         public static PropertyInfo ExactPropertyBinding(PropertyInfo[] match,Type returnType,Type[] types,ParameterModifier[] modifiers)
         {
             if (match==null)
-                throw new ArgumentNullException(nameof(match));
+                throw new ArgumentNullException("match");
             Contract.EndContractBlock();
 
             PropertyInfo bestMatch = null;
@@ -873,6 +876,7 @@ namespace System {
             }
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         private static int FindMostSpecificType(Type c1, Type c2, Type t)
         {
             // If the two types are exact move on...
@@ -983,7 +987,7 @@ namespace System {
                 int hierarchyDepth2 = GetHierarchyDepth(cur2.DeclaringType);
 
                 if (hierarchyDepth1 == hierarchyDepth2) {
-                    Debug.Assert(cur1.IsStatic != cur2.IsStatic, "hierarchyDepth1 == hierarchyDepth2");
+                    Contract.Assert(cur1.IsStatic != cur2.IsStatic, "hierarchyDepth1 == hierarchyDepth2");
                     return 0; 
                 }
                 else if (hierarchyDepth1 < hierarchyDepth2) 
@@ -1080,12 +1084,14 @@ namespace System {
 
         // CanConvertPrimitive
         // This will determine if the source can be converted to the target type
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool CanConvertPrimitive(RuntimeType source,RuntimeType target);
 
         // CanConvertPrimitiveObjectToType
         // This method will determine if the primitive object can be converted
         //  to a type.
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         static internal extern bool CanConvertPrimitiveObjectToType(Object source,RuntimeType type);
         

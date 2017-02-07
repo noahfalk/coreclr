@@ -36,7 +36,7 @@ namespace System.Diagnostics.Tracing
         {
             if (dataType == null)
             {
-                throw new ArgumentNullException(nameof(dataType));
+                throw new ArgumentNullException("dataType");
             }
 
             Contract.EndContractBlock();
@@ -56,12 +56,12 @@ namespace System.Diagnostics.Tracing
         {
             if (dataType == null)
             {
-                throw new ArgumentNullException(nameof(dataType));
+                throw new ArgumentNullException("dataType");
             }
 
             if (name == null)
             {
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("eventName");
             }
 
             Contract.EndContractBlock();

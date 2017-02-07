@@ -53,6 +53,8 @@ regMaskTP Compiler::raConfigRestrictMaskFP()
     return result;
 }
 
+#ifdef LEGACY_BACKEND // We don't use any of the old register allocator functions when LSRA is used instead.
+
 #if DOUBLE_ALIGN
 DWORD Compiler::getCanDoubleAlign()
 {
@@ -65,83 +67,7 @@ DWORD Compiler::getCanDoubleAlign()
     return DEFAULT_DOUBLE_ALIGN;
 #endif
 }
-
-//------------------------------------------------------------------------
-// shouldDoubleAlign: Determine whether to double-align the frame
-//
-// Arguments:
-//    refCntStk       - sum of     ref counts for all stack based variables
-//    refCntEBP       - sum of     ref counts for EBP enregistered variables
-//    refCntWtdEBP    - sum of wtd ref counts for EBP enregistered variables
-//    refCntStkParam  - sum of     ref counts for all stack based parameters
-//    refCntWtdStkDbl - sum of wtd ref counts for stack based doubles (including structs
-//                      with double fields).
-//
-// Return Value:
-//    Returns true if this method estimates that a double-aligned frame would be beneficial
-//
-// Notes:
-//    The impact of a double-aligned frame is computed as follows:
-//    - We save a byte of code for each parameter reference (they are frame-pointer relative)
-//    - We pay a byte of code for each non-parameter stack reference.
-//    - We save the misalignment penalty and possible cache-line crossing penalty.
-//      This is estimated as 0 for SMALL_CODE, 16 for FAST_CODE and 4 otherwise.
-//    - We pay 7 extra bytes for:
-//        MOV EBP,ESP,
-//        LEA ESP,[EBP-offset]
-//        AND ESP,-8 to double align ESP
-//    - We pay one extra memory reference for each variable that could have been enregistered in EBP (refCntWtdEBP).
-//
-//    If the misalignment penalty is estimated to be less than the bytes used, we don't double align.
-//    Otherwise, we compare the weighted ref count of ebp-enregistered variables aginst double the
-//    ref count for double-aligned values.
-//
-bool Compiler::shouldDoubleAlign(
-    unsigned refCntStk, unsigned refCntEBP, unsigned refCntWtdEBP, unsigned refCntStkParam, unsigned refCntWtdStkDbl)
-{
-    bool           doDoubleAlign        = false;
-    const unsigned DBL_ALIGN_SETUP_SIZE = 7;
-
-    unsigned bytesUsed         = refCntStk + refCntEBP - refCntStkParam + DBL_ALIGN_SETUP_SIZE;
-    unsigned misaligned_weight = 4;
-
-    if (compCodeOpt() == Compiler::SMALL_CODE)
-        misaligned_weight = 0;
-
-    if (compCodeOpt() == Compiler::FAST_CODE)
-        misaligned_weight *= 4;
-
-    JITDUMP("\nDouble alignment:\n");
-    JITDUMP("  Bytes that could be saved by not using EBP frame: %i\n", bytesUsed);
-    JITDUMP("  Sum of weighted ref counts for EBP enregistered variables: %i\n", refCntWtdEBP);
-    JITDUMP("  Sum of weighted ref counts for weighted stack based doubles: %i\n", refCntWtdStkDbl);
-
-    if (bytesUsed > ((refCntWtdStkDbl * misaligned_weight) / BB_UNITY_WEIGHT))
-    {
-        JITDUMP("    Predicting not to double-align ESP to save %d bytes of code.\n", bytesUsed);
-    }
-    else if (refCntWtdEBP > refCntWtdStkDbl * 2)
-    {
-        // TODO-CQ: On P4 2 Proc XEON's, SciMark.FFT degrades if SciMark.FFT.transform_internal is
-        // not double aligned.
-        // Here are the numbers that make this not double-aligned.
-        //     refCntWtdStkDbl = 0x164
-        //     refCntWtdEBP    = 0x1a4
-        // We think we do need to change the heuristic to be in favor of double-align.
-
-        JITDUMP("    Predicting not to double-align ESP to allow EBP to be used to enregister variables.\n");
-    }
-    else
-    {
-        // OK we passed all of the benefit tests, so we'll predict a double aligned frame.
-        JITDUMP("    Predicting to create a double-aligned frame\n");
-        doDoubleAlign = true;
-    }
-    return doDoubleAlign;
-}
 #endif // DOUBLE_ALIGN
-
-#ifdef LEGACY_BACKEND // We don't use any of the old register allocator functions when LSRA is used instead.
 
 void Compiler::raInit()
 {
@@ -1718,38 +1644,40 @@ regMaskTP Compiler::rpPredictBlkAsgRegUse(GenTreePtr   tree,
     regMaskTP regMask         = RBM_NONE;
     regMaskTP interferingRegs = RBM_NONE;
 
-    bool        hasGCpointer  = false;
-    bool        dstIsOnStack  = false;
-    bool        useMemHelper  = false;
-    bool        useBarriers   = false;
-    GenTreeBlk* dst           = tree->gtGetOp1()->AsBlk();
-    GenTreePtr  dstAddr       = dst->Addr();
-    GenTreePtr  srcAddrOrFill = tree->gtGetOp2();
+    bool hasGCpointer = false;
+    bool dstIsOnStack = false;
+    bool useMemHelper = false;
+    bool useBarriers  = false;
 
-    size_t blkSize = dst->gtBlkSize;
+    GenTreeBlkOp* blkNode       = tree->AsBlkOp();
+    GenTreePtr    dstAddr       = blkNode->Dest();
+    GenTreePtr    op1           = blkNode->gtGetOp1();
+    GenTreePtr    srcAddrOrFill = op1->gtGetOp2();
+    GenTreePtr    sizeNode      = blkNode->gtGetOp2();
 
-    hasGCpointer = (dst->HasGCPtr());
+    size_t blkSize = 0;
+
+    hasGCpointer = (blkNode->HasGCPtr());
 
     bool isCopyBlk = tree->OperIsCopyBlkOp();
-    bool isCopyObj = isCopyBlk && hasGCpointer;
-    bool isInitBlk = tree->OperIsInitBlkOp();
+    bool isCopyObj = (tree->OperGet() == GT_COPYOBJ);
+    bool isInitBlk = (tree->OperGet() == GT_INITBLK);
 
-    if (isCopyBlk)
+    if (sizeNode->OperGet() == GT_CNS_INT)
     {
-        assert(srcAddrOrFill->OperIsIndir());
-        srcAddrOrFill = srcAddrOrFill->AsIndir()->Addr();
-    }
-    else
-    {
-        // For initBlk, we don't need to worry about the GC pointers.
-        hasGCpointer = false;
-    }
-
-    if (blkSize != 0)
-    {
-        if (isCopyObj)
+        if (sizeNode->IsIconHandle(GTF_ICON_CLASS_HDL))
         {
-            dstIsOnStack = (dstAddr->gtOper == GT_ADDR && (dstAddr->gtFlags & GTF_ADDR_ONSTACK));
+            if (isCopyObj)
+            {
+                dstIsOnStack = (dstAddr->gtOper == GT_ADDR && (dstAddr->gtFlags & GTF_ADDR_ONSTACK));
+            }
+
+            CORINFO_CLASS_HANDLE clsHnd = (CORINFO_CLASS_HANDLE)sizeNode->gtIntCon.gtIconVal;
+            blkSize                     = roundUp(info.compCompHnd->getClassSize(clsHnd), TARGET_POINTER_SIZE);
+        }
+        else // gtIconVal contains amount to copy
+        {
+            blkSize = (unsigned)sizeNode->gtIntCon.gtIconVal;
         }
 
         if (isInitBlk)
@@ -1794,7 +1722,7 @@ regMaskTP Compiler::rpPredictBlkAsgRegUse(GenTreePtr   tree,
             srcAndDstPredict = PREDICT_SCRATCH_REG;
         }
 
-        if (tree->gtFlags & GTF_REVERSE_OPS)
+        if (op1->gtFlags & GTF_REVERSE_OPS)
         {
             regMask |= rpPredictTreeRegUse(srcAddrOrFill, srcAndDstPredict, lockedRegs,
                                            dstAddr->gtRsvdRegs | avoidReg | RBM_LASTUSE);
@@ -1875,36 +1803,23 @@ regMaskTP Compiler::rpPredictBlkAsgRegUse(GenTreePtr   tree,
 #else // !_TARGET_X86_ && !_TARGET_ARM_
 #error "Non-ARM or x86 _TARGET_ in RegPredict for INITBLK/COPYBLK"
 #endif // !_TARGET_X86_ && !_TARGET_ARM_
-    regMaskTP opsPtr2RsvdRegs = opsPtr[2] == nullptr ? RBM_NONE : opsPtr[2]->gtRsvdRegs;
     regMask |= rpPredictTreeRegUse(opsPtr[0], rpGetPredictForMask(regsPtr[0]), lockedRegs,
-                                   opsPtr[1]->gtRsvdRegs | opsPtr2RsvdRegs | RBM_LASTUSE);
+                                   opsPtr[1]->gtRsvdRegs | opsPtr[2]->gtRsvdRegs | RBM_LASTUSE);
     regMask |= regsPtr[0];
     opsPtr[0]->gtUsedRegs |= regsPtr[0];
     rpRecordRegIntf(regsPtr[0], compCurLife DEBUGARG("movsd dest"));
 
     regMask |= rpPredictTreeRegUse(opsPtr[1], rpGetPredictForMask(regsPtr[1]), lockedRegs | regMask,
-                                   opsPtr2RsvdRegs | RBM_LASTUSE);
+                                   opsPtr[2]->gtRsvdRegs | RBM_LASTUSE);
     regMask |= regsPtr[1];
     opsPtr[1]->gtUsedRegs |= regsPtr[1];
     rpRecordRegIntf(regsPtr[1], compCurLife DEBUGARG("movsd src"));
 
-    regMaskSmall opsPtr2UsedRegs = (regMaskSmall)regsPtr[2];
-    if (opsPtr[2] == nullptr)
-    {
-        // If we have no "size" node, we will predict that regsPtr[2] will be used for the size.
-        // Note that it is quite possible that no register is required, but this preserves
-        // former behavior.
-        regMask |= rpPredictRegPick(TYP_INT, rpGetPredictForMask(regsPtr[2]), lockedRegs | regMask);
-        rpRecordRegIntf(regsPtr[2], compCurLife DEBUGARG("tmp use"));
-    }
-    else
-    {
-        regMask |= rpPredictTreeRegUse(opsPtr[2], rpGetPredictForMask(regsPtr[2]), lockedRegs | regMask, RBM_NONE);
-        opsPtr[2]->gtUsedRegs |= opsPtr2UsedRegs;
-    }
-    regMask |= opsPtr2UsedRegs;
+    regMask |= rpPredictTreeRegUse(opsPtr[2], rpGetPredictForMask(regsPtr[2]), lockedRegs | regMask, RBM_NONE);
+    regMask |= regsPtr[2];
+    opsPtr[2]->gtUsedRegs |= regsPtr[2];
 
-    tree->gtUsedRegs = opsPtr[0]->gtUsedRegs | opsPtr[1]->gtUsedRegs | opsPtr2UsedRegs | (regMaskSmall)regMask;
+    tree->gtUsedRegs = opsPtr[0]->gtUsedRegs | opsPtr[1]->gtUsedRegs | opsPtr[2]->gtUsedRegs | (regMaskSmall)regMask;
     return interferingRegs;
 }
 
@@ -2553,12 +2468,6 @@ regMaskTP Compiler::rpPredictTreeRegUse(GenTreePtr   tree,
                             goto ASG_COMMON;
                         }
                     }
-                }
-                else if (tree->OperIsBlkOp())
-                {
-                    interferingRegs |= rpPredictBlkAsgRegUse(tree, predictReg, lockedRegs, rsvdRegs);
-                    regMask = 0;
-                    goto RETURN_CHECK;
                 }
                 __fallthrough;
 
@@ -4342,6 +4251,13 @@ regMaskTP Compiler::rpPredictTreeRegUse(GenTreePtr   tree,
 
                 goto RETURN_CHECK;
 
+            case GT_COPYOBJ:
+            case GT_COPYBLK:
+            case GT_INITBLK:
+                interferingRegs |= rpPredictBlkAsgRegUse(tree, predictReg, lockedRegs, rsvdRegs);
+                regMask = 0;
+                goto RETURN_CHECK;
+
             case GT_OBJ:
             {
 #ifdef _TARGET_ARM_
@@ -4457,13 +4373,6 @@ regMaskTP Compiler::rpPredictTreeRegUse(GenTreePtr   tree,
 
             case GT_ARR_LENGTH:
                 goto GENERIC_UNARY;
-
-            case GT_INIT_VAL:
-                // This unary operator simply passes through the value from its child (much like GT_NOP)
-                // and thus won't need a scratch register.
-                regMask          = rpPredictTreeRegUse(op1, predictReg, lockedRegs, rsvdRegs);
-                tree->gtUsedRegs = op1->gtUsedRegs;
-                goto RETURN_CHECK;
 
             default:
 #ifdef DEBUG
@@ -4606,7 +4515,7 @@ regMaskTP Compiler::rpPredictTreeRegUse(GenTreePtr   tree,
                 curArgMask = RBM_NONE; // Set of argument registers that are going to be setup by this arg
                 tmpMask    = RBM_NONE; // Set of additional temp registers that are need only to setup the current arg
 
-                assert(list->OperIsList());
+                assert(list->IsList());
 
                 args = list->Current();
                 list = list->Rest();
@@ -5921,14 +5830,114 @@ regMaskTP Compiler::rpPredictAssignRegVars(regMaskTP regAvail)
 
         if (getCanDoubleAlign() == CAN_DOUBLE_ALIGN && (refCntWtdStkDbl > 0))
         {
-            if (shouldDoubleAlign(refCntStk, refCntEBP, refCntWtdEBP, refCntStkParam, refCntWtdStkDbl))
+            /* OK, there may be some benefit to double-aligning the frame */
+            /* But let us compare the benefits vs. the costs of this      */
+
+            /*
+               One cost to consider is the benefit of smaller code
+               when using EBP as a frame pointer register
+
+               Each stack variable reference is an extra byte of code
+               if we use a double-aligned frame, parameters are
+               accessed via EBP for a double-aligned frame so they
+               don't use an extra byte of code.
+
+               We pay one byte of code for each refCntStk and we pay
+               one byte or more for each refCntEBP but we save one
+               byte for each refCntStkParam.
+
+               Our savings are the elimination of a possible misaligned
+               access and a possible DCU spilt when an access crossed
+               a cache-line boundry.
+
+               We use the loop weighted value of
+                  refCntWtdStkDbl * misaligned_weight (0, 4, 16)
+               to represent this savings.
+            */
+
+            // We also pay 7 extra bytes for the MOV EBP,ESP,
+            // LEA ESP,[EBP-0x10] and the AND ESP,-8 to double align ESP
+            const unsigned DBL_ALIGN_SETUP_SIZE = 7;
+
+            unsigned bytesUsed         = refCntStk + refCntEBP - refCntStkParam + DBL_ALIGN_SETUP_SIZE;
+            unsigned misaligned_weight = 4;
+
+            if (compCodeOpt() == SMALL_CODE)
+                misaligned_weight = 0;
+
+            if (compCodeOpt() == FAST_CODE)
+                misaligned_weight *= 4;
+
+#ifdef DEBUG
+            if (verbose)
             {
-                rpFrameType = FT_DOUBLE_ALIGN_FRAME;
-                goto REVERSE_EBP_ENREG;
+                printf("; Double alignment:\n");
+                printf("; Bytes that could be save by not using EBP frame: %i\n", bytesUsed);
+                printf("; Sum of weighted ref counts for EBP enregistered variables: %i\n", refCntWtdEBP);
+                printf("; Sum of weighted ref counts for weighted stack based doubles: %i\n", refCntWtdStkDbl);
             }
+#endif
+
+            if (bytesUsed > ((refCntWtdStkDbl * misaligned_weight) / BB_UNITY_WEIGHT))
+            {
+                /* It's probably better to use EBP as a frame pointer */
+                CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef DEBUG
+                if (verbose)
+                    printf("; Predicting not to double-align ESP to save %d bytes of code.\n", bytesUsed);
+#endif
+                goto NO_DOUBLE_ALIGN;
+            }
+
+            /*
+               Another cost to consider is the benefit of using EBP to enregister
+               one or more integer variables
+
+               We pay one extra memory reference for each refCntWtdEBP
+
+               Our savings are the elimination of a possible misaligned
+               access and a possible DCU spilt when an access crossed
+               a cache-line boundry.
+
+            */
+
+            // <BUGNUM>
+            // VSW 346717: On P4 2 Proc XEON's, SciMark.FFT degrades if SciMark.FFT.transform_internal is
+            // not double aligned.
+            // Here are the numbers that make this not double-aligned.
+            //     refCntWtdStkDbl = 0x164
+            //     refCntWtdEBP    = 0x1a4
+            // We think we do need to change the heuristic to be in favor of double-align.
+            // </BUGNUM>
+
+            if (refCntWtdEBP > refCntWtdStkDbl * 2)
+            {
+                /* It's probably better to use EBP to enregister integer variables */
+                CLANG_FORMAT_COMMENT_ANCHOR;
+
+#ifdef DEBUG
+                if (verbose)
+                    printf("; Predicting not to double-align ESP to allow EBP to be used to enregister variables\n");
+#endif
+                goto NO_DOUBLE_ALIGN;
+            }
+
+#ifdef DEBUG
+            if (verbose)
+                printf("; Predicting to create a double-aligned frame\n");
+#endif
+            /*
+               OK we passed all of the benefit tests
+               so we'll predict a double aligned frame
+            */
+
+            rpFrameType = FT_DOUBLE_ALIGN_FRAME;
+            goto REVERSE_EBP_ENREG;
         }
     }
 
+NO_DOUBLE_ALIGN:
 #endif // DOUBLE_ALIGN
 
     if (!codeGen->isFramePointerRequired() && !codeGen->isFrameRequired())
@@ -6654,6 +6663,8 @@ void Compiler::raMarkStkVars()
 
 #endif // FEATURE_FIXED_OUT_ARGS
 
+#ifdef DEBUGGING_SUPPORT
+
 #ifdef DEBUG
             /* For debugging, note that we have to reserve space even for
                unused variables if they are ever in scope. However, this is not
@@ -6688,6 +6699,7 @@ void Compiler::raMarkStkVars()
                     varDsc->lvMustInit = true;
                 }
             }
+#endif // DEBUGGING_SUPPORT
 
 #ifndef LEGACY_BACKEND
             varDsc->lvOnFrame = needSlot;

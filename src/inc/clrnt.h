@@ -835,60 +835,16 @@ RtlVirtualUnwind_Unsafe(
 //  X86
 //
 
-#ifdef _TARGET_X86_
-#ifndef FEATURE_PAL
-//
-// x86 ABI does not define RUNTIME_FUNCTION. Define our own to allow unification between x86 and other platforms.
-//
-typedef struct _RUNTIME_FUNCTION {
-    DWORD BeginAddress;
-    DWORD UnwindData;
-} RUNTIME_FUNCTION, *PRUNTIME_FUNCTION;
+#if defined(_TARGET_X86_)
+
+#pragma warning(push)
+#pragma warning (disable:4035)        // disable 4035 (function must return something)
+#define PcTeb 0x18
+#pragma warning(pop)
 
 typedef struct _DISPATCHER_CONTEXT {
     _EXCEPTION_REGISTRATION_RECORD* RegistrationPointer;
 } DISPATCHER_CONTEXT, *PDISPATCHER_CONTEXT;
-
-#endif // !FEATURE_PAL
-
-#define RUNTIME_FUNCTION__BeginAddress(prf)             (prf)->BeginAddress
-#define RUNTIME_FUNCTION__SetBeginAddress(prf,addr)     ((prf)->BeginAddress = (addr))
-
-#ifdef WIN64EXCEPTIONS
-EXTERN_C ULONG
-RtlpGetFunctionEndAddress (
-    __in PT_RUNTIME_FUNCTION FunctionEntry,
-    __in ULONG ImageBase
-    );
-
-#define RUNTIME_FUNCTION__EndAddress(prf, ImageBase)   RtlpGetFunctionEndAddress(prf, ImageBase)
-
-#define RUNTIME_FUNCTION__GetUnwindInfoAddress(prf)    (prf)->UnwindData
-#define RUNTIME_FUNCTION__SetUnwindInfoAddress(prf, addr) do { (prf)->UnwindData = (addr); } while(0)
-
-#define UNW_FLAG_NHANDLER               0x0             /* any handler */
-#define UNW_FLAG_EHANDLER               0x1             /* filter handler */
-#define UNW_FLAG_UHANDLER               0x2             /* unwind handler */
-
-typedef struct _UNWIND_INFO {
-    // dummy
-} UNWIND_INFO, *PUNWIND_INFO;
-
-EXTERN_C
-NTSYSAPI
-PEXCEPTION_ROUTINE
-NTAPI
-RtlVirtualUnwind (
-    __in DWORD HandlerType,
-    __in DWORD ImageBase,
-    __in DWORD ControlPc,
-    __in PRUNTIME_FUNCTION FunctionEntry,
-    __inout PT_CONTEXT ContextRecord,
-    __out PVOID *HandlerData,
-    __out PDWORD EstablisherFrame,
-    __inout_opt PT_KNONVOLATILE_CONTEXT_POINTERS ContextPointers
-    );
-#endif // WIN64EXCEPTIONS
 
 #endif // _TARGET_X86_
 

@@ -34,10 +34,7 @@
     ldstr      "A::Bar2"
     ret
   }
-  .method public hidebysig specialname rtspecialname instance void .ctor() cil managed
-  {
-    ret
-  }
+  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {}
 }
 
 .class private auto ansi beforefieldinit B`2<V,W>
@@ -60,20 +57,12 @@
     .maxstack  8
     ldstr      "B::Bar2"
     ret
-  }
-  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed
-  {
-    ret
-  }
+  }  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {}
 }
 
 .class private auto ansi beforefieldinit C extends class B`2<class C,class C>
-{ 
-  .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed
-  {
-    ret
-  }
-}
+{ .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed {} }
+
 
 .class public auto ansi beforefieldinit Test extends [mscorlib]System.Object
 {

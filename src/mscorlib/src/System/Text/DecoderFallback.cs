@@ -7,7 +7,6 @@ using System;
 using System.Security;
 using System.Threading;
 using System.Globalization;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 
 namespace System.Text
@@ -116,10 +115,13 @@ namespace System.Text
 
         // Internal items to help us figure out what we're doing as far as error messages, etc.
         // These help us with our performance and messages internally
+        [SecurityCritical]
         internal     unsafe byte*    byteStart;
+        [SecurityCritical]
         internal     unsafe char*    charEnd;
 
         // Internal Reset
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe void InternalReset()
         {
             byteStart = null;
@@ -128,6 +130,7 @@ namespace System.Text
 
         // Set the above values
         // This can't be part of the constructor because DecoderFallbacks would have to know how to impliment these.
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe void InternalInitialize(byte* byteStart, char* charEnd)
         {
             this.byteStart = byteStart;
@@ -142,6 +145,7 @@ namespace System.Text
         // Right now this has both bytes and bytes[], since we might have extra bytes, hence the
         // array, and we might need the index, hence the byte*
         // Don't touch ref chars unless we succeed
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe virtual bool InternalFallback(byte[] bytes, byte* pBytes, ref char* chars)
         {
             // Copy bytes to array (slow, but right now that's what we get to do.
@@ -149,7 +153,7 @@ namespace System.Text
 //            for (int i = 0; i < count; i++)
 //                bytesUnknown[i] = *(bytes++);
 
-            Debug.Assert(byteStart != null, "[DecoderFallback.InternalFallback]Used InternalFallback without calling InternalInitialize");
+            Contract.Assert(byteStart != null, "[DecoderFallback.InternalFallback]Used InternalFallback without calling InternalInitialize");
 
             // See if there's a fallback character and we have an output buffer then copy our string.
             if (this.Fallback(bytes, (int)(pBytes - byteStart - bytes.Length)))
@@ -200,6 +204,7 @@ namespace System.Text
         }
 
         // This version just counts the fallback and doesn't actually copy anything.
+        [System.Security.SecurityCritical]  // auto-generated
         internal unsafe virtual int InternalFallback(byte[] bytes, byte* pBytes)
         // Right now this has both bytes and bytes[], since we might have extra bytes, hence the
         // array, and we might need the index, hence the byte*
@@ -209,7 +214,7 @@ namespace System.Text
 //            for (int i = 0; i < count; i++)
   //              bytesUnknown[i] = *(bytes++);
 
-            Debug.Assert(byteStart != null, "[DecoderFallback.InternalFallback]Used InternalFallback without calling InternalInitialize");
+            Contract.Assert(byteStart != null, "[DecoderFallback.InternalFallback]Used InternalFallback without calling InternalInitialize");
 
             // See if there's a fallback character and we have an output buffer then copy our string.
             if (this.Fallback(bytes, (int)(pBytes - byteStart - bytes.Length)))
@@ -272,7 +277,7 @@ namespace System.Text
             // Throw it, using our complete bytes
             throw new ArgumentException(
                 Environment.GetResourceString("Argument_RecursiveFallbackBytes",
-                    strBytes.ToString()), nameof(bytesUnknown));
+                    strBytes.ToString()), "bytesUnknown");
         }
 
     }

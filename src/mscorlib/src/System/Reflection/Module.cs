@@ -59,6 +59,9 @@ namespace System.Reflection
     [ClassInterface(ClassInterfaceType.None)]
     [ComDefaultInterface(typeof(_Module))]
     [System.Runtime.InteropServices.ComVisible(true)]
+#pragma warning disable 618
+    [PermissionSetAttribute(SecurityAction.InheritanceDemand, Unrestricted = true)]
+#pragma warning restore 618
     public abstract class Module : _Module, ISerializable, ICustomAttributeProvider
     {   
         #region Static Constructor
@@ -271,6 +274,7 @@ namespace System.Reflection
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             throw new NotImplementedException();
@@ -295,6 +299,9 @@ namespace System.Reflection
 
         public virtual String FullyQualifiedName 
         {
+#if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+#endif
             get
             {
                 throw new NotImplementedException();
@@ -425,16 +432,16 @@ namespace System.Reflection
             String name, BindingFlags bindingAttr, Binder binder, CallingConventions callConvention, Type[] types, ParameterModifier[] modifiers)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
 
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
 
             for (int i = 0; i < types.Length; i++)
             {
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             }
 
             return GetMethodImpl(name, bindingAttr, binder, callConvention, types, modifiers);
@@ -443,16 +450,16 @@ namespace System.Reflection
         public MethodInfo GetMethod(String name, Type[] types)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
 
             if (types == null)
-                throw new ArgumentNullException(nameof(types));
+                throw new ArgumentNullException("types");
             Contract.EndContractBlock();
 
             for (int i = 0; i < types.Length; i++)
             {
                 if (types[i] == null)
-                    throw new ArgumentNullException(nameof(types));
+                    throw new ArgumentNullException("types");
             }
 
             return GetMethodImpl(name, Module.DefaultLookup, null, CallingConventions.Any, types, null);
@@ -461,7 +468,7 @@ namespace System.Reflection
         public MethodInfo GetMethod(String name)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
             Contract.EndContractBlock();
 
             return GetMethodImpl(name, Module.DefaultLookup, null, CallingConventions.Any,
@@ -536,7 +543,36 @@ namespace System.Reflection
         {
             return ModuleHandle.EmptyHandle;
         }
+
+#if FEATURE_X509 && FEATURE_CAS_POLICY
+        public virtual System.Security.Cryptography.X509Certificates.X509Certificate GetSignerCertificate()
+        {
+            throw new NotImplementedException();
+        }
+#endif // FEATURE_X509 && FEATURE_CAS_POLICY
         #endregion
+
+#if !FEATURE_CORECLR
+        void _Module.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Module.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Module.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _Module.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
     }
 
     [Serializable]
@@ -545,32 +581,46 @@ namespace System.Reflection
         internal RuntimeModule() { throw new NotSupportedException(); }
 
         #region FCalls
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
 		[SuppressUnmanagedCodeSecurity]
         private extern static void GetType(RuntimeModule module, String className, bool ignoreCase, bool throwOnError, ObjectHandleOnStack type, ObjectHandleOnStack keepAlive);
 
+        [System.Security.SecurityCritical]
         [DllImport(JitHelpers.QCall)]
         [SuppressUnmanagedCodeSecurity]
         private static extern bool nIsTransientInternal(RuntimeModule module);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private extern static void GetScopeName(RuntimeModule module, StringHandleOnStack retString);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private extern static void GetFullyQualifiedName(RuntimeModule module, StringHandleOnStack retString);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern static RuntimeType[] GetTypes(RuntimeModule module);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal RuntimeType[] GetDefinedTypes()
         {
             return GetTypes(GetNativeHandle());
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern static bool IsResource(RuntimeModule module);
+
+#if FEATURE_X509 && FEATURE_CAS_POLICY
+        [System.Security.SecurityCritical]  // auto-generated
+        [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
+        [SuppressUnmanagedCodeSecurity]
+        static private extern void GetSignerCertificate(RuntimeModule module, ObjectHandleOnStack retData);
+#endif // FEATURE_X509 && FEATURE_CAS_POLICY
         #endregion
 
         #region Module overrides
@@ -596,17 +646,18 @@ namespace System.Reflection
             return typeHandleArgs;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override byte[] ResolveSignature(int metadataToken)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
 
             if (!MetadataImport.IsValidToken(tk))
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     Environment.GetResourceString("Argument_InvalidToken", tk, this));
 
             if (!tk.IsMemberRef && !tk.IsMethodDef && !tk.IsTypeSpec && !tk.IsSignature && !tk.IsFieldDef)
                 throw new ArgumentException(Environment.GetResourceString("Argument_InvalidToken", tk, this),
-                                            nameof(metadataToken));
+                                            "metadataToken");
 
             ConstArray signature;
             if (tk.IsMemberRef)
@@ -622,12 +673,13 @@ namespace System.Reflection
             return sig;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override MethodBase ResolveMethod(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
 
             if (!MetadataImport.IsValidToken(tk))
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     Environment.GetResourceString("Argument_InvalidToken", tk, this));
 
             RuntimeTypeHandle[] typeArgs = ConvertToTypeHandleArray(genericTypeArguments);
@@ -638,16 +690,16 @@ namespace System.Reflection
                 if (!tk.IsMethodDef && !tk.IsMethodSpec)
                 {
                     if (!tk.IsMemberRef)
-                        throw new ArgumentException(Environment.GetResourceString("Argument_ResolveMethod", tk, this),
-                            nameof(metadataToken));
+                        throw new ArgumentException("metadataToken",
+                            Environment.GetResourceString("Argument_ResolveMethod", tk, this));
 
                     unsafe
                     {
                         ConstArray sig = MetadataImport.GetMemberRefProps(tk);
                         
                         if (*(MdSigCallingConvention*)sig.Signature.ToPointer() == MdSigCallingConvention.Field)
-                            throw new ArgumentException(Environment.GetResourceString("Argument_ResolveMethod", tk, this),
-                                nameof(metadataToken));
+                            throw new ArgumentException("metadataToken", 
+                                Environment.GetResourceString("Argument_ResolveMethod", tk, this));
                     }
                 }
 
@@ -672,12 +724,13 @@ namespace System.Reflection
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private FieldInfo ResolveLiteralField(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
 
             if (!MetadataImport.IsValidToken(tk) || !tk.IsFieldDef)
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     String.Format(CultureInfo.CurrentUICulture, Environment.GetResourceString("Argument_InvalidToken", tk, this)));
 
             int tkDeclaringType;
@@ -699,16 +752,17 @@ namespace System.Reflection
             }
             catch
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveField", tk, this), nameof(metadataToken));
+                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveField", tk, this), "metadataToken");
             }
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override FieldInfo ResolveField(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
 
             if (!MetadataImport.IsValidToken(tk))
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     Environment.GetResourceString("Argument_InvalidToken", tk, this));
 
             RuntimeTypeHandle[] typeArgs = ConvertToTypeHandleArray(genericTypeArguments);
@@ -721,16 +775,16 @@ namespace System.Reflection
                 if (!tk.IsFieldDef)
                 {
                     if (!tk.IsMemberRef)
-                        throw new ArgumentException(Environment.GetResourceString("Argument_ResolveField", tk, this),
-                            nameof(metadataToken));
+                        throw new ArgumentException("metadataToken",
+                            Environment.GetResourceString("Argument_ResolveField", tk, this));
 
                     unsafe 
                     {
                         ConstArray sig = MetadataImport.GetMemberRefProps(tk);
                         
                         if (*(MdSigCallingConvention*)sig.Signature.ToPointer() != MdSigCallingConvention.Field)
-                            throw new ArgumentException(Environment.GetResourceString("Argument_ResolveField", tk, this),
-                                nameof(metadataToken));                            
+                            throw new ArgumentException("metadataToken",
+                                Environment.GetResourceString("Argument_ResolveField", tk, this));                            
                     }
 
                     fieldHandle = ModuleHandle.ResolveFieldHandleInternal(GetNativeHandle(), tk, typeArgs, methodArgs);
@@ -757,19 +811,20 @@ namespace System.Reflection
             }           
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override Type ResolveType(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
 
             if (tk.IsGlobalTypeDefToken)
-                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveModuleType", tk), nameof(metadataToken));
+                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveModuleType", tk), "metadataToken");
             
             if (!MetadataImport.IsValidToken(tk))
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     Environment.GetResourceString("Argument_InvalidToken", tk, this));
 
             if (!tk.IsTypeDef && !tk.IsTypeSpec && !tk.IsTypeRef)
-                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveType", tk, this), nameof(metadataToken));
+                throw new ArgumentException(Environment.GetResourceString("Argument_ResolveType", tk, this), "metadataToken");
 
             RuntimeTypeHandle[] typeArgs = ConvertToTypeHandleArray(genericTypeArguments);
             RuntimeTypeHandle[] methodArgs = ConvertToTypeHandleArray(genericMethodArguments);
@@ -779,7 +834,7 @@ namespace System.Reflection
                 Type t = GetModuleHandle().ResolveTypeHandle(metadataToken, typeArgs, methodArgs).GetRuntimeType();
                     
                 if (t == null)
-                    throw new ArgumentException(Environment.GetResourceString("Argument_ResolveType", tk, this), nameof(metadataToken));
+                    throw new ArgumentException(Environment.GetResourceString("Argument_ResolveType", tk, this), "metadataToken");
 
                 return t;
             } 
@@ -789,6 +844,7 @@ namespace System.Reflection
             }
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override MemberInfo ResolveMember(int metadataToken, Type[] genericTypeArguments, Type[] genericMethodArguments)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
@@ -811,7 +867,7 @@ namespace System.Reflection
             if (tk.IsMemberRef)
             {
                 if (!MetadataImport.IsValidToken(tk))
-                    throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                    throw new ArgumentOutOfRangeException("metadataToken",
                         Environment.GetResourceString("Argument_InvalidToken", tk, this));
 
                 ConstArray sig = MetadataImport.GetMemberRefProps(tk);
@@ -829,10 +885,11 @@ namespace System.Reflection
                 }                
             }
 
-            throw new ArgumentException(Environment.GetResourceString("Argument_ResolveMember", tk, this),
-                nameof(metadataToken));
+            throw new ArgumentException("metadataToken",
+                Environment.GetResourceString("Argument_ResolveMember", tk, this));
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override string ResolveString(int metadataToken)
         {
             MetadataToken tk = new MetadataToken(metadataToken);
@@ -841,7 +898,7 @@ namespace System.Reflection
                     String.Format(CultureInfo.CurrentUICulture, Environment.GetResourceString("Argument_ResolveString"), metadataToken, ToString()));
 
             if (!MetadataImport.IsValidToken(tk))
-                throw new ArgumentOutOfRangeException(nameof(metadataToken),
+                throw new ArgumentOutOfRangeException("metadataToken",
                     String.Format(CultureInfo.CurrentUICulture, Environment.GetResourceString("Argument_InvalidToken", tk, this)));
 
             string str = MetadataImport.GetUserString(metadataToken);
@@ -860,6 +917,7 @@ namespace System.Reflection
 
         public override int MDStreamVersion
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 return ModuleHandle.GetMDStreamVersion(GetNativeHandle());
@@ -915,6 +973,7 @@ namespace System.Reflection
             }
         }
 
+        [System.Security.SecuritySafeCritical]
         internal bool IsTransientInternal()
         {
             return RuntimeModule.nIsTransientInternal(this.GetNativeHandle());
@@ -922,6 +981,7 @@ namespace System.Reflection
         
         internal MetadataImport MetadataImport
         {
+            [System.Security.SecurityCritical]  // auto-generated
             get
             {
                 unsafe
@@ -941,27 +1001,28 @@ namespace System.Reflection
         public override Object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
     
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override bool IsDefined(Type attributeType, bool inherit)
         {
             if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
+                throw new ArgumentNullException("attributeType");
             Contract.EndContractBlock();
 
             RuntimeType attributeRuntimeType = attributeType.UnderlyingSystemType as RuntimeType;
 
             if (attributeRuntimeType == null) 
-                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),nameof(attributeType));
+                throw new ArgumentException(Environment.GetResourceString("Arg_MustBeType"),"attributeType");
 
             return CustomAttribute.IsDefined(this, attributeRuntimeType);
         }
@@ -973,22 +1034,24 @@ namespace System.Reflection
         #endregion
 
         #region Public Virtuals
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             if (info == null)
             {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
             Contract.EndContractBlock();
             UnitySerializationHolder.GetUnitySerializationInfo(info, UnitySerializationHolder.ModuleUnity, this.ScopeName, this.GetRuntimeAssembly());
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(true)]
         public override Type GetType(String className, bool throwOnError, bool ignoreCase)
         {
             // throw on null strings regardless of the value of "throwOnError"
             if (className == null)
-                throw new ArgumentNullException(nameof(className));
+                throw new ArgumentNullException("className");
 
             RuntimeType retType = null;
             Object keepAlive = null;
@@ -997,6 +1060,7 @@ namespace System.Reflection
             return retType;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal string GetFullyQualifiedName()
         {
             String fullyQualifiedName = null;
@@ -1006,6 +1070,11 @@ namespace System.Reflection
 
         public override String FullyQualifiedName
         {
+#if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+#else
+            [System.Security.SecuritySafeCritical]
+#endif
             get
             {
                 String fullyQualifiedName = GetFullyQualifiedName();
@@ -1013,7 +1082,7 @@ namespace System.Reflection
                 if (fullyQualifiedName != null) {
                     bool checkPermission = true;
                     try {
-                        Path.GetFullPath(fullyQualifiedName);
+                        Path.GetFullPathInternal(fullyQualifiedName);
                     }
                     catch(ArgumentException) {
                         checkPermission = false;
@@ -1027,6 +1096,7 @@ namespace System.Reflection
             }
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public override Type[] GetTypes()
         {
             return GetTypes(GetNativeHandle());
@@ -1038,6 +1108,7 @@ namespace System.Reflection
 
         public override Guid ModuleVersionId
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 unsafe
@@ -1051,6 +1122,7 @@ namespace System.Reflection
 
         public override int MetadataToken
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 return ModuleHandle.GetToken(GetNativeHandle());
@@ -1073,7 +1145,7 @@ namespace System.Reflection
         public override FieldInfo GetField(String name, BindingFlags bindingAttr)
         {
             if (name == null)
-                throw new ArgumentNullException(nameof(name));
+                throw new ArgumentNullException("name");
 
             if (RuntimeType == null)
                 return null;
@@ -1091,6 +1163,7 @@ namespace System.Reflection
 
         public override String ScopeName
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 string scopeName = null;
@@ -1101,6 +1174,7 @@ namespace System.Reflection
 
         public override String Name
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 String s = GetFullyQualifiedName();
@@ -1141,6 +1215,16 @@ namespace System.Reflection
         {
             return this;
         }
+
+#if FEATURE_X509 && FEATURE_CAS_POLICY
+        [System.Security.SecuritySafeCritical]  // auto-generated
+        public override System.Security.Cryptography.X509Certificates.X509Certificate GetSignerCertificate()
+        {
+            byte[] data = null;
+            GetSignerCertificate(GetNativeHandle(), JitHelpers.GetObjectHandleOnStack(ref data));
+            return (data != null) ? new System.Security.Cryptography.X509Certificates.X509Certificate(data) : null;
+        }
+#endif // FEATURE_X509 && FEATURE_CAS_POLICY
         #endregion
     }
 }

@@ -12,8 +12,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchF
-{
 public static class Simpsn
 {
 #if DEBUG
@@ -92,5 +90,4 @@ public static class Simpsn
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

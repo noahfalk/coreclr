@@ -19,7 +19,6 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 
 
@@ -147,13 +146,13 @@ namespace System {
 #if _DEBUG
         private static bool TriggerAsserts = DoAsserts();
         private static bool DoAsserts() {
-            Debug.Assert(ConvertTypes!=null, "[Convert.cctor]ConvertTypes!=null");
-            Debug.Assert(ConvertTypes.Length == ((int)TypeCode.String + 1), "[Convert.cctor]ConvertTypes.Length == ((int)TypeCode.String + 1)");
-            Debug.Assert(ConvertTypes[(int)TypeCode.Empty]==typeof(System.Empty),
+            Contract.Assert(ConvertTypes!=null, "[Convert.cctor]ConvertTypes!=null");
+            Contract.Assert(ConvertTypes.Length == ((int)TypeCode.String + 1), "[Convert.cctor]ConvertTypes.Length == ((int)TypeCode.String + 1)");
+            Contract.Assert(ConvertTypes[(int)TypeCode.Empty]==typeof(System.Empty),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.Empty]==typeof(System.Empty)");
-            Debug.Assert(ConvertTypes[(int)TypeCode.String]==typeof(String),
+            Contract.Assert(ConvertTypes[(int)TypeCode.String]==typeof(String),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.String]==typeof(System.String)");
-            Debug.Assert(ConvertTypes[(int)TypeCode.Int32]==typeof(int),
+            Contract.Assert(ConvertTypes[(int)TypeCode.Int32]==typeof(int),
                             "[Convert.cctor]ConvertTypes[(int)TypeCode.Int32]==typeof(int)");
             return true;
         }
@@ -260,7 +259,7 @@ namespace System {
         internal static Object DefaultToType(IConvertible value, Type targetType, IFormatProvider provider) {
             Contract.Requires(value != null, "[Convert.DefaultToType]value!=null");
             if (targetType==null) {
-                throw new ArgumentNullException(nameof(targetType));
+                throw new ArgumentNullException("targetType");
             }
             Contract.EndContractBlock();
 
@@ -323,7 +322,7 @@ namespace System {
 
         public static Object ChangeType(Object value, Type conversionType, IFormatProvider provider) {
             if( conversionType == null) {
-                throw new ArgumentNullException(nameof(conversionType));
+                throw new ArgumentNullException("conversionType");
             }
             Contract.EndContractBlock();
 
@@ -576,7 +575,7 @@ namespace System {
 
         public static char ToChar(String value, IFormatProvider provider) {
             if (value == null) 
-                throw new ArgumentNullException(nameof(value));
+                throw new ArgumentNullException("value");
             Contract.EndContractBlock();
          
             if (value.Length != 1) 
@@ -1130,6 +1129,7 @@ namespace System {
             throw new OverflowException(Environment.GetResourceString("Overflow_Int32"));
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static int ToInt32(decimal value) {
             return Decimal.FCallToInt32(value);
         }
@@ -2114,6 +2114,7 @@ namespace System {
         }
 
         // Convert the byte value to a string in base fromBase
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static String ToString (byte value, int toBase) {
             if (toBase!=2 && toBase!=8 && toBase!=10 && toBase!=16) {
                 throw new ArgumentException(Environment.GetResourceString("Arg_InvalidBase"));
@@ -2123,6 +2124,7 @@ namespace System {
         }
 
         // Convert the Int16 value to a string in base fromBase
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static String ToString (short value, int toBase) {
             if (toBase!=2 && toBase!=8 && toBase!=10 && toBase!=16) {
                 throw new ArgumentException(Environment.GetResourceString("Arg_InvalidBase"));
@@ -2132,6 +2134,7 @@ namespace System {
         }
 
         // Convert the Int32 value to a string in base toBase
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static String ToString (int value, int toBase) {
             if (toBase!=2 && toBase!=8 && toBase!=10 && toBase!=16) {
                 throw new ArgumentException(Environment.GetResourceString("Arg_InvalidBase"));
@@ -2141,6 +2144,7 @@ namespace System {
         }
 
         // Convert the Int64 value to a string in base toBase
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public static String ToString (long value, int toBase) {
             if (toBase!=2 && toBase!=8 && toBase!=10 && toBase!=16) {
                 throw new ArgumentException(Environment.GetResourceString("Arg_InvalidBase"));
@@ -2151,7 +2155,7 @@ namespace System {
 
         public static String ToBase64String(byte[] inArray) {
             if (inArray==null) {
-                throw new ArgumentNullException(nameof(inArray));
+                throw new ArgumentNullException("inArray");
             }
             Contract.Ensures(Contract.Result<string>() != null);
             Contract.EndContractBlock();
@@ -2161,7 +2165,7 @@ namespace System {
         [System.Runtime.InteropServices.ComVisible(false)]
         public static String ToBase64String(byte[] inArray, Base64FormattingOptions options) {
             if (inArray==null) {
-                throw new ArgumentNullException(nameof(inArray));
+                throw new ArgumentNullException("inArray");
             }
             Contract.Ensures(Contract.Result<string>() != null);
             Contract.EndContractBlock();
@@ -2172,15 +2176,16 @@ namespace System {
             return ToBase64String(inArray, offset, length, Base64FormattingOptions.None);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(false)]
         public static unsafe String ToBase64String(byte[] inArray, int offset, int length, Base64FormattingOptions options) {
             //Do data verfication
             if (inArray==null) 
-                throw new ArgumentNullException(nameof(inArray));
+                throw new ArgumentNullException("inArray");
             if (length<0)
-                throw new ArgumentOutOfRangeException(nameof(length), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_Index"));
             if (offset<0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
             if (options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks)
                 throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", (int)options));
             Contract.Ensures(Contract.Result<string>() != null);
@@ -2191,7 +2196,7 @@ namespace System {
 
             inArrayLength = inArray.Length;
             if (offset > (inArrayLength - length))
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
            
             if (inArrayLength == 0)
                 return String.Empty;
@@ -2218,19 +2223,20 @@ namespace System {
             return ToBase64CharArray(inArray, offsetIn, length, outArray, offsetOut, Base64FormattingOptions.None);
         }
         
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(false)]
         public static unsafe int ToBase64CharArray(byte[] inArray, int offsetIn, int length, char[] outArray, int offsetOut, Base64FormattingOptions options) {
             //Do data verfication
             if (inArray==null) 
-                throw new ArgumentNullException(nameof(inArray));
+                throw new ArgumentNullException("inArray");
             if (outArray==null)
-                throw new ArgumentNullException(nameof(outArray));
+                throw new ArgumentNullException("outArray");
             if (length<0)
-                throw new ArgumentOutOfRangeException(nameof(length), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_Index"));
             if (offsetIn<0)
-                throw new ArgumentOutOfRangeException(nameof(offsetIn), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("offsetIn", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
             if (offsetOut<0)
-                throw new ArgumentOutOfRangeException(nameof(offsetOut), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("offsetOut", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
 
             if( options < Base64FormattingOptions.None || options > Base64FormattingOptions.InsertLineBreaks) {
                 throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", (int)options));
@@ -2249,7 +2255,7 @@ namespace System {
             inArrayLength = inArray.Length;
 
             if (offsetIn > (int)(inArrayLength - length))
-                throw new ArgumentOutOfRangeException(nameof(offsetIn), Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
+                throw new ArgumentOutOfRangeException("offsetIn", Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
 
             if (inArrayLength == 0)
                 return 0;
@@ -2262,7 +2268,7 @@ namespace System {
             numElementsToCopy = ToBase64_CalculateAndValidateOutputLength(length, insertLineBreaks);
     
             if (offsetOut > (int)(outArrayLength -  numElementsToCopy))
-                throw new ArgumentOutOfRangeException(nameof(offsetOut), Environment.GetResourceString("ArgumentOutOfRange_OffsetOut"));
+                throw new ArgumentOutOfRangeException("offsetOut", Environment.GetResourceString("ArgumentOutOfRange_OffsetOut"));
 
             fixed (char* outChars = &outArray[offsetOut]) {
                 fixed (byte* inData = inArray) { 
@@ -2273,6 +2279,7 @@ namespace System {
             return retVal;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private static unsafe int ConvertToBase64Array(char* outChars, byte* inData, int offset, int length, bool insertLineBreaks) {
             int lengthmod3 = length%3;
             int calcLength = offset + (length - lengthmod3);
@@ -2359,12 +2366,13 @@ namespace System {
         /// </summary>
         /// <param name="s">The string to convert</param>
         /// <returns>The array of bytes represented by the specifed Base64 string.</returns>
+        [SecuritySafeCritical] 
         public static Byte[] FromBase64String(String s) {
 
             // "s" is an unfortunate parameter name, but we need to keep it for backward compat.
 
             if (s == null)
-                throw new ArgumentNullException(nameof(s));
+                throw new ArgumentNullException("s");
 
             Contract.EndContractBlock();
 
@@ -2384,19 +2392,20 @@ namespace System {
         /// <param name="offset">A position within the input array.</param>
         /// <param name="length">Number of element to convert.</param>
         /// <returns>The array of bytes represented by the specified Base64 encoding characters.</returns>
+        [SecuritySafeCritical]
         public static Byte[] FromBase64CharArray(Char[] inArray, Int32 offset, Int32 length) {
 
             if (inArray == null)
-                throw new ArgumentNullException(nameof(inArray));
+                throw new ArgumentNullException("inArray");
 
             if (length < 0)
-                throw new ArgumentOutOfRangeException(nameof(length), Environment.GetResourceString("ArgumentOutOfRange_Index"));
+                throw new ArgumentOutOfRangeException("length", Environment.GetResourceString("ArgumentOutOfRange_Index"));
 
             if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_GenericPositive"));
 
             if (offset > inArray.Length - length)
-                throw new ArgumentOutOfRangeException(nameof(offset), Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
+                throw new ArgumentOutOfRangeException("offset", Environment.GetResourceString("ArgumentOutOfRange_OffsetLength"));
 
             Contract.EndContractBlock();
 
@@ -2419,11 +2428,12 @@ namespace System {
         /// <param name="inputPtr">Pointer to the first input char</param>
         /// <param name="inputLength">Number of input chars</param>
         /// <returns></returns>
+        [SecurityCritical] 
         private static unsafe Byte[] FromBase64CharPtr(Char* inputPtr, Int32 inputLength) {
 
             // The validity of parameters much be checked by callers, thus we are Critical here.
 
-            Debug.Assert(0 <= inputLength);
+            Contract.Assert(0 <= inputLength);
 
             // We need to get rid of any trailing white spaces.
             // Otherwise we would be rejecting input such as "abc= ":
@@ -2438,7 +2448,7 @@ namespace System {
             // Compute the output length:
             Int32 resultLength = FromBase64_ComputeResultLength(inputPtr, inputLength);
 
-            Debug.Assert(0 <= resultLength);
+            Contract.Assert(0 <= resultLength);
 
             // resultLength can be zero. We will still enter FromBase64_Decode and process the input.
             // It may either simply write no bytes (e.g. input = " ") or throw (e.g. input = "ab").
@@ -2472,6 +2482,7 @@ namespace System {
         /// <param name="destLength">Max length of the preallocated result buffer</param>
         /// <returns>If the result buffer was not large enough to write all result bytes, return -1;
         /// Otherwise return the number of result bytes actually produced.</returns>
+        [SecurityCritical]
         private static unsafe Int32 FromBase64_Decode(Char* startInputPtr, Int32 inputLength, Byte* startDestPtr, Int32 destLength) {
 
             // You may find this method weird to look at. It’s written for performance, not aesthetics.
@@ -2572,12 +2583,12 @@ namespace System {
             }}  // unchecked while
 
             // 'd be nice to have an assert that we never get here, but CS0162: Unreachable code detected.
-            // Debug.Assert(false, "We only leave the above loop by jumping; should never get here.");
+            // Contract.Assert(false, "We only leave the above loop by jumping; should never get here.");
 
             // We jump here out of the loop if we hit an '=':
             _EqualityCharEncountered:
 
-            Debug.Assert(currCode == intEq);
+            Contract.Assert(currCode == intEq);
 
             // Recall that inputPtr is now one position past where '=' was read.
             // '=' can only be at the last input pos:
@@ -2651,12 +2662,13 @@ namespace System {
         /// Walk the entire input counting white spaces and padding chars, then compute result length
         /// based on 3 bytes per 4 chars.
         /// </summary>
+        [SecurityCritical]
         private static unsafe Int32 FromBase64_ComputeResultLength(Char* inputPtr, Int32 inputLength) {
 
             const UInt32 intEq =    (UInt32) '=';            
             const UInt32 intSpace = (UInt32) ' ';
 
-            Debug.Assert(0 <= inputLength);
+            Contract.Assert(0 <= inputLength);
 
             Char* inputEndPtr = inputPtr + inputLength;
             Int32 usefulInputLength = inputLength;
@@ -2679,11 +2691,11 @@ namespace System {
                 }
             }
 
-            Debug.Assert(0 <= usefulInputLength);
+            Contract.Assert(0 <= usefulInputLength);
             
             // For legal input, we can assume that 0 <= padding < 3. But it may be more for illegal input.
             // We will notice it at decode when we see a '=' at the wrong place.
-            Debug.Assert(0 <= padding);
+            Contract.Assert(0 <= padding);
 
             // Perf: reuse the variable that stored the number of '=' to store the number of bytes encoded by the
             // last group that contains the '=':

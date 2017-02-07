@@ -28,10 +28,11 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     {
         private IReadOnlyListToIVectorViewAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
         // T GetAt(uint index)
+        [SecurityCritical]
         internal T GetAt<T>(uint index)
         {
             IReadOnlyList<T> _this = JitHelpers.UnsafeCast<IReadOnlyList<T>>(this);
@@ -49,6 +50,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // uint Size { get }
+        [SecurityCritical]
         internal uint Size<T>()
         {
             IReadOnlyList<T> _this = JitHelpers.UnsafeCast<IReadOnlyList<T>>(this);
@@ -56,6 +58,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // bool IndexOf(T value, out uint index)
+        [SecurityCritical]
         internal bool IndexOf<T>(T value, out uint index)
         {
             IReadOnlyList<T> _this = JitHelpers.UnsafeCast<IReadOnlyList<T>>(this);
@@ -82,6 +85,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // uint GetMany(uint startIndex, T[] items)
+        [SecurityCritical]
         internal uint GetMany<T>(uint startIndex, T[] items)
         {
             IReadOnlyList<T> _this = JitHelpers.UnsafeCast<IReadOnlyList<T>>(this);
@@ -126,7 +130,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             // that Size > Int32.MaxValue:
             if (((uint)Int32.MaxValue) <= index || index >= (uint)listCapacity)
             {
-                Exception e = new ArgumentOutOfRangeException(nameof(index), Environment.GetResourceString("ArgumentOutOfRange_IndexLargerThanMaxValue"));
+                Exception e = new ArgumentOutOfRangeException("index", Environment.GetResourceString("ArgumentOutOfRange_IndexLargerThanMaxValue"));
                 e.SetErrorCode(__HResults.E_BOUNDS);
                 throw e;
             }

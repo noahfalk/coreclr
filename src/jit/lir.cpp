@@ -190,13 +190,12 @@ void LIR::Use::ReplaceWith(Compiler* compiler, GenTree* replacement)
     assert(IsDummyUse() || m_range->Contains(m_user));
     assert(m_range->Contains(replacement));
 
-    if (!IsDummyUse())
+    GenTree* replacedNode = *m_edge;
+
+    *m_edge = replacement;
+    if (!IsDummyUse() && m_user->IsCall())
     {
-        m_user->ReplaceOperand(m_edge, replacement);
-    }
-    else
-    {
-        *m_edge = replacement;
+        compiler->fgFixupArgTabEntryPtr(m_user, replacedNode, replacement);
     }
 }
 
@@ -257,7 +256,7 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned blockWeight, u
     assert(m_range->Contains(m_user));
     assert(m_range->Contains(*m_edge));
 
-    GenTree* const node = *m_edge;
+    GenTree* node = *m_edge;
 
     if (lclNum == BAD_VAR_NUM)
     {
@@ -268,11 +267,9 @@ unsigned LIR::Use::ReplaceWithLclVar(Compiler* compiler, unsigned blockWeight, u
     compiler->lvaTable[lclNum].incRefCnts(blockWeight, compiler);
     compiler->lvaTable[lclNum].incRefCnts(blockWeight, compiler);
 
-    GenTreeLclVar* const store = compiler->gtNewTempAssign(lclNum, node)->AsLclVar();
-    assert(store != nullptr);
-    assert(store->gtOp1 == node);
+    GenTreeLclVar* store = compiler->gtNewTempAssign(lclNum, node)->AsLclVar();
 
-    GenTree* const load =
+    GenTree* load =
         new (compiler, GT_LCL_VAR) GenTreeLclVar(store->TypeGet(), store->AsLclVarCommon()->GetLclNum(), BAD_IL_OFFSET);
 
     m_range->InsertAfter(node, store, load);
@@ -681,7 +678,7 @@ void LIR::Range::FinishInsertBefore(GenTree* insertionPoint, GenTree* first, Gen
             assert(m_lastNode != nullptr);
             assert(m_lastNode->gtNext == nullptr);
             m_lastNode->gtNext = first;
-            first->gtPrev      = m_lastNode;
+            first->gtPrev = m_lastNode;
         }
         m_lastNode = last;
     }
@@ -869,7 +866,7 @@ void LIR::Range::FinishInsertAfter(GenTree* insertionPoint, GenTree* first, GenT
             assert(m_firstNode != nullptr);
             assert(m_firstNode->gtPrev == nullptr);
             m_firstNode->gtPrev = last;
-            last->gtNext        = m_firstNode;
+            last->gtNext = m_firstNode;
         }
         m_firstNode = first;
     }
@@ -1160,6 +1157,7 @@ void LIR::Range::Delete(Compiler* compiler, BasicBlock* block, ReadOnlyRange&& r
     Delete(compiler, block, range.m_firstNode, range.m_lastNode);
 }
 
+
 //------------------------------------------------------------------------
 // LIR::Range::TryGetUse: Try to find the use for a given node.
 //
@@ -1266,6 +1264,7 @@ LIR::ReadOnlyRange LIR::Range::GetMarkedRange(unsigned  markCount,
             for (GenTree* operand : firstNode->Operands())
             {
                 // Do not mark nodes that do not appear in the execution order
+                assert(operand->OperGet() != GT_LIST);
                 if (operand->OperGet() == GT_ARGPLACE)
                 {
                     continue;
@@ -1494,13 +1493,9 @@ bool LIR::Range::CheckLIR(Compiler* compiler, bool checkUnusedValues) const
             }
             else if (!def->IsValue())
             {
-                // Stack arguments do not produce a value, but they are considered children of the call.
-                // It may be useful to remove these from being call operands, but that may also impact
-                // other code that relies on being able to reach all the operands from a call node.
-                // The GT_NOP case is because sometimes we eliminate stack argument stores as dead, but
-                // instead of removing them we replace with a NOP.
-                assert((node->OperGet() == GT_CALL) &&
-                       (def->OperIsStore() || (def->OperGet() == GT_PUTARG_STK) || (def->OperGet() == GT_NOP)));
+                // Calls may contain "uses" of nodes that do not produce a value. This is an artifact of
+                // the HIR and should probably be fixed, but doing so is an unknown amount of work.
+                assert(node->OperGet() == GT_CALL);
                 continue;
             }
 
@@ -1574,12 +1569,10 @@ LIR::Range LIR::EmptyRange()
 }
 
 //------------------------------------------------------------------------
-// LIR::SeqTree:
-//    Given a newly created, unsequenced HIR tree, set the evaluation
-//    order (call gtSetEvalOrder) and sequence the tree (set gtNext/gtPrev
-//    pointers by calling fgSetTreeSeq), and return a Range representing
-//    the list of nodes. It is expected this will later be spliced into
-//    an LIR range.
+// LIR::SeqTree: Given a newly created, unsequenced HIR tree, set the evaluation
+// order (call gtSetEvalOrder) and sequence the tree (set gtNext/gtPrev pointers
+// by calling fgSetTreeSeq), and return a Range representing the list of nodes.
+// It is expected this will later be spliced into the LIR graph.
 //
 // Arguments:
 //    compiler - The Compiler context.
@@ -1596,50 +1589,4 @@ LIR::Range LIR::SeqTree(Compiler* compiler, GenTree* tree)
 
     compiler->gtSetEvalOrder(tree);
     return Range(compiler->fgSetTreeSeq(tree, nullptr, true), tree);
-}
-
-//------------------------------------------------------------------------
-// LIR::InsertBeforeTerminator:
-//    Insert an LIR range before the terminating instruction in the given
-//    basic block. If the basic block has no terminating instruction (i.e.
-//    it has a jump kind that is not `BBJ_RETURN`, `BBJ_COND`, or
-//    `BBJ_SWITCH`), the range is inserted at the end of the block.
-//
-// Arguments:
-//    block - The block in which to insert the range.
-//    range - The range to insert.
-//
-void LIR::InsertBeforeTerminator(BasicBlock* block, LIR::Range&& range)
-{
-    LIR::Range& blockRange = LIR::AsRange(block);
-
-    GenTree* insertionPoint = nullptr;
-    if ((block->bbJumpKind == BBJ_COND) || (block->bbJumpKind == BBJ_SWITCH) || (block->bbJumpKind == BBJ_RETURN))
-    {
-        insertionPoint = blockRange.LastNode();
-        assert(insertionPoint != nullptr);
-
-#if DEBUG
-        switch (block->bbJumpKind)
-        {
-            case BBJ_COND:
-                assert(insertionPoint->OperIsConditionalJump());
-                break;
-
-            case BBJ_SWITCH:
-                assert((insertionPoint->OperGet() == GT_SWITCH) || (insertionPoint->OperGet() == GT_SWITCH_TABLE));
-                break;
-
-            case BBJ_RETURN:
-                assert((insertionPoint->OperGet() == GT_RETURN) || (insertionPoint->OperGet() == GT_JMP) ||
-                       (insertionPoint->OperGet() == GT_CALL));
-                break;
-
-            default:
-                unreached();
-        }
-#endif
-    }
-
-    blockRange.InsertBefore(insertionPoint, std::move(range));
 }

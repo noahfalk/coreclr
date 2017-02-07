@@ -1100,6 +1100,11 @@ Compiler::AssertionIndex Compiler::optCreateAssertion(GenTreePtr       op1,
 
                 CNS_COMMON:
                 {
+                    // TODO-1stClassStructs: handle constant propagation to struct types.
+                    if (varTypeIsStruct(lclVar))
+                    {
+                        goto DONE_ASSERTION;
+                    }
                     //
                     // Must either be an OAK_EQUAL or an OAK_NOT_EQUAL assertion
                     //
@@ -2029,7 +2034,12 @@ void Compiler::optAssertionGen(GenTreePtr tree)
     {
         case GT_ASG:
             // VN takes care of non local assertions for assignments and data flow.
-            if (optLocalAssertionProp)
+            // TODO-1stClassStructs: Enable assertion prop for struct types.
+            if (varTypeIsStruct(tree))
+            {
+                // Do nothing.
+            }
+            else if (optLocalAssertionProp)
             {
                 assertionIndex = optCreateAssertion(tree->gtOp.gtOp1, tree->gtOp.gtOp2, OAK_EQUAL);
             }
@@ -2039,18 +2049,22 @@ void Compiler::optAssertionGen(GenTreePtr tree)
             }
             break;
 
-        case GT_OBJ:
-        case GT_BLK:
-        case GT_DYN_BLK:
         case GT_IND:
+            // TODO-1stClassStructs: All indirections should be considered to create a non-null
+            // assertion, but previously, when these indirections were implicit due to a block
+            // copy or init, they were not being considered to do so.
+            if (tree->gtType == TYP_STRUCT)
+            {
+                GenTree* parent = tree->gtGetParent(nullptr);
+                if ((parent != nullptr) && (parent->gtOper == GT_ASG))
+                {
+                    break;
+                }
+            }
         case GT_NULLCHECK:
-            // All indirections create non-null assertions
-            assertionIndex = optCreateAssertion(tree->AsIndir()->Addr(), nullptr, OAK_NOT_EQUAL);
-            break;
-
         case GT_ARR_LENGTH:
-            // An array length is an indirection (but doesn't derive from GenTreeIndir).
-            assertionIndex = optCreateAssertion(tree->AsArrLen()->ArrRef(), nullptr, OAK_NOT_EQUAL);
+            // An array length can create a non-null assertion
+            assertionIndex = optCreateAssertion(tree->gtOp.gtOp1, nullptr, OAK_NOT_EQUAL);
             break;
 
         case GT_ARR_BOUNDS_CHECK:
@@ -2608,29 +2622,9 @@ GenTreePtr Compiler::optConstantAssertionProp(AssertionDsc* curAssertion,
             else
             {
                 bool isArrIndex = ((tree->gtFlags & GTF_VAR_ARR_INDEX) != 0);
-                // If we have done constant propagation of a struct type, it is only valid for zero-init,
-                // and we have to ensure that we have the right zero for the type.
-                if (varTypeIsStruct(tree))
-                {
-                    assert(curAssertion->op2.u1.iconVal == 0);
-                }
-#ifdef FEATURE_SIMD
-                if (varTypeIsSIMD(tree))
-                {
-                    var_types simdType = tree->TypeGet();
-                    tree->ChangeOperConst(GT_CNS_DBL);
-                    GenTree* initVal = tree;
-                    initVal->gtType  = TYP_FLOAT;
-                    newTree =
-                        gtNewSIMDNode(simdType, initVal, nullptr, SIMDIntrinsicInit, TYP_FLOAT, genTypeSize(simdType));
-                }
-                else
-#endif // FEATURE_SIMD
-                {
-                    newTree->ChangeOperConst(GT_CNS_INT);
-                    newTree->gtIntCon.gtIconVal = curAssertion->op2.u1.iconVal;
-                    newTree->ClearIconHandleMask();
-                }
+                newTree->ChangeOperConst(GT_CNS_INT);
+                newTree->gtIntCon.gtIconVal = curAssertion->op2.u1.iconVal;
+                newTree->ClearIconHandleMask();
                 // If we're doing an array index address, assume any constant propagated contributes to the index.
                 if (isArrIndex)
                 {
@@ -3426,7 +3420,7 @@ GenTreePtr Compiler::optAssertionProp_Ind(ASSERT_VALARG_TP assertions, const Gen
     }
 
     // Check for add of a constant.
-    GenTreePtr op1 = tree->AsIndir()->Addr();
+    GenTreePtr op1 = tree->gtOp.gtOp1;
     if ((op1->gtOper == GT_ADD) && (op1->gtOp.gtOp2->gtOper == GT_CNS_INT))
     {
         op1 = op1->gtOp.gtOp1;
@@ -3680,21 +3674,6 @@ GenTreePtr Compiler::optAssertionProp_BndsChk(ASSERT_VALARG_TP assertions, const
 
     assert(tree->gtOper == GT_ARR_BOUNDS_CHECK);
 
-#ifdef FEATURE_ENABLE_NO_RANGE_CHECKS
-    if (JitConfig.JitNoRangeChks())
-    {
-#ifdef DEBUG
-        if (verbose)
-        {
-            printf("\nFlagging check redundant due to JitNoRangeChks in BB%02u:\n", compCurBB->bbNum);
-            gtDispTree(tree, nullptr, nullptr, true);
-        }
-#endif // DEBUG
-        tree->gtFlags |= GTF_ARR_BOUND_INBND;
-        return nullptr;
-    }
-#endif // FEATURE_ENABLE_NO_RANGE_CHECKS
-
     BitVecOps::Iter iter(apTraits, assertions);
     unsigned        index = 0;
     while (iter.NextElem(apTraits, &index))
@@ -3872,9 +3851,6 @@ GenTreePtr Compiler::optAssertionProp(ASSERT_VALARG_TP assertions, const GenTree
         case GT_LCL_VAR:
             return optAssertionProp_LclVar(assertions, tree, stmt);
 
-        case GT_OBJ:
-        case GT_BLK:
-        case GT_DYN_BLK:
         case GT_IND:
         case GT_NULLCHECK:
             return optAssertionProp_Ind(assertions, tree, stmt);
@@ -4683,8 +4659,9 @@ GenTreePtr Compiler::optVNConstantPropOnJTrue(BasicBlock* block, GenTreePtr stmt
             newStmt     = fgInsertStmtNearEnd(block, sideEffList);
             sideEffList = nullptr;
         }
-
-        fgMorphBlockStmt(block, newStmt->AsStmt() DEBUGARG(__FUNCTION__));
+        fgMorphBlockStmt(block, newStmt DEBUGARG(__FUNCTION__));
+        gtSetStmtInfo(newStmt);
+        fgSetStmtSeq(newStmt);
     }
 
     // Transform the relop's operands to be both zeroes.
@@ -4742,6 +4719,7 @@ Compiler::fgWalkResult Compiler::optVNConstantPropCurStmt(BasicBlock* block, Gen
         case GT_MOD:
         case GT_UDIV:
         case GT_UMOD:
+        case GT_MULHI:
         case GT_EQ:
         case GT_NE:
         case GT_LT:
@@ -4758,10 +4736,6 @@ Compiler::fgWalkResult Compiler::optVNConstantPropCurStmt(BasicBlock* block, Gen
         case GT_CHS:
         case GT_CAST:
         case GT_INTRINSIC:
-            break;
-
-        case GT_MULHI:
-            assert(false && "Unexpected GT_MULHI node encountered before lowering");
             break;
 
         case GT_JTRUE:
@@ -4841,8 +4815,11 @@ void Compiler::optVnNonNullPropCurStmt(BasicBlock* block, GenTreePtr stmt, GenTr
     {
         newTree = optNonNullAssertionProp_Call(empty, tree, stmt);
     }
-    else if (tree->OperIsIndir())
+    else if (tree->OperGet() == GT_IND || tree->OperGet() == GT_NULLCHECK)
     {
+        // TODO-1stClassStructs: All indirections should be handled here, but
+        // previously, when these indirections were GT_OBJ, or implicit due to a block
+        // copy or init, they were not being handled.
         newTree = optAssertionProp_Ind(empty, tree, stmt);
     }
     if (newTree)
@@ -4908,7 +4885,9 @@ GenTreePtr Compiler::optVNAssertionPropCurStmt(BasicBlock* block, GenTreePtr stm
 
     if (optAssertionPropagatedCurrentStmt)
     {
-        fgMorphBlockStmt(block, stmt->AsStmt() DEBUGARG("optVNAssertionPropCurStmt"));
+        fgMorphBlockStmt(block, stmt DEBUGARG("optVNAssertionPropCurStmt"));
+        gtSetStmtInfo(stmt);
+        fgSetStmtSeq(stmt);
     }
 
     // Check if propagation removed statements starting from current stmt.
@@ -5105,7 +5084,13 @@ void Compiler::optAssertionPropMain()
                 }
 #endif
                 // Re-morph the statement.
-                fgMorphBlockStmt(block, stmt->AsStmt() DEBUGARG("optAssertionPropMain"));
+                fgMorphBlockStmt(block, stmt DEBUGARG("optAssertionPropMain"));
+
+                // Recalculate the gtCostSz, etc...
+                gtSetStmtInfo(stmt);
+
+                // Re-thread the nodes
+                fgSetStmtSeq(stmt);
             }
 
             // Check if propagation removed statements starting from current stmt.

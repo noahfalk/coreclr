@@ -82,7 +82,7 @@ static const char* const negNumberFormats[] = {
 
 static const char posNumberFormat[] = "#";
 
-#if defined(_TARGET_X86_) && !defined(FEATURE_PAL)
+#if defined(_TARGET_X86_)
 
 extern "C" void _cdecl /*__stdcall*/ DoubleToNumber(double value, int precision, NUMBER* number);
 extern "C" void _cdecl /*__stdcall*/ NumberToDouble(NUMBER* number, double* value);
@@ -132,7 +132,7 @@ unsigned int Int64DivMod1E9(unsigned __int64* value)
 
 #pragma warning(default:4035)
 
-#else // _TARGET_X86_ && !FEATURE_PAL
+#else // !(defined(_TARGET_X86_)
 
 #pragma warning(disable:4273)
 extern "C" char* __cdecl _ecvt(double, int, int*, int*);
@@ -141,6 +141,12 @@ void DoubleToNumber(double value, int precision, NUMBER* number)
 {
     WRAPPER_NO_CONTRACT
     _ASSERTE(number != NULL);
+
+#ifndef FEATURE_BCL_FORMATTING
+    number->palNumber=PAL_DoubleToNumber(value);
+    IfNullThrow(number->palNumber);
+    number->palNumberType=PALNUMBERTYPE_DOUBLE;
+#endif
 
     number->precision = precision;
     if (((FPDOUBLE*)&value)->exp == 0x7FF) {
@@ -601,7 +607,7 @@ unsigned int Int64DivMod1E9(unsigned __int64* value)
 
 
 
-#endif // _TARGET_X86_ && !FEATURE_PAL
+#endif // !(defined(_TARGET_X86_)
 
 #if defined(_MSC_VER) && defined(_TARGET_X86_)
 #pragma optimize("y", on)		// Small critical routines, don't put in EBP frame 
@@ -730,6 +736,13 @@ void Int32ToNumber(int value, NUMBER* number)
     WRAPPER_NO_CONTRACT
     _ASSERTE(number != NULL);
 
+#ifndef FEATURE_BCL_FORMATTING
+    number->palNumber=PAL_IntToNumber(value);
+    IfNullThrow(number->palNumber);
+    number->palNumberType=PALNUMBERTYPE_INT;
+#endif
+
+
     wchar buffer[INT32_PRECISION+1];
     number->precision = INT32_PRECISION;
     if (value >= 0) {
@@ -755,6 +768,12 @@ void UInt32ToNumber(unsigned int value, NUMBER* number)
 {
     WRAPPER_NO_CONTRACT
     _ASSERTE(number != NULL);
+
+#ifndef FEATURE_BCL_FORMATTING
+    number->palNumber=PAL_UIntToNumber(value);
+    IfNullThrow(number->palNumber);
+    number->palNumberType=PALNUMBERTYPE_UINT;
+#endif
 
     wchar buffer[UINT32_PRECISION+1];
     number->precision = UINT32_PRECISION;
@@ -861,6 +880,12 @@ void Int64ToNumber(__int64 value, NUMBER* number)
 {
     WRAPPER_NO_CONTRACT
 
+#ifndef FEATURE_BCL_FORMATTING
+    number->palNumber=PAL_Int64ToNumber(value);
+    IfNullThrow(number->palNumber);
+    number->palNumberType=PALNUMBERTYPE_INT64;
+#endif
+
     wchar buffer[INT64_PRECISION+1];
     number->precision = INT64_PRECISION;
     if (value >= 0) {
@@ -909,6 +934,29 @@ void UInt64ToNumber(unsigned __int64 value, NUMBER* number)
     
 }
 
+#ifndef FEATURE_BCL_FORMATTING
+void NumberToUInt64(NUMBER * number, unsigned __int64* value)
+{
+    _ASSERTE(NULL != number);
+    _ASSERTE(NULL != value);
+
+    if (NULL != number && NULL != value) {
+        (*value) = 0;
+        int i = 0;
+        while (i < NUMBER_MAXDIGITS && i < number->precision && number->digits[i] != NULL) {
+            _ASSERTE((number->digits[i] - '0') >= 0 && (number->digits[i] - '0') <= 9);
+            *value = (10 * (*value)) + (number->digits[i] - '0');
+            i++;
+        }
+        while (i < number->scale) {
+            *value = (10 * (*value));
+            i++;
+        }
+    }
+}
+#endif
+
+
 void RoundNumber(NUMBER* number, int pos)
 {
     LIMITED_METHOD_CONTRACT
@@ -937,6 +985,50 @@ void RoundNumber(NUMBER* number, int pos)
     }
     digits[i] = 0;
 
+#ifndef FEATURE_BCL_FORMATTING
+//
+// The PAL stores PALNUMBER as the actual numeric type where as NUMBER is in string form;
+// Convert NUMBER back into its original type and pass it to the PAL for later use
+//
+    if (0 != number->palNumber) {
+        if (PALNUMBERTYPE_DOUBLE == number->palNumberType) {
+            // no need to round NaN or infinity double values
+            if (SCALE_NAN != ((unsigned int)number->scale) && SCALE_INF != ((unsigned int)number->scale)) {
+                double value = 0.0;
+                NumberToDouble(number, &value);
+                // make sure the rounding didn't accidently cause the good value
+                // to be turned into NaN or infinity
+                if (((FPDOUBLE*)&value)->exp != 0x7FF) {
+                    number->palNumber=PAL_DoubleToNumber(value);
+                }
+            }
+        }
+        else {
+            unsigned __int64 value = 0;
+            NumberToUInt64(number, &value);                
+            switch(number->palNumberType) {
+                case PALNUMBERTYPE_INT:
+                    _ASSERTE((value >> 32) == 0);
+                    number->palNumber=PAL_IntToNumber(((unsigned int)value) * (number->sign ? -1 : 1));
+                    break;
+                case PALNUMBERTYPE_UINT:
+                    _ASSERTE((value >> 32) == 0);
+                    number->palNumber=PAL_UIntToNumber((unsigned int)value);
+                    break;
+                case PALNUMBERTYPE_INT64:
+                    _ASSERTE((value >> 63) == 0);
+                    number->palNumber=PAL_Int64ToNumber(((__int64)value) * (number->sign ? -1 : 1));
+                    break;
+                case PALNUMBERTYPE_UINT64:
+                    number->palNumber=PAL_UInt64ToNumber(value);
+                    break;
+                default:
+                    CONSISTENCY_CHECK_MSGF(0, ("This palNumberType is not understood '(%d)''\n", number->palNumberType));
+                    break;
+            }
+        }
+    }
+#endif
 }
 
 #if defined(_MSC_VER) && defined(_TARGET_X86_)
@@ -1020,6 +1112,29 @@ wchar* FormatGeneral(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUM
         }
     }
 
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        WCHAR sExp[2]={expChar};
+        LPCWSTR strNumberDecimal(sNumberDecimal!=NULL?sNumberDecimal->GetBuffer():NULL);
+        LPCWSTR strPositive(sPositive!=NULL?sPositive->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+
+        int nChars;
+
+         // nMaxDigits for Scientific are 1 more than needed
+        if (scientific)
+            nChars=PAL_FormatScientific(NULL, buffer, cchBuffer, number->palNumber,-1,nMaxDigits-1,sExp,strNumberDecimal,strPositive,strNegative,strZero);
+        else
+            nChars=PAL_FormatDecimal(NULL, buffer, cchBuffer, number->palNumber,-1,nMaxDigits,-1, -1,-1,strNumberDecimal,NULL,strNegative,strZero);
+        
+        if(nChars<0)
+            return NULL;
+        return buffer+nChars;
+    }
+#endif
+    
     wchar* dig = GetDigitsBuffer(number);
     _ASSERT(dig != NULL);
     if (digPos > 0) {
@@ -1047,9 +1162,26 @@ wchar* FormatGeneral(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUM
 wchar* FormatScientific(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUMBER* number, int nMinDigits, int nMaxDigits, wchar expChar,
     STRINGREF sNumberDecimal, STRINGREF sPositive, STRINGREF sNegative, STRINGREF sZero)
 {
-    WRAPPER_NO_CONTRACT
-    _ASSERTE(number != NULL);
-    _ASSERTE(buffer != NULL);
+        WRAPPER_NO_CONTRACT
+        _ASSERTE(number != NULL);
+        _ASSERTE(buffer != NULL);
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        WCHAR sExp[2]={expChar};
+        LPCWSTR strNumberDecimal(sNumberDecimal!=NULL?sNumberDecimal->GetBuffer():NULL);
+        LPCWSTR strPositive(sPositive!=NULL?sPositive->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+
+        // nMaxDigits passed into FormatScientific are 1 more than requested
+        int nChars=PAL_FormatScientific(NULL, buffer, cchBuffer, number->palNumber,nMinDigits, nMaxDigits-1,sExp,strNumberDecimal,strPositive,strNegative,strZero);
+        if(nChars<0)
+            ThrowLastError();
+        return buffer+nChars;
+    }
+#endif
+    
 
     wchar* dig = GetDigitsBuffer(number);
     _ASSERTE(dig != NULL);
@@ -1074,6 +1206,21 @@ wchar* FormatFixed(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUMBE
         PRECONDITION(CheckPointer(buffer));
         PRECONDITION(CheckPointer(number));
     } CONTRACTL_END;
+
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        LPCWSTR strDecimal(sDecimal!=NULL?sDecimal->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+        
+        int nChars=PAL_FormatDecimal(NULL, buffer, cchBuffer, number->palNumber,nMinDigits,nMaxDigits,-1,  -1,-1,strDecimal,W(""),strNegative,strZero);
+        if(nChars<0)
+            return NULL;
+        return buffer+nChars;
+    }
+#endif
+
 
     int digPos = number->scale;
     wchar* dig = GetDigitsBuffer(number);
@@ -1181,6 +1328,33 @@ wchar* FormatNumber(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUMB
         PRECONDITION(CheckPointer(buffer));
         PRECONDITION(CheckPointer(number));
     } CONTRACTL_END;
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        LPCWSTR strDecimal(sNumberDecimal!=NULL?sNumberDecimal->GetBuffer():NULL);
+        LPCWSTR strGroup(sNumberGroup!=NULL?sNumberGroup->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+        int iPrimaryGroup=0;
+        int iSecondaryGroup=0;
+        if(cNumberGroup!=NULL)
+        {
+            int nGroups = cNumberGroup->GetNumComponents();
+            I4* pGroups=(I4*)cNumberGroup->GetDataPtr();
+            
+            if(nGroups>0)
+                iPrimaryGroup=pGroups[0];
+            if(nGroups>1)
+                iSecondaryGroup=pGroups[1];
+        }
+        
+        int nChars=PAL_FormatDecimal(NULL, buffer, cchBuffer, number->palNumber,nMinDigits,nMaxDigits, cNegativeNumberFormat, 
+                                                            iPrimaryGroup,iSecondaryGroup,strDecimal,strGroup,strNegative,strZero);
+        if(nChars<0)
+            return NULL;
+        return buffer+nChars;
+    }
+#endif
 
     char ch;
     const char* fmt;
@@ -1217,6 +1391,36 @@ wchar* FormatCurrency(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NU
         PRECONDITION(CheckPointer(number));
     } CONTRACTL_END;
 
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        LPCWSTR strCurrencyDecimal(sCurrencyDecimal!=NULL?sCurrencyDecimal->GetBuffer():NULL);
+        LPCWSTR strCurrencyGroup(sCurrencyGroup!=NULL?sCurrencyGroup->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strCurrency(sCurrency!=NULL?sCurrency->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+        int iPrimaryGroup=0;
+        int iSecondaryGroup=0;
+
+        if(cCurrencyGroup!=NULL)
+        {
+            int nGroups = cCurrencyGroup->GetNumComponents();
+            I4* pGroups=(I4*)cCurrencyGroup->GetDataPtr();
+            
+            if(nGroups>0)
+                iPrimaryGroup=pGroups[0];
+            if(nGroups>1)
+                iSecondaryGroup=pGroups[1];
+        }
+
+        int nChars=PAL_FormatCurrency(NULL, buffer, cchBuffer, number->palNumber,nMinDigits,nMaxDigits,cNegCurrencyFormat, cPosCurrencyFormat, 
+                                      iPrimaryGroup, iSecondaryGroup, strCurrencyDecimal,strCurrencyGroup,strNegative, strCurrency,strZero);
+        if (nChars<0)
+            return NULL;
+
+        return buffer+nChars;
+    }
+#endif
     char ch;
     const char* fmt;
     fmt = number->sign?
@@ -1253,6 +1457,39 @@ wchar* FormatPercent(__in_ecount(cchBuffer) wchar* buffer, SIZE_T cchBuffer, NUM
         PRECONDITION(CheckPointer(buffer));
         PRECONDITION(CheckPointer(number));
     } CONTRACTL_END;
+
+
+#ifndef FEATURE_BCL_FORMATTING
+    if (number->palNumber)
+    {
+        LPCWSTR strPercentDecimal(sPercentDecimal!=NULL?sPercentDecimal->GetBuffer():NULL);
+        LPCWSTR strPercentGroup(sPercentGroup!=NULL?sPercentGroup->GetBuffer():NULL);
+        LPCWSTR strNegative(sNegative!=NULL?sNegative->GetBuffer():NULL);
+        LPCWSTR strPercent(sPercent!=NULL?sPercent->GetBuffer():NULL);
+        LPCWSTR strZero(sZero!=NULL?sZero->GetBuffer():NULL);
+        
+        int iPrimaryGroup=0;
+        int iSecondaryGroup=0;
+
+        if(cPercentGroup!=NULL)
+        {
+            int nGroups = cPercentGroup->GetNumComponents();
+            I4* pGroups=(I4*)cPercentGroup->GetDataPtr();
+            
+            if(nGroups>0)
+                iPrimaryGroup=pGroups[0];
+            if(nGroups>1)
+                iSecondaryGroup=pGroups[1];
+        }
+
+        int nChars=PAL_FormatPercent(NULL, buffer, cchBuffer, number->palNumber,nMinDigits,nMaxDigits,cNegativePercentFormat, cPositivePercentFormat,
+                                                            iPrimaryGroup, iSecondaryGroup,strPercentDecimal,strPercentGroup,strNegative, strPercent,strZero);
+        if(nChars<0)
+            return NULL;
+        
+        return buffer+nChars;
+    }
+#endif
 
     char ch;
     const char* fmt;
@@ -1375,6 +1612,12 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
         STRINGREF sCurrencyGroup = numfmt->sCurrencyGroup;
         STRINGREF sNegative = numfmt->sNegative;
         STRINGREF sCurrency = numfmt->sCurrency;        
+#ifndef FEATURE_BCL_FORMATTING
+        if (numfmt->bIsInvariant || 0 == number->palNumber)
+        {
+            // So that FormatCurrency uses BCL format
+            number->palNumber = 0;
+#endif            
         // Prefix: bogus warning 22011: newBufferLen+=digCount may be smaller than MIN_BUFFER_SIZE
         PREFIX_ASSUME(digCount >=0 && digCount <= INT32_MAX);
         newBufferLen += digCount;
@@ -1394,6 +1637,22 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
             RoundNumber(number, number->scale + nMaxDigits); // Don't change this line to use digPos since digCount could have its sign changed.
             dst = FormatCurrency(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)), number, nMinDigits,nMaxDigits, cNegCurrencyFormat, cPosCurrencyFormat, cCurrencyGroup, sCurrencyDecimal, sCurrencyGroup, sNegative, sCurrency,sZero);
             
+#ifndef FEATURE_BCL_FORMATTING
+            }
+            else
+            {
+                for ( SIZE_T nChars=128;;nChars*=2)
+                {
+                    dst = buffer = (WCHAR*)buf.AllocThrows(nChars * sizeof(WCHAR));
+                    dst = FormatCurrency(dst, nChars, number, nMinDigits, nMaxDigits, cNegCurrencyFormat, cPosCurrencyFormat, cCurrencyGroup, sCurrencyDecimal, sCurrencyGroup, sNegative, sCurrency,sZero);
+                    if (dst)
+                        break;
+                    if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER)
+                        ThrowLastError();
+                }
+            }
+#endif
+
             break;
         }
     case 'F':
@@ -1413,25 +1672,49 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
         // It is critical to format with the same values that we use to calculate buffer size.
         STRINGREF sNumberDecimal = numfmt->sNumberDecimal;
         STRINGREF sNegative = numfmt->sNegative;
-           
-        newBufferLen += digCount;
-        newBufferLen += sNegative->GetStringLength(); // For number and exponent
-        newBufferLen += sNumberDecimal->GetStringLength();
-
-        _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
-        if (newBufferLen > INT32_MAX) {
-            COMPlusThrowOM();
-        }
-        newBufferLen = newBufferLen * sizeof(WCHAR);
-        dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
-
-        RoundNumber(number, number->scale + nMaxDigits);
+#ifndef FEATURE_BCL_FORMATTING
+        if (numfmt->bIsInvariant || 0 == number->palNumber)
+        {
+            // So that FormatFixed uses BCL format
+            number->palNumber = 0;
+#endif            
+            
+            newBufferLen += digCount;
+            newBufferLen += sNegative->GetStringLength(); // For number and exponent
+            newBufferLen += sNumberDecimal->GetStringLength();
+    
+            _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
+            if (newBufferLen > INT32_MAX) {
+                COMPlusThrowOM();
+            }
+            newBufferLen = newBufferLen * sizeof(WCHAR);
+            dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
+    
+            RoundNumber(number, number->scale + nMaxDigits);
         if (number->sign) {
             AddStringRef(&dst, sNegative);
         }
             dst = FormatFixed(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)-(dst-buffer)), number, nMinDigits,nMaxDigits,
                 NULL,
                 sNumberDecimal, NULL, sNegative, sZero);
+#ifndef FEATURE_BCL_FORMATTING
+        }
+        else
+        {
+            for( SIZE_T nChars=128;;nChars*=2)
+            {
+                dst = buffer = (WCHAR*)buf.AllocThrows(nChars * sizeof(WCHAR));
+                dst = FormatFixed(dst, nChars, number, nMinDigits,nMaxDigits,
+                NULL,
+                sNumberDecimal, NULL,sNegative,sZero);           
+    
+                if (dst)
+                    break;
+                if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER)
+                    ThrowLastError();
+            }
+        }
+#endif
         
         break;
         }
@@ -1454,21 +1737,44 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
         STRINGREF sNumberDecimal = numfmt->sNumberDecimal;
         STRINGREF sNumberGroup = numfmt->sNumberGroup;
         int cNegativeNumberFormat = numfmt->cNegativeNumberFormat;
-        newBufferLen += digCount;
-        newBufferLen += sNegative->GetStringLength(); // For number and exponent
-        if (!ClrSafeInt<UINT64>::addition((UINT64)sNumberGroup->GetStringLength() * digCount, newBufferLen, newBufferLen))
-            COMPlusThrowOM();
-        newBufferLen += sNumberDecimal->GetStringLength();
-
-        _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
-        if (newBufferLen > INT32_MAX) {
-            COMPlusThrowOM();
+#ifndef FEATURE_BCL_FORMATTING
+        if (numfmt->bIsInvariant || 0 == number->palNumber)
+        {
+            // So that FormatNumber uses BCL format
+            number->palNumber = 0;
+#endif            
+            
+            newBufferLen += digCount;
+            newBufferLen += sNegative->GetStringLength(); // For number and exponent
+            if (!ClrSafeInt<UINT64>::addition((UINT64)sNumberGroup->GetStringLength() * digCount, newBufferLen, newBufferLen))
+                COMPlusThrowOM();
+            newBufferLen += sNumberDecimal->GetStringLength();
+    
+            _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
+            if (newBufferLen > INT32_MAX) {
+                COMPlusThrowOM();
+            }
+            newBufferLen = newBufferLen * sizeof(WCHAR);
+            dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
+    
+            RoundNumber(number, number->scale + nMaxDigits);
+            dst = FormatNumber(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)),number, nMinDigits, nMaxDigits, cNegativeNumberFormat, cNumberGroup, sNumberDecimal, sNumberGroup, sNegative, sZero);
+#ifndef FEATURE_BCL_FORMATTING
         }
-        newBufferLen = newBufferLen * sizeof(WCHAR);
-        dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
-
-        RoundNumber(number, number->scale + nMaxDigits);
-        dst = FormatNumber(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)),number, nMinDigits, nMaxDigits, cNegativeNumberFormat, cNumberGroup, sNumberDecimal, sNumberGroup, sNegative, sZero);
+        else
+        {
+            for( SIZE_T nChars=128;;nChars*=2)
+            {
+                dst = buffer = (WCHAR*)buf.AllocThrows(nChars * sizeof(WCHAR));
+                dst = FormatNumber(dst, nChars, number, nMinDigits,nMaxDigits, cNegativeNumberFormat, cNumberGroup, sNumberDecimal, sNumberGroup, sNegative,sZero);
+    
+                if (dst)
+                    break;
+                if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER)
+                    ThrowLastError();
+            }
+        }
+#endif
         
         break;
         }
@@ -1486,22 +1792,45 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
             nMinDigits=nMaxDigits;
         nMaxDigits++;
 
-        newBufferLen += nMaxDigits;
-        newBufferLen += (((INT64)sNegative->GetStringLength() + sPositive->GetStringLength()) *2); // For number and exponent
-        newBufferLen += sNumberDecimal->GetStringLength();
+#ifndef FEATURE_BCL_FORMATTING
+        if (numfmt->bIsInvariant || 0 == number->palNumber)
+        {
+            // So that FormatScientific uses BCL format
+            number->palNumber = 0;
+#endif            
 
-        _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
-        if (newBufferLen > INT32_MAX) {
-            COMPlusThrowOM();
-        }
-        newBufferLen = newBufferLen * sizeof(WCHAR);
-        dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
+            newBufferLen += nMaxDigits;
+            newBufferLen += (((INT64)sNegative->GetStringLength() + sPositive->GetStringLength()) *2); // For number and exponent
+            newBufferLen += sNumberDecimal->GetStringLength();
+    
+            _ASSERTE(newBufferLen >= MIN_BUFFER_SIZE);
+            if (newBufferLen > INT32_MAX) {
+                COMPlusThrowOM();
+            }
+            newBufferLen = newBufferLen * sizeof(WCHAR);
+            dst = buffer = (WCHAR*)buf.AllocThrows(static_cast<SIZE_T>(newBufferLen));
 
-        RoundNumber(number, nMaxDigits);
-        if (number->sign) {
-            AddStringRef(&dst, sNegative);
+            RoundNumber(number, nMaxDigits);
+            if (number->sign) {
+                AddStringRef(&dst, sNegative);
+            }
+            dst = FormatScientific(dst, static_cast<SIZE_T>(newBufferLen * sizeof(WCHAR)-(dst-buffer)),number, nMinDigits,nMaxDigits, format, sNumberDecimal, sPositive, sNegative,sZero);
+#ifndef FEATURE_BCL_FORMATTING
         }
-        dst = FormatScientific(dst, static_cast<SIZE_T>(newBufferLen * sizeof(WCHAR)-(dst-buffer)),number, nMinDigits,nMaxDigits, format, sNumberDecimal, sPositive, sNegative,sZero);
+        else
+        {
+            for( SIZE_T nChars=128;;nChars*=2)
+            {
+                dst = buffer = (WCHAR*)buf.AllocThrows(nChars * sizeof(WCHAR));
+                dst = FormatScientific(dst, nChars, number, nMinDigits, nMaxDigits, format, sNumberDecimal, sPositive, sNegative,sZero);
+
+                if (dst)
+                    break;
+                if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER)
+                    ThrowLastError();
+            }
+        }
+#endif
 
         break;
         }
@@ -1549,7 +1878,30 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
             }
 
 
-        dst = FormatGeneral(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)), number, nMinDigits,nMaxDigits, format - ('G' - 'E'), sNumberDecimal, sPositive, sNegative, sZero, !enableRounding);
+#ifndef FEATURE_BCL_FORMATTING
+        if (numfmt->bIsInvariant || 0 == number->palNumber)
+        {
+            // So that FormatScientific uses BCL format
+            number->palNumber = 0;
+#endif         
+        
+            dst = FormatGeneral(dst, static_cast<SIZE_T>(newBufferLen/sizeof(WCHAR)), number, nMinDigits,nMaxDigits, format - ('G' - 'E'), sNumberDecimal, sPositive, sNegative, sZero, !enableRounding);
+#ifndef FEATURE_BCL_FORMATTING
+        }
+        else
+        {
+            for( SIZE_T nChars=128;;nChars*=2)
+            {
+                dst = buffer = (WCHAR*)buf.AllocThrows(nChars * sizeof(WCHAR));
+                dst = FormatGeneral(dst, nChars, number, nMinDigits,nMaxDigits, format - ('G' - 'E'), sNumberDecimal, sPositive, sNegative, sZero, !enableRounding);
+    
+                if (dst)
+                    break;
+                if (GetLastError()!=ERROR_INSUFFICIENT_BUFFER)
+                    ThrowLastError();
+            }
+        }
+#endif
         
         }
         break;
@@ -1578,6 +1930,10 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
         STRINGREF sNegative = numfmt->sNegative;
         STRINGREF sPercent = numfmt->sPercent;
 
+#ifndef FEATURE_BCL_FORMATTING
+        // So that FormatPercent uses BCL format
+        number->palNumber = 0;
+#endif
         newBufferLen += digCount;
         newBufferLen += sNegative->GetStringLength(); // For number and exponent
         if (!ClrSafeInt<UINT64>::addition((UINT64)sPercentGroup->GetStringLength() * digCount, newBufferLen, newBufferLen))
@@ -1601,6 +1957,7 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
         COMPlusThrow(kFormatException, W("Argument_BadFormatSpecifier"));
     }
  // check for overflow of the preallocated buffer
+#ifdef FEATURE_BCL_FORMATTING // when not defined the buffer could be resized, so skip the check
 // Review signed/unsigned mismatch in '<=' comparison.
 #pragma warning(push)
 #pragma warning(disable:4018)
@@ -1608,6 +1965,7 @@ STRINGREF NumberToString(NUMBER* number, wchar format, int nMaxDigits, NUMFMTREF
 #pragma warning(pop)
         DoJITFailFast();
     }
+#endif
 
     return StringObject::NewString(buffer, (int) (dst - buffer));
 }
@@ -1688,6 +2046,12 @@ STRINGREF NumberToStringFormat(NUMBER* number, STRINGREF str, NUMFMTREF numfmt)
     format = str->GetBuffer();
 
     section = FindSection(format, (GetDigitsBuffer(number))[0] == 0 ? 2 : number->sign ? 1 : 0);
+
+#ifndef FEATURE_BCL_FORMATTING
+    // custom formatting is all done in the VM without the PAL.  Blanking
+    // the palNumber field avoids unnecessary RoundNumber calculations
+    number->palNumber = 0; 
+#endif
 
 ParseSection:
     digitCount = 0;
@@ -2243,6 +2607,11 @@ FCIMPL3_VII(Object*, COMNumber::FormatSingle, float value, StringObject* formatU
             //and display that.
 
             DoubleToNumber(argsValue, FLOAT_PRECISION, &number);
+#ifndef FEATURE_BCL_FORMATTING
+            // Make sure that BCL formatting is used for Single to avoid lossy conversion to Double
+            number.palNumber = 0;
+#endif
+
             if (number.scale == (int) SCALE_NAN) {
                 gc.refRetVal = gc.numfmt->sNaN;
                 goto lExit;
@@ -2285,6 +2654,10 @@ FCIMPL3_VII(Object*, COMNumber::FormatSingle, float value, StringObject* formatU
     }
 
     DoubleToNumber(value, precision, &number);
+#ifndef FEATURE_BCL_FORMATTING
+    // Make sure that BCL formatting is used for Single to avoid lossy conversion to Double
+    number.palNumber = 0;
+#endif
 
     if (number.scale == (int) SCALE_NAN) {
         gc.refRetVal = gc.numfmt->sNaN;

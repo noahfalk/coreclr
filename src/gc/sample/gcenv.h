@@ -2,12 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-// The sample is to be kept simple, so building the sample
-// in tandem with a standalone GC is currently not supported.
-#ifdef FEATURE_STANDALONE_GC
-#undef FEATURE_STANDALONE_GC
-#endif // FEATURE_STANDALONE_GC
-
 #if defined(_DEBUG)
 #ifndef _DEBUG_IMPL
 #define _DEBUG_IMPL 1
@@ -23,12 +17,12 @@
 
 #include "gcenv.structs.h"
 #include "gcenv.base.h"
+#include "gcenv.ee.h"
 #include "gcenv.os.h"
 #include "gcenv.interlocked.h"
 #include "gcenv.interlocked.inl"
 #include "gcenv.object.h"
 #include "gcenv.sync.h"
-#include "gcenv.ee.h"
 
 #define MAX_LONGPATH 1024
 
@@ -69,9 +63,6 @@
 #define STRESS_LOG_GC_STACK
 
 #define LOG(x)
-
-#define SVAL_IMPL_INIT(type, cls, var, init) \
-    type cls::var = init
 
 //
 // Thread
@@ -185,6 +176,8 @@ public:
     int     GetGCRetainVM()                const { return 0; }
     int     GetGCTrimCommit()               const { return 0; }
     int     GetGCLOHCompactionMode()        const { return 0; }
+
+    bool    GetGCAllowVeryLargeObjects()   const { return false; }
 
     bool    GetGCConservative()             const { return true; }
 };

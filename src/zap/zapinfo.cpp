@@ -141,13 +141,13 @@ void ZapInfo::InitMethodName()
     m_currentMethodName.AppendUTF8(szMethodName);
 }
 
-CORJIT_FLAGS ZapInfo::ComputeJitFlags(CORINFO_METHOD_HANDLE handle)
+int ZapInfo::ComputeJitFlags(CORINFO_METHOD_HANDLE handle)
 {
-    CORJIT_FLAGS jitFlags = m_zapper->m_pOpt->m_compilerFlags;
+    int jitFlags = m_zapper->m_pOpt->m_compilerFlags;
 
-    CORJIT_FLAGS flags;
+    DWORD flags = 0;
     IfFailThrow(m_pEECompileInfo->GetBaseJitFlags(handle, &flags));
-    jitFlags.Add(flags);
+    jitFlags |= flags;
 
     // COMPlus_JitFramed specifies the default fpo setting for jitted and NGened code.
     // You can override the behavior for NGened code using COMPlus_NGenFramed.
@@ -156,56 +156,52 @@ CORJIT_FLAGS ZapInfo::ComputeJitFlags(CORINFO_METHOD_HANDLE handle)
     if (dwNGenFramed == 0) 
     {
         // NGened code should enable fpo
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_FRAMED);
+        jitFlags &= ~CORJIT_FLG_FRAMED;
     } 
     else if (dwNGenFramed == 1) 
     {
         // NGened code should disable fpo
-        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_FRAMED);
+        jitFlags |= CORJIT_FLG_FRAMED; 
     }
 
     if (canSkipMethodVerification(m_currentMethodHandle) == CORINFO_VERIFICATION_CAN_SKIP)
     {
-        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_SKIP_VERIFICATION);
+        jitFlags |= CORJIT_FLG_SKIP_VERIFICATION;
     }
 
     if (m_pImage->m_profileDataSections[MethodBlockCounts].pData && 
         !m_zapper->m_pOpt->m_ignoreProfileData)
     {
-        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_BBOPT);
+        jitFlags |= CORJIT_FLG_BBOPT;
     }
 
     // 
     // By default we always enable Hot/Cold procedure splitting
     //
-    jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_PROCSPLIT);
+    jitFlags |= CORJIT_FLG_PROCSPLIT;
 
     if (m_zapper->m_pOpt->m_noProcedureSplitting)
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_PROCSPLIT);
+        jitFlags &= ~CORJIT_FLG_PROCSPLIT;
 
     //never emit inlined polls for NGen'd code.  The extra indirection is not optimal.
-    if (jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_GCPOLL_INLINE))
+    if (jitFlags & CORJIT_FLG_GCPOLL_INLINE)
     {
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_GCPOLL_INLINE);
-        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_GCPOLL_CALLS);
+        jitFlags &= ~CORJIT_FLG_GCPOLL_INLINE;
+        jitFlags |= CORJIT_FLG_GCPOLL_CALLS;
     }
 
     // If the method is specified for min-opts then turn everything off
-    if (jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_MIN_OPT))
-    {
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_BBINSTR);
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_BBOPT);
-        jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_PROCSPLIT);
-    }
+    if (jitFlags & CORJIT_FLG_MIN_OPT)
+        jitFlags &= ~(CORJIT_FLG_BBINSTR | CORJIT_FLG_BBOPT | CORJIT_FLG_PROCSPLIT);
 
     // Rejit is now enabled by default for NGEN'ed code. This costs us
     // some size in exchange for diagnostic functionality, but we've got
     // further work planned that should mitigate the size increase.
-    jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_PROF_REJIT_NOPS);
+    jitFlags |= CORJIT_FLG_PROF_REJIT_NOPS;
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (IsReadyToRunCompilation())
-        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_READYTORUN);
+        jitFlags |= CORJIT_FLG_READYTORUN;
 #endif
 
     return jitFlags;
@@ -431,13 +427,14 @@ void ZapInfo::CompileMethod()
     // this they can add the hint and reduce the perf cost at runtime.
     m_pImage->m_pPreloader->PrePrepareMethodIfNecessary(m_currentMethodHandle);
 
-    m_jitFlags = ComputeJitFlags(m_currentMethodHandle);
+    m_jitFlags = { 0 };
+    m_jitFlags.corJitFlags = ComputeJitFlags(m_currentMethodHandle);
 
 #ifdef FEATURE_READYTORUN_COMPILER
     if (IsReadyToRunCompilation())
     {
         // READYTORUN: FUTURE: Producedure spliting
-        m_jitFlags.Clear(CORJIT_FLAGS::CORJIT_FLAG_PROCSPLIT);
+        m_jitFlags.corJitFlags &= ~CORJIT_FLG_PROCSPLIT;
 
         DWORD methodAttribs = getMethodAttribs(m_currentMethodHandle);
         if (!(methodAttribs & CORINFO_FLG_NOSECURITYWRAP) || (methodAttribs & CORINFO_FLG_SECURITYCHECK))
@@ -448,13 +445,13 @@ void ZapInfo::CompileMethod()
     }
 #endif
 
-    if (!m_jitFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_SKIP_VERIFICATION))
+    if ((m_jitFlags.corJitFlags & CORJIT_FLG_SKIP_VERIFICATION) == 0)
     {
         BOOL raiseVerificationException, unverifiableGenericCode;
 
-        m_jitFlags = GetCompileFlagsIfGenericInstantiation(
+        m_jitFlags.corJitFlags = GetCompileFlagsIfGenericInstantiation(
                         m_currentMethodHandle,
-                        m_jitFlags,
+                        (CorJitFlag)m_jitFlags.corJitFlags,
                         this,
                         &raiseVerificationException,
                         &unverifiableGenericCode);
@@ -468,7 +465,7 @@ void ZapInfo::CompileMethod()
 
 #if !defined(FEATURE_CORECLR)
     // Ask the JIT to generate desktop-quirk-compatible code.
-    m_jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_DESKTOP_QUIRKS);
+    m_jitFlags.corJitFlags2 |= CORJIT_FLG2_DESKTOP_QUIRKS;
 #endif
 
     if (m_pImage->m_stats)
@@ -489,7 +486,7 @@ void ZapInfo::CompileMethod()
 
         res = m_zapper->m_alternateJit->compileMethod( this,
                                                      &m_currentMethodInfo,
-                                                     CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS,
+                                                     CORJIT_FLG_CALL_GETJITFLAGS,
                                                      &pCode,
                                                      &cCode );
         if (FAILED(res))
@@ -507,7 +504,7 @@ void ZapInfo::CompileMethod()
         ICorJitCompiler * pCompiler = m_zapper->m_pJitCompiler;
         res = pCompiler->compileMethod(this,
                                     &m_currentMethodInfo,
-                                    CORJIT_FLAGS::CORJIT_FLAG_CALL_GETJITFLAGS,
+                                    CORJIT_FLG_CALL_GETJITFLAGS,
                                     &pCode,
                                     &cCode);
 
@@ -816,7 +813,7 @@ void ZapInfo::PublishCompiledMethod()
     //
     // For now, the only methods eligible for de-duplication are IL stubs
     //
-    if (m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+    if (m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB)
     {
         ZapMethodHeader * pDuplicateMethod = m_pImage->m_CodeDeduplicator.Lookup(pMethod);
         if (pDuplicateMethod != NULL)
@@ -833,7 +830,7 @@ void ZapInfo::PublishCompiledMethod()
     // Stubs that have no metadata token cannot be tracked by IBC data.
     if (m_currentMethodProfilingDataFlags & (1 << ReadMethodCode))
     {
-        if (m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+        if (m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB)
             m_pImage->m_PrioritizedGCInfo.Append(pMethod->m_pGCInfo);
     }
 
@@ -891,7 +888,7 @@ HRESULT ZapInfo::allocBBProfileBuffer (
 {
     HRESULT hr;
 
-    if (m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+    if (m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB)
     {
         *ppBlock = NULL;
         return E_NOTIMPL;
@@ -968,7 +965,7 @@ HRESULT ZapInfo::getBBProfileData (
     // the profile data is in that module
     // @TODO: Fetch the profile data from the other module.
     if ((m_currentMethodModule != m_pImage->m_hModule) ||
-        m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+        (m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB))
     {
         return E_FAIL;
     }
@@ -1057,7 +1054,7 @@ void ZapInfo::allocMem(
     void **             roDataBlock     /* OUT */
     )
 {
-    bool optForSize = m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_SIZE_OPT);
+    bool optForSize = ((m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_SIZE_OPT) == CORJIT_FLG_SIZE_OPT);
 
     UINT align = DEFAULT_CODE_ALIGN;
 
@@ -1197,7 +1194,7 @@ void ZapInfo::setEHinfo(unsigned EHnumber,
     {
         ilClause->ClassToken = clause->ClassToken;
 
-        if (m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB) && (clause->ClassToken != 0))
+        if ((m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB) && (clause->ClassToken != 0))
         {
             // IL stub tokens are 'private' and do not resolve correctly in their parent module's metadata.
 
@@ -2301,7 +2298,7 @@ unsigned ZapInfo::getClassDomainID (CORINFO_CLASS_HANDLE cls, void **ppIndirecti
 
     m_pImage->m_pPreloader->AddTypeToTransitiveClosureOfInstantiations(cls);
 
-    if (!m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_DEBUG_CODE))
+    if(!(m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_DEBUG_CODE))
     {
         if (isRIDClassDomainID(cls))
         {
@@ -3642,8 +3639,6 @@ void ZapInfo::reportInliningDecision (CORINFO_METHOD_HANDLE inlinerHnd,
                                                 CorInfoInline inlineResult,
                                                 const char * reason)
 {
-
-#ifndef FEATURE_CORECLR
     if (!dontInline(inlineResult) && inlineeHnd != NULL)
     {
         // We deliberately report  m_currentMethodHandle (not inlinerHnd) as inliner, because
@@ -3651,8 +3646,6 @@ void ZapInfo::reportInliningDecision (CORINFO_METHOD_HANDLE inlinerHnd,
         // in inlining into m_currentMethodHandle, and we have no interest to track those intermediate links now.
         m_pImage->m_pPreloader->ReportInlining(m_currentMethodHandle, inlineeHnd);
     }
-#endif //FEATURE_CORECLR
-
     return m_pEEJitInfo->reportInliningDecision(inlinerHnd, inlineeHnd, inlineResult, reason);
 }
 
@@ -3709,7 +3702,7 @@ CorInfoCanSkipVerificationResult ZapInfo::canSkipMethodVerification (
 {
     // ILStubs are generated internally by the CLR. There is no need to
     // verify it, or any of its callees.
-    if (m_zapper->m_pOpt->m_compilerFlags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB))
+    if (m_zapper->m_pOpt->m_compilerFlags & CORJIT_FLG_IL_STUB)
         return CORINFO_VERIFICATION_CAN_SKIP;
 
     CorInfoCanSkipVerificationResult canSkipVer =

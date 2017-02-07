@@ -67,7 +67,7 @@ namespace System
         {
             if (formattable == null)
             {
-                throw new ArgumentNullException(nameof(formattable));
+                throw new ArgumentNullException("formattable");
             }
 
             return formattable.ToString(Globalization.CultureInfo.InvariantCulture);

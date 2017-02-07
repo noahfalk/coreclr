@@ -657,7 +657,7 @@ void dumpILRange(const BYTE* const codeAddr, unsigned codeSize) // in bytes
     for (IL_OFFSET offs = 0; offs < codeSize;)
     {
         char prefix[100];
-        sprintf_s(prefix, _countof(prefix), "IL_%04x ", offs);
+        sprintf(prefix, "IL_%04x ", offs);
         unsigned codeBytesDumped = dumpSingleInstr(codeAddr, offs, prefix);
         offs += codeBytesDumped;
     }
@@ -665,9 +665,11 @@ void dumpILRange(const BYTE* const codeAddr, unsigned codeSize) // in bytes
 
 /*****************************************************************************
  *
- *  Display a variable set.
+ *  Display a variable set (which may be a 32-bit or 64-bit number); only
+ *  one or two of these can be used at once.
  */
-const char* genES2str(BitVecTraits* traits, EXPSET_TP set)
+
+const char* genES2str(EXPSET_TP set)
 {
     const int   bufSize = 17;
     static char num1[bufSize];
@@ -680,7 +682,11 @@ const char* genES2str(BitVecTraits* traits, EXPSET_TP set)
 
     nump = (nump == num1) ? num2 : num1;
 
-    sprintf_s(temp, bufSize, "%s", BitVecOps::ToString(traits, set));
+#if EXPSET_SZ == 32
+    sprintf_s(temp, bufSize, "%08X", set);
+#else
+    sprintf_s(temp, bufSize, "%08X%08X", (int)(set >> 32), (int)set);
+#endif
 
     return temp;
 }
@@ -870,7 +876,7 @@ void ConfigMethodRange::InitRanges(const wchar_t* rangeStr, unsigned capacity)
 
 #endif // defined(DEBUG) || defined(INLINE_DATA)
 
-#if CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE || MEASURE_MEM_ALLOC
+#if CALL_ARG_STATS || COUNT_BASIC_BLOCKS || COUNT_LOOPS || EMITTER_STATS || MEASURE_NODE_SIZE
 
 /*****************************************************************************
  *  Histogram class.
@@ -890,10 +896,7 @@ Histogram::Histogram(IAllocator* allocator, const unsigned* const sizeTable)
 
 Histogram::~Histogram()
 {
-    if (m_counts != nullptr)
-    {
-        m_allocator->Free(m_counts);
-    }
+    m_allocator->Free(m_counts);
 }
 
 // We need to lazy allocate the histogram data so static `Histogram` variables don't try to
@@ -1233,6 +1236,8 @@ void HelperCallProperties::init()
             case CORINFO_HELP_LRSH:
             case CORINFO_HELP_LRSZ:
             case CORINFO_HELP_LMUL:
+            case CORINFO_HELP_ULDIV:
+            case CORINFO_HELP_ULMOD:
             case CORINFO_HELP_LNG2DBL:
             case CORINFO_HELP_ULNG2DBL:
             case CORINFO_HELP_DBL2INT:
@@ -1259,12 +1264,9 @@ void HelperCallProperties::init()
                                     // mod -1,
             case CORINFO_HELP_MOD:  // which is not representable as a positive integer.
             case CORINFO_HELP_UMOD:
-            case CORINFO_HELP_ULMOD:
 
             case CORINFO_HELP_UDIV: // Divs throw divide-by-zero.
-            case CORINFO_HELP_DIV:
             case CORINFO_HELP_LDIV:
-            case CORINFO_HELP_ULDIV:
 
             case CORINFO_HELP_LMUL_OVF:
             case CORINFO_HELP_ULMUL_OVF:
@@ -1411,9 +1413,6 @@ void HelperCallProperties::init()
             case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
             case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
             case CORINFO_HELP_READYTORUN_STATIC_BASE:
-#if COR_JIT_EE_VERSION > 460
-            case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
-#endif // COR_JIT_EE_VERSION > 460
 
                 // These may invoke static class constructors
                 // These can throw InvalidProgram exception if the class can not be constructed

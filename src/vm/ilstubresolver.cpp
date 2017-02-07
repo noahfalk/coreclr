@@ -299,7 +299,7 @@ ILStubResolver::ILStubResolver() :
     m_pStubMD(dac_cast<PTR_MethodDesc>(nullptr)),
     m_pStubTargetMD(dac_cast<PTR_MethodDesc>(nullptr)),
     m_type(Unassigned),
-    m_jitFlags()
+    m_dwJitFlags(0)
 {
     LIMITED_METHOD_CONTRACT;
     
@@ -488,16 +488,16 @@ bool ILStubResolver::IsILGenerated()
     return (dac_cast<TADDR>(m_pCompileTimeState) != ILNotYetGenerated);
 }
 
-void ILStubResolver::SetJitFlags(CORJIT_FLAGS jitFlags)
+void ILStubResolver::SetJitFlags(DWORD dwFlags)
 {
     LIMITED_METHOD_CONTRACT;
-    m_jitFlags = jitFlags;
+    m_dwJitFlags = dwFlags;
 }
 
-CORJIT_FLAGS ILStubResolver::GetJitFlags()
+DWORD ILStubResolver::GetJitFlags()
 {
     LIMITED_METHOD_CONTRACT;
-    return m_jitFlags;
+    return m_dwJitFlags;
 }
 
 // static

@@ -14,11 +14,11 @@
 #ifndef __SWPRINTF_H__
 #define __SWPRINTF_H__
 
-void DoWStrTest(const WCHAR *formatstr, WCHAR *param, const WCHAR *checkstr)
+void DoWStrTest(WCHAR *formatstr, WCHAR *param, WCHAR *checkstr)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
 
     if (memcmp(buf, checkstr, wcslen(checkstr) * 2 + 2) != 0)
     {
@@ -29,11 +29,11 @@ void DoWStrTest(const WCHAR *formatstr, WCHAR *param, const WCHAR *checkstr)
     }
 }
 
-void DoStrTest(const WCHAR *formatstr, char *param, const WCHAR *checkstr)
+void DoStrTest(WCHAR *formatstr, char *param, WCHAR *checkstr)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
 
     if (memcmp(buf, checkstr, wcslen(checkstr) * 2 + 2) != 0)
     {
@@ -44,11 +44,11 @@ void DoStrTest(const WCHAR *formatstr, char *param, const WCHAR *checkstr)
     }
 }
 
-void DoPointerTest(const WCHAR *formatstr, void* param, const WCHAR *checkstr1)
+void DoPointerTest(WCHAR *formatstr, void* param, WCHAR *checkstr1)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
     if (memcmp(buf, checkstr1, wcslen(checkstr1)*2 + 2) != 0)
     {
         Fail("ERROR: failed to insert pointer to %#p into \"%s\"\n"
@@ -57,11 +57,51 @@ void DoPointerTest(const WCHAR *formatstr, void* param, const WCHAR *checkstr1)
     }    
 }
 
-void DoCharTest(const WCHAR *formatstr, char param, const WCHAR *checkstr)
+void DoCountTest(WCHAR *formatstr, int param, WCHAR *checkstr)
+{
+    WCHAR buf[512] = { 0 };
+    int n = -1;
+
+    swprintf(buf, formatstr, &n);
+
+    if (n != param)
+    {
+        Fail("ERROR: Expected count parameter to resolve to %d, got %d\n",
+             param, n);
+    }
+
+    if (memcmp(buf, checkstr, wcslen(checkstr)*2 + 2) != 0)
+    {
+        Fail("ERROR: Expected \"%s\" got \"%s\".\n",
+            convertC(checkstr), convertC(buf));
+    }
+}
+
+void DoShortCountTest(WCHAR *formatstr, int param, WCHAR *checkstr)
+{
+    WCHAR buf[256] = { 0 };
+    short int n = -1;
+
+    swprintf(buf, formatstr, &n);
+
+    if (n != param)
+    {
+        Fail("ERROR: Expected count parameter to resolve to %d, got %d\n",
+             param, n);
+    }
+
+    if (memcmp(buf, checkstr, wcslen(checkstr)*2 + 2) != 0)
+    {
+        Fail("ERROR: Expected \"%s\" got \"%s\".\n",
+            convertC(checkstr), convertC(buf));
+    }
+}
+
+void DoCharTest(WCHAR *formatstr, char param, WCHAR *checkstr)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
     if (memcmp(buf, checkstr, wcslen(checkstr)*2 + 2) != 0)
     {
         Fail("ERROR: failed to insert char \'%c\' (%d) into \"%s\"\n"
@@ -70,11 +110,11 @@ void DoCharTest(const WCHAR *formatstr, char param, const WCHAR *checkstr)
     }
 }
 
-void DoWCharTest(const WCHAR *formatstr, WCHAR param, const WCHAR *checkstr)
+void DoWCharTest(WCHAR *formatstr, WCHAR param, WCHAR *checkstr)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
     if (memcmp(buf, checkstr, wcslen(checkstr)*2 + 2) != 0)
     {
         Fail("ERROR: failed to insert wide char \'%c\' (%d) into \"%s\"\n"
@@ -83,11 +123,11 @@ void DoWCharTest(const WCHAR *formatstr, WCHAR param, const WCHAR *checkstr)
     }
 }
 
-void DoNumTest(const WCHAR *formatstr, int value, const WCHAR *checkstr)
+void DoNumTest(WCHAR *formatstr, int value, WCHAR*checkstr)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, value);
+    swprintf(buf, formatstr, value);
     if (memcmp(buf, checkstr, wcslen(checkstr)* 2 + 2) != 0)
     {
         Fail("ERROR: failed to insert %#x into \"%s\"\n"
@@ -96,12 +136,12 @@ void DoNumTest(const WCHAR *formatstr, int value, const WCHAR *checkstr)
     }
 }
 
-void DoI64Test(const WCHAR *formatstr, INT64 param, char *paramdesc,
-               const WCHAR *checkstr1)
+void DoI64Test(WCHAR *formatstr, INT64 param, char *paramdesc,
+               WCHAR *checkstr1)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, param);
+    swprintf(buf, formatstr, param);
     if (memcmp(buf, checkstr1, wcslen(checkstr1)*2 + 2) != 0)
     {
         Fail("ERROR: failed to insert %s into \"%s\"\n"
@@ -110,12 +150,12 @@ void DoI64Test(const WCHAR *formatstr, INT64 param, char *paramdesc,
     }
 }
 
-void DoDoubleTest(const WCHAR *formatstr, double value, const WCHAR *checkstr1,
-                  const WCHAR *checkstr2)
+void DoDoubleTest(WCHAR *formatstr, double value, WCHAR *checkstr1,
+                  WCHAR *checkstr2)
 {
     WCHAR buf[256] = { 0 };
 
-    swprintf_s(buf, _countof(buf), formatstr, value);
+    swprintf(buf, formatstr, value);
     if (memcmp(buf, checkstr1, wcslen(checkstr1)*2 + 2) != 0 &&
         memcmp(buf, checkstr2, wcslen(checkstr2)*2 + 2) != 0)
     {
@@ -126,12 +166,12 @@ void DoDoubleTest(const WCHAR *formatstr, double value, const WCHAR *checkstr1,
     }
 }
 
-void DoArgumentPrecTest(const WCHAR *formatstr, int precision, void *param,
-                        char *paramstr, const WCHAR *checkstr1, const WCHAR *checkstr2)
+void DoArgumentPrecTest(WCHAR *formatstr, int precision, void *param,
+                        char *paramstr, WCHAR *checkstr1, WCHAR *checkstr2)
 {
     WCHAR buf[256];
 
-    swprintf_s(buf, _countof(buf), formatstr, precision, param);
+    swprintf(buf, formatstr, precision, param);
     if (memcmp(buf, checkstr1, wcslen(checkstr1) + 2) != 0 &&
         memcmp(buf, checkstr2, wcslen(checkstr2) + 2) != 0)
     {
@@ -142,12 +182,12 @@ void DoArgumentPrecTest(const WCHAR *formatstr, int precision, void *param,
     }
 }
 
-void DoArgumentPrecDoubleTest(const WCHAR *formatstr, int precision, double param,
-                              const WCHAR *checkstr1, const WCHAR *checkstr2)
+void DoArgumentPrecDoubleTest(WCHAR *formatstr, int precision, double param,
+                              WCHAR *checkstr1, WCHAR *checkstr2)
 {
     WCHAR buf[256];
 
-    swprintf_s(buf, _countof(buf), formatstr, precision, param);
+    swprintf(buf, formatstr, precision, param);
     if (memcmp(buf, checkstr1, wcslen(checkstr1) + 2) != 0 &&
         memcmp(buf, checkstr2, wcslen(checkstr2) + 2) != 0)
     {

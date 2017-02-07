@@ -21,6 +21,16 @@ extern "C"
         PORTABILITY_ASSERT("Implement for PAL");
     }
 
+    void ProfileEnterNaked(FunctionIDOrClientID functionIDOrClientID)
+    {
+        PORTABILITY_ASSERT("Implement for PAL");
+    }
+
+    void ProfileLeaveNaked(FunctionIDOrClientID functionIDOrClientID)
+    {
+        PORTABILITY_ASSERT("Implement for PAL");
+    }
+
     void ProfileTailcallNaked(FunctionIDOrClientID functionIDOrClientID)
     {
         PORTABILITY_ASSERT("Implement for PAL");

@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchI
-{
 public class Permutate
 {
 #if DEBUG
@@ -115,5 +113,4 @@ public class Permutate
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

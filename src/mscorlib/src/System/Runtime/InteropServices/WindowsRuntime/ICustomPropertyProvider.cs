@@ -50,6 +50,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         // Creates a ICustomProperty implementation for Jupiter
         // Called from ICustomPropertyProvider_GetIndexedProperty from within runtime
         //               
+        [System.Security.SecurityCritical]
         static internal unsafe ICustomProperty CreateIndexedProperty(object target, string propertyName, TypeNameNative *pIndexedParamType)
         {
             Contract.Requires(target != null);
@@ -86,6 +87,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
                 return new CustomPropertyImpl(propertyInfo);
         }
 
+        [System.Security.SecurityCritical]
         static internal unsafe void GetType(object target, TypeNameNative *pIndexedParamType)
         {            
             IGetProxyTarget proxy = target as IGetProxyTarget;
@@ -205,6 +207,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         // 
         // ICustomQueryInterface methods
         //    
+        [System.Security.SecurityCritical]
         public CustomQueryInterfaceResult GetInterface([In]ref Guid iid, out IntPtr ppv)
         {
             ppv = IntPtr.Zero;
@@ -438,6 +441,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             }            
         }
 
+        [SecuritySafeCritical]
         private IBindableVector GetIBindableVectorNoThrow()
         {
             if ((_flags & InterfaceForwardingSupport.IBindableVector) != 0)
@@ -446,6 +450,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
                 return null;
         }
 
+        [SecuritySafeCritical]
         private IVector_Raw<T1> GetVectorOfT()
         {
             if ((_flags & InterfaceForwardingSupport.IVector) != 0)
@@ -512,6 +517,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
             public bool MoveNext() { return _iterator.MoveNext(); }
         }         
 
+        [SecuritySafeCritical]
         private IBindableVectorView GetIBindableVectorViewNoThrow()
         {
             if ((_flags & InterfaceForwardingSupport.IBindableVectorView) != 0)
@@ -520,6 +526,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
                 return null;
         }
 
+        [SecuritySafeCritical]
         private IVectorView<T2> GetVectorViewOfT()
         {
             if ((_flags & InterfaceForwardingSupport.IVectorView) != 0)

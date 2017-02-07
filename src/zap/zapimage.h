@@ -656,7 +656,7 @@ public:
                          NOT_COMPILED    =  0, COMPILE_EXCLUDED =  1,       // Info
                          COMPILE_SUCCEED = 10, ALREADY_COMPILED = 11};      // Success
 
-    static void __stdcall TryCompileMethodStub(LPVOID pContext, CORINFO_METHOD_HANDLE hStub, CORJIT_FLAGS jitFlags);
+    static void __stdcall TryCompileMethodStub(LPVOID pContext, CORINFO_METHOD_HANDLE hStub, DWORD dwJitFlags);
 
     BOOL IsVTableGapMethod(mdMethodDef md);
 

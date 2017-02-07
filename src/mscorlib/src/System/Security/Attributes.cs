@@ -57,12 +57,14 @@ namespace System.Security
         NotVisibleByDefault = 1
     }
 
+#if !FEATURE_CORECLR
     [Obsolete("SecurityCriticalScope is only used for .NET 2.0 transparency compatibility.")]
     public enum SecurityCriticalScope
     {
         Explicit = 0,
         Everything = 0x1
     }
+#endif // FEATURE_CORECLR
 
     // SecurityCriticalAttribute
     //  Indicates that the decorated code or assembly performs security critical operations (e.g. Assert, "unsafe", LinkDemand, etc.)
@@ -82,10 +84,12 @@ namespace System.Security
     {
 #pragma warning disable 618    // We still use SecurityCriticalScope for v2 compat
 
-        private SecurityCriticalScope  _val;
-
+#if !FEATURE_CORECLR        
+         private SecurityCriticalScope  _val;
+#endif // FEATURE_CORECLR
         public SecurityCriticalAttribute () {}
 
+#if !FEATURE_CORECLR
         public SecurityCriticalAttribute(SecurityCriticalScope scope)
         {
             _val = scope;
@@ -97,6 +101,7 @@ namespace System.Security
                 return _val;
             }
         }
+#endif // FEATURE_CORECLR
 
 #pragma warning restore 618
     }
@@ -162,6 +167,7 @@ namespace System.Security
         public SecurityTransparentAttribute () {}
     }
 
+#if !FEATURE_CORECLR
     public enum SecurityRuleSet : byte
     {
         None    = 0,
@@ -199,4 +205,5 @@ namespace System.Security
             get { return m_ruleSet; }
         }
     }
+#endif // !FEATURE_CORECLR
 }

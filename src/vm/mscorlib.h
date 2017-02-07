@@ -462,9 +462,8 @@ DEFINE_METHOD(CONTEXT,              CALLBACK,               DoCallBackFromEE,   
 DEFINE_METHOD(CONTEXT,              RESERVE_SLOT,           ReserveSlot,                IM_RetInt)
 #endif
 
-#ifdef FEATURE_REMOTING
 DEFINE_CLASS(CONTEXT_BOUND_OBJECT,  System,                 ContextBoundObject)
-#endif
+
 
 #ifdef FEATURE_CRYPTO
 DEFINE_CLASS(CSP_PARAMETERS,        Cryptography,           CspParameters)
@@ -593,7 +592,9 @@ DEFINE_FIELD_U(textInfo,           CultureInfoBaseObject,  textInfo)
 DEFINE_FIELD_U(numInfo,            CultureInfoBaseObject,  numInfo)
 DEFINE_FIELD_U(dateTimeInfo,       CultureInfoBaseObject,  dateTimeInfo)
 DEFINE_FIELD_U(calendar,           CultureInfoBaseObject,  calendar)
+#ifndef FEATURE_CORECLR
 DEFINE_FIELD_U(m_consoleFallbackCulture, CultureInfoBaseObject, m_consoleFallbackCulture)
+#endif // FEATURE_CORECLR
 DEFINE_FIELD_U(m_name,             CultureInfoBaseObject,  m_name)
 DEFINE_FIELD_U(m_nonSortName,      CultureInfoBaseObject,  m_nonSortName)
 DEFINE_FIELD_U(m_sortName,         CultureInfoBaseObject,  m_sortName)
@@ -771,7 +772,6 @@ DEFINE_CLASS(I_RT_FIELD_INFO,       System,                 IRuntimeFieldInfo)
 
 DEFINE_CLASS(FIELD_INFO,            Reflection,             FieldInfo)
 
-#ifndef FEATURE_CORECLR
 DEFINE_CLASS_U(IO,               FileStreamAsyncResult, AsyncResultBase)
 DEFINE_FIELD_U(_userCallback,          AsyncResultBase,    _userCallback)
 DEFINE_FIELD_U(_userStateObject,       AsyncResultBase,    _userStateObject)
@@ -786,7 +786,6 @@ DEFINE_FIELD_U(_isWrite,               AsyncResultBase,    _isWrite)
 DEFINE_FIELD_U(_isComplete,            AsyncResultBase,    _isComplete)
 DEFINE_FIELD_U(_completedSynchronously, AsyncResultBase, _completedSynchronously)
 DEFINE_CLASS(FILESTREAM_ASYNCRESULT, IO,               FileStreamAsyncResult)
-#endif // !FEATURE_CORECLR
 
 DEFINE_CLASS_U(Security,           FrameSecurityDescriptor, FrameSecurityDescriptorBaseObject)
 DEFINE_FIELD_U(m_assertions,       FrameSecurityDescriptorBaseObject,  m_assertions)
@@ -797,6 +796,10 @@ DEFINE_FIELD_U(m_assertAllPossible,FrameSecurityDescriptorBaseObject,  m_assertA
 DEFINE_FIELD_U(m_DeclarativeAssertions,       FrameSecurityDescriptorBaseObject,  m_DeclarativeAssertions)
 DEFINE_FIELD_U(m_DeclarativeDenials,          FrameSecurityDescriptorBaseObject,  m_DeclarativeDenials)
 DEFINE_FIELD_U(m_DeclarativeRestrictions,      FrameSecurityDescriptorBaseObject,  m_DeclarativeRestrictions)
+#ifndef FEATURE_PAL
+DEFINE_FIELD_U(m_callerToken,      FrameSecurityDescriptorBaseObject,  m_callerToken)
+DEFINE_FIELD_U(m_impToken,         FrameSecurityDescriptorBaseObject,  m_impToken)
+#endif
 DEFINE_CLASS(FRAME_SECURITY_DESCRIPTOR, Security,           FrameSecurityDescriptor)
 
 DEFINE_CLASS(GUID,                  System,                 Guid)
@@ -1048,12 +1051,6 @@ DEFINE_FIELD(NULL,                  VALUE,          Value)
 
 DEFINE_CLASS(NULLABLE,              System,                 Nullable`1)
 
-#ifdef FEATURE_SPAN_OF_T
-DEFINE_CLASS(BYREFERENCE,           System,                 ByReference`1)
-DEFINE_CLASS(SPAN,                  System,                 Span`1)
-DEFINE_CLASS(READONLY_SPAN,         System,                 ReadOnlySpan`1)
-#endif
-
 // Keep this in sync with System.Globalization.NumberFormatInfo
 DEFINE_CLASS_U(Globalization,       NumberFormatInfo,   NumberFormatInfo)
 DEFINE_FIELD_U(numberGroupSizes,       NumberFormatInfo,   cNumberGroup)
@@ -1088,7 +1085,9 @@ DEFINE_FIELD_U(numberNegativePattern,  NumberFormatInfo,   cNegativeNumberFormat
 DEFINE_FIELD_U(percentPositivePattern, NumberFormatInfo,   cPositivePercentFormat)
 DEFINE_FIELD_U(percentNegativePattern, NumberFormatInfo,   cNegativePercentFormat)
 DEFINE_FIELD_U(percentDecimalDigits,   NumberFormatInfo,   cPercentDecimals)
+#ifndef FEATURE_COREFX_GLOBALIZATION
 DEFINE_FIELD_U(digitSubstitution,      NumberFormatInfo,   iDigitSubstitution)
+#endif
 DEFINE_FIELD_U(isReadOnly,             NumberFormatInfo,   bIsReadOnly)
 #ifndef FEATURE_COREFX_GLOBALIZATION
 DEFINE_FIELD_U(m_useUserOverride,      NumberFormatInfo,   bUseUserOverride)
@@ -1339,20 +1338,6 @@ DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST,       UnsafeEnumCast, NoSi
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_ENUM_CAST_LONG,  UnsafeEnumCastLong, NoSig)
 DEFINE_METHOD(JIT_HELPERS,          UNSAFE_CAST_TO_STACKPTR,UnsafeCastToStackPointer, NoSig)
 #endif // _DEBUG
-#ifdef FEATURE_SPAN_OF_T
-DEFINE_METHOD(JIT_HELPERS,          BYREF_LESSTHAN,         ByRefLessThan, NoSig)
-DEFINE_METHOD(JIT_HELPERS,          GET_ARRAY_DATA,         GetArrayData, NoSig)
-DEFINE_METHOD(JIT_HELPERS,          CONTAINSREFERENCES,     ContainsReferences, NoSig)
-#endif
-
-#ifdef FEATURE_SPAN_OF_T
-DEFINE_CLASS(UNSAFE,                CompilerServices,       Unsafe)
-DEFINE_METHOD(UNSAFE,               AS_POINTER,             AsPointer, NoSig)
-DEFINE_METHOD(UNSAFE,               SIZEOF,                 SizeOf, NoSig)
-DEFINE_METHOD(UNSAFE,               BYREF_AS,               As, NoSig)
-DEFINE_METHOD(UNSAFE,               BYREF_ADD,              Add, NoSig)
-DEFINE_METHOD(UNSAFE,               BYREF_ARE_SAME,         AreSame, NoSig)
-#endif
 
 DEFINE_CLASS(INTERLOCKED,           Threading,              Interlocked)
 DEFINE_METHOD(INTERLOCKED,          COMPARE_EXCHANGE_T,     CompareExchange, GM_RefT_T_T_RetT)
@@ -1360,11 +1345,6 @@ DEFINE_METHOD(INTERLOCKED,          COMPARE_EXCHANGE_OBJECT,CompareExchange, SM_
 
 DEFINE_CLASS(PINNING_HELPER,        CompilerServices,       PinningHelper)
 DEFINE_FIELD(PINNING_HELPER,        M_DATA,                 m_data)
-
-#ifdef FEATURE_SPAN_OF_T
-DEFINE_CLASS(ARRAY_PINNING_HELPER,  CompilerServices,       ArrayPinningHelper)
-DEFINE_FIELD(ARRAY_PINNING_HELPER,  M_ARRAY_DATA,           m_arrayData)
-#endif
 
 DEFINE_CLASS(RUNTIME_WRAPPED_EXCEPTION, CompilerServices,   RuntimeWrappedException)
 DEFINE_METHOD(RUNTIME_WRAPPED_EXCEPTION, OBJ_CTOR,          .ctor,                      IM_Obj_RetVoid)
@@ -1390,7 +1370,9 @@ DEFINE_CLASS(SAFE_PEFILE_HANDLE,    SafeHandles,            SafePEFileHandle)
 DEFINE_CLASS(SAFE_TOKENHANDLE, SafeHandles, SafeAccessTokenHandle)
 #endif
 
+#ifndef FEATURE_CORECLR
 DEFINE_CLASS(SAFE_TYPENAMEPARSER_HANDLE,    System,         SafeTypeNameParserHandle)
+#endif //!FEATURE_CORECLR
 
 #ifdef FEATURE_COMPRESSEDSTACK
 DEFINE_CLASS(SAFE_CSHANDLE, Threading, SafeCompressedStackHandle)
@@ -1400,10 +1382,8 @@ DEFINE_CLASS(SAFE_CSHANDLE, Threading, SafeCompressedStackHandle)
 DEFINE_CLASS(SECURITY_ACTION,       Permissions,            SecurityAction)
 DEFINE_CLASS(HOST_PROTECTION_RESOURCE, Permissions,         HostProtectionResource)
 
-#ifdef FEATURE_CAS_POLICY
 DEFINE_CLASS(SECURITY_ATTRIBUTE,    Permissions,            SecurityAttribute)
 DEFINE_METHOD(SECURITY_ATTRIBUTE, FIND_SECURITY_ATTRIBUTE_TYPE_HANDLE, FindSecurityAttributeTypeHandle, SM_Str_RetIntPtr)
-#endif
 
 #ifdef FEATURE_CAS_POLICY
 DEFINE_CLASS(SECURITY_ELEMENT,      Security,               SecurityElement)

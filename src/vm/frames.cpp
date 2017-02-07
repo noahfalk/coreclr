@@ -18,7 +18,7 @@
 #include "fieldmarshaler.h"
 #include "objecthandle.h"
 #include "siginfo.hpp"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include "dllimportcallback.h"
 #include "stackwalk.h"
 #include "dbginterface.h"
@@ -1142,14 +1142,14 @@ void HijackFrame::GcScanRoots(promote_func *fn, ScanContext* sc)
     _ASSERTE(IsValidReturnKind(returnKind));
 
     int regNo = 0;
-    bool moreRegisters = false;
+    bool moreRegisters;
 
     do 
     {
-        ReturnKind r = ExtractRegReturnKind(returnKind, regNo, moreRegisters);
+        moreRegisters = false;
         PTR_PTR_Object objPtr = dac_cast<PTR_PTR_Object>(&m_Args->ReturnValue[regNo]);
 
-        switch (r)
+        switch (returnKind)
         {
 #ifdef _TARGET_X86_
         case RT_Float: // Fall through
@@ -1173,10 +1173,14 @@ void HijackFrame::GcScanRoots(promote_func *fn, ScanContext* sc)
             break;
 
         default:
+#ifdef FEATURE_MULTIREG_RETURN
+            moreRegisters = true;
+            regNo++;
+            returnKind = ExtractRegReturnKind(returnKind, regNo);
+#else
             _ASSERTE(!"Impossible two bit encoding"); 
+#endif
         }
-        
-        regNo++;
     } while (moreRegisters);
 }
 

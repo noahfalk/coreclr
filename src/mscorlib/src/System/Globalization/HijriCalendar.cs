@@ -209,6 +209,7 @@ namespace System.Globalization {
 
 
         public int HijriAdjustment {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (m_HijriAdvance == Int32.MinValue) {
                     // Never been set before.  Use the system value from registry.
@@ -221,7 +222,7 @@ namespace System.Globalization {
                 // NOTE: Check the value of Min/MaxAdavncedHijri with Arabic speakers to see if the assumption is good.
                 if (value < MinAdvancedHijri || value > MaxAdvancedHijri) {
                     throw new ArgumentOutOfRangeException(
-                                nameof(HijriAdjustment),
+                                "HijriAdjustment",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     Environment.GetResourceString("ArgumentOutOfRange_Bounds_Lower_Upper"),
@@ -251,6 +252,7 @@ namespace System.Globalization {
         **      "AddHijriDate+1"  =>  Add +1 days to the current calculated Hijri date.
         **      "AddHijriDate+2"  =>  Add +2 days to the current calculated Hijri date.
         ============================================================================*/
+        [System.Security.SecurityCritical]  // auto-generated
         static int GetAdvanceHijriDate() {
 #if FEATURE_WIN32_REGISTRY
 
@@ -318,7 +320,7 @@ namespace System.Globalization {
 
         static internal void CheckEraRange(int era) {
             if (era != CurrentEra && era != HijriEra) {
-                throw new ArgumentOutOfRangeException(nameof(era), Environment.GetResourceString("ArgumentOutOfRange_InvalidEraValue"));
+                throw new ArgumentOutOfRangeException("era", Environment.GetResourceString("ArgumentOutOfRange_InvalidEraValue"));
             }
         }
 
@@ -326,7 +328,7 @@ namespace System.Globalization {
             CheckEraRange(era);
             if (year < 1 || year > MaxCalendarYear) {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Range"),
@@ -340,7 +342,7 @@ namespace System.Globalization {
             if (year == MaxCalendarYear) {
                 if (month > MaxCalendarMonth) {
                     throw new ArgumentOutOfRangeException(
-                                nameof(month),
+                                "month",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     Environment.GetResourceString("ArgumentOutOfRange_Range"),
@@ -350,7 +352,7 @@ namespace System.Globalization {
             }
 
             if (month < 1 || month > 12) {
-                throw new ArgumentOutOfRangeException(nameof(month), Environment.GetResourceString("ArgumentOutOfRange_Month"));
+                throw new ArgumentOutOfRangeException("month", Environment.GetResourceString("ArgumentOutOfRange_Month"));
             }
         }
 
@@ -463,7 +465,7 @@ namespace System.Globalization {
         public override DateTime AddMonths(DateTime time, int months) {
             if (months < -120000 || months > 120000) {
                 throw new ArgumentOutOfRangeException(
-                            nameof(months),
+                            "months",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Range"),
@@ -600,7 +602,7 @@ namespace System.Globalization {
             int daysInMonth = GetDaysInMonth(year, month, era);
             if (day < 1 || day > daysInMonth) {
                 throw new ArgumentOutOfRangeException(
-                            nameof(day),
+                            "day",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Day"),
@@ -648,7 +650,7 @@ namespace System.Globalization {
             if (day < 1 || day > daysInMonth) {
                 BCLDebug.Log("year = " + year + ", month = " + month + ", day = " + day);
                 throw new ArgumentOutOfRangeException(
-                            nameof(day),
+                            "day",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Day"),
@@ -681,7 +683,7 @@ namespace System.Globalization {
                 if (value < 99 || value > MaxCalendarYear)
                 {
                     throw new ArgumentOutOfRangeException(
-                                nameof(value),
+                                "value",
                                 String.Format(
                                     CultureInfo.CurrentCulture,
                                     Environment.GetResourceString("ArgumentOutOfRange_Range"),
@@ -696,7 +698,7 @@ namespace System.Globalization {
 
         public override int ToFourDigitYear(int year) {
             if (year < 0) {
-                throw new ArgumentOutOfRangeException(nameof(year),
+                throw new ArgumentOutOfRangeException("year",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             }
             Contract.EndContractBlock();
@@ -707,7 +709,7 @@ namespace System.Globalization {
 
             if (year > MaxCalendarYear) {
                 throw new ArgumentOutOfRangeException(
-                            nameof(year),
+                            "year",
                             String.Format(
                                 CultureInfo.CurrentCulture,
                                 Environment.GetResourceString("ArgumentOutOfRange_Range"),

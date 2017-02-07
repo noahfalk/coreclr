@@ -36,10 +36,29 @@ inline void checkGCWriteBarrier() {}
 
 void GCProfileWalkHeap();
 
+class GCHeap;
 class gc_heap;
 class CFinalize;
 
-class GCHeap : public IGCHeapInternal
+// TODO : it would be easier to make this an ORed value
+enum gc_reason
+{
+    reason_alloc_soh = 0,
+    reason_induced = 1,
+    reason_lowmemory = 2,
+    reason_empty = 3,
+    reason_alloc_loh = 4,
+    reason_oos_soh = 5,
+    reason_oos_loh = 6,
+    reason_induced_noforce = 7, // it's an induced GC and doesn't have to be blocking.
+    reason_gcstress = 8,        // this turns into reason_induced & gc_mechanisms.stress_induced = true
+    reason_lowmemory_blocking = 9,
+    reason_induced_compacting = 10,
+    reason_lowmemory_host = 11,
+    reason_max
+};
+
+class GCHeap : public ::GCHeap
 {
 protected:
 
@@ -77,7 +96,7 @@ public:
     size_t  GetLastGCDuration(int generation);
     size_t  GetNow();
 
-    void  DiagTraceGCSegments ();    
+    void  TraceGCSegments ();    
     void PublishObject(uint8_t* obj);
     
     BOOL    IsGCInProgressHelper (BOOL bConsiderGCStart = FALSE);
@@ -92,15 +111,17 @@ public:
 
     //flags can be GC_ALLOC_CONTAINS_REF GC_ALLOC_FINALIZE
     Object*  Alloc (size_t size, uint32_t flags);
+#ifdef FEATURE_64BIT_ALIGNMENT
     Object*  AllocAlign8 (size_t size, uint32_t flags);
-    Object*  AllocAlign8 (gc_alloc_context* acontext, size_t size, uint32_t flags);
+    Object*  AllocAlign8 (alloc_context* acontext, size_t size, uint32_t flags);
 private:
     Object*  AllocAlign8Common (void* hp, alloc_context* acontext, size_t size, uint32_t flags);
 public:
+#endif // FEATURE_64BIT_ALIGNMENT
     Object*  AllocLHeap (size_t size, uint32_t flags);
-    Object* Alloc (gc_alloc_context* acontext, size_t size, uint32_t flags);
+    Object* Alloc (alloc_context* acontext, size_t size, uint32_t flags);
 
-    void FixAllocContext (gc_alloc_context* acontext,
+    void FixAllocContext (alloc_context* acontext,
                                             BOOL lockp, void* arg, void *heap);
 
     Object* GetContainingObject(void *pInteriorPtr);
@@ -111,7 +132,7 @@ public:
 #endif //MULTIPLE_HEAPS
 
     int GetHomeHeapNumber ();
-    bool IsThreadUsingAllocationContextHeap(gc_alloc_context* acontext, int thread_number);
+    bool IsThreadUsingAllocationContextHeap(alloc_context* acontext, int thread_number);
     int GetNumberOfHeaps ();
     void HideAllocContext(alloc_context*);
     void RevealAllocContext(alloc_context*);
@@ -155,7 +176,9 @@ public:
     BOOL    IsEphemeral (Object* object);
     BOOL    IsHeapPointer (void* object, BOOL small_heap_only = FALSE);
     
+#ifdef VERIFY_HEAP
     void    ValidateObjectMember (Object *obj);
+#endif //_DEBUG
 
     PER_HEAP    size_t  ApproxTotalBytesInUse(BOOL small_heap_only = FALSE);
     PER_HEAP    size_t  ApproxFreeBytes();
@@ -176,6 +199,8 @@ public:
 
     int StartNoGCRegion(uint64_t totalSize, BOOL lohSizeKnown, uint64_t lohSize, BOOL disallowFullBlockingGC);
     int EndNoGCRegion();
+
+    PER_HEAP_ISOLATED     unsigned GetMaxGeneration();
  
     unsigned GetGcCount();
 
@@ -198,7 +223,10 @@ public:
     BOOL FinalizeAppDomain(AppDomain *pDomain, BOOL fRunFinalizers);
     BOOL ShouldRestartFinalizerWatchDog();
 
-    void DiagWalkObject (Object* obj, walk_fn fn, void* context);
+    void SetCardsAfterBulkCopy( Object**, size_t);
+#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+    void WalkObject (Object* obj, walk_fn fn, void* context);
+#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 
 public:	// FIX 
 
@@ -221,9 +249,11 @@ public:	// FIX
     // Interface with gc_heap
     size_t  GarbageCollectTry (int generation, BOOL low_memory_p=FALSE, int mode=collection_blocking);
 
+#ifdef FEATURE_BASICFREEZE
     // frozen segment management functions
     virtual segment_handle RegisterFrozenSegment(segment_info *pseginfo);
     virtual void UnregisterFrozenSegment(segment_handle seg);
+#endif // FEATURE_BASICFREEZE
 
     void    WaitUntilConcurrentGCComplete ();                               // Use in managd threads
 #ifndef DACCESS_COMPILE    
@@ -251,12 +281,11 @@ private:
         // the condition here may have to change as well.
         return g_TrapReturningThreads == 0;
     }
-public:
-    //return TRUE if GC actually happens, otherwise FALSE
-    BOOL    StressHeap(gc_alloc_context * acontext = 0);
-
 #ifndef FEATURE_REDHAWK // Redhawk forces relocation a different way
 #ifdef STRESS_HEAP 
+public:
+    //return TRUE if GC actually happens, otherwise FALSE
+    BOOL    StressHeap(alloc_context * acontext = 0);
 protected:
 
     // only used in BACKGROUND_GC, but the symbol is not defined yet...
@@ -271,25 +300,17 @@ protected:
 #endif  // STRESS_HEAP 
 #endif // FEATURE_REDHAWK
 
-    virtual void DiagDescrGenerations (gen_walk_fn fn, void *context);
+#if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
+    virtual void DescrGenerationsToProfiler (gen_walk_fn fn, void *context);
+#endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 
-    virtual void DiagWalkSurvivorsWithType (void* gc_context, record_surv_fn fn, size_t diag_context, walk_surv_type type);
-
-    virtual void DiagWalkFinalizeQueue (void* gc_context, fq_walk_fn fn);
-
-    virtual void DiagScanFinalizeQueue (fq_scan_fn fn, ScanContext* context);
-
-    virtual void DiagScanHandles (handle_scan_fn fn, int gen_number, ScanContext* context);
-
-    virtual void DiagScanDependentHandles (handle_scan_fn fn, int gen_number, ScanContext* context);
-
-    virtual void DiagWalkHeap(walk_fn fn, void* context, int gen_number, BOOL walk_large_object_heap_p);
-
+#ifdef VERIFY_HEAP
 public:
     Object * NextObj (Object * object);
-#if defined (FEATURE_BASICFREEZE) && defined (VERIFY_HEAP)
+#ifdef FEATURE_BASICFREEZE
     BOOL IsInFrozenSegment (Object * object);
-#endif // defined (FEATURE_BASICFREEZE) && defined (VERIFY_HEAP)
+#endif //FEATURE_BASICFREEZE
+#endif //VERIFY_HEAP     
 };
 
 #endif  // GCIMPL_H_

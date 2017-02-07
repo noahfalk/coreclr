@@ -14,7 +14,6 @@
 using System.Collections.Generic;
 using System.Security.Permissions;
 using System.Threading;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 
@@ -27,6 +26,9 @@ namespace System.Collections.Concurrent
     /// non-blocking.  These behaviors can be overridden via this enumeration.
     /// </summary>
     [Flags]
+#if !FEATURE_CORECLR
+    [Serializable]
+#endif
     public enum EnumerablePartitionerOptions
     {
         /// <summary>
@@ -69,6 +71,7 @@ namespace System.Collections.Concurrent
     /// thread.
     /// </para>
     /// </remarks>
+    [HostProtection(Synchronization = true, ExternalThreading = true)]
     public static class Partitioner
     {
         /// <summary>
@@ -88,7 +91,7 @@ namespace System.Collections.Concurrent
         {
             if (list == null)
             {
-                throw new ArgumentNullException(nameof(list));
+                throw new ArgumentNullException("list");
             }
             if (loadBalance)
             {
@@ -119,7 +122,7 @@ namespace System.Collections.Concurrent
 
             if (array == null)
             {
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
             }
             if (loadBalance)
             {
@@ -169,11 +172,11 @@ namespace System.Collections.Concurrent
         {
             if (source == null)
             {
-                throw new ArgumentNullException(nameof(source));
+                throw new ArgumentNullException("source");
             }
 
             if ((partitionerOptions & (~EnumerablePartitionerOptions.NoBuffering)) != 0)
-                throw new ArgumentOutOfRangeException(nameof(partitionerOptions));
+                throw new ArgumentOutOfRangeException("partitionerOptions");
 
             return (new DynamicPartitionerForIEnumerable<TSource>(source, partitionerOptions));
         }
@@ -191,7 +194,7 @@ namespace System.Collections.Concurrent
             // load balancing on a busy system if you make it higher than 1.
             int coreOversubscriptionRate = 3;
 
-            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException(nameof(toExclusive));
+            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException("toExclusive");
             long rangeSize = (toExclusive - fromInclusive) /
                 (PlatformHelper.ProcessorCount * coreOversubscriptionRate);
             if (rangeSize == 0) rangeSize = 1;
@@ -209,8 +212,8 @@ namespace System.Collections.Concurrent
         /// less than or equal to 0.</exception>
         public static OrderablePartitioner<Tuple<long, long>> Create(long fromInclusive, long toExclusive, long rangeSize)
         {
-            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException(nameof(toExclusive));
-            if (rangeSize <= 0) throw new ArgumentOutOfRangeException(nameof(rangeSize));
+            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException("toExclusive");
+            if (rangeSize <= 0) throw new ArgumentOutOfRangeException("rangeSize");
             return Partitioner.Create(CreateRanges(fromInclusive, toExclusive, rangeSize), EnumerablePartitionerOptions.NoBuffering); // chunk one range at a time
         }
 
@@ -248,7 +251,7 @@ namespace System.Collections.Concurrent
             // load balancing on a busy system if you make it higher than 1.
             int coreOversubscriptionRate = 3;
 
-            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException(nameof(toExclusive));
+            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException("toExclusive");
             int rangeSize = (toExclusive - fromInclusive) /
                 (PlatformHelper.ProcessorCount * coreOversubscriptionRate);
             if (rangeSize == 0) rangeSize = 1;
@@ -266,8 +269,8 @@ namespace System.Collections.Concurrent
         /// less than or equal to 0.</exception>
         public static OrderablePartitioner<Tuple<int, int>> Create(int fromInclusive, int toExclusive, int rangeSize)
         {
-            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException(nameof(toExclusive));
-            if (rangeSize <= 0) throw new ArgumentOutOfRangeException(nameof(rangeSize));
+            if (toExclusive <= fromInclusive) throw new ArgumentOutOfRangeException("toExclusive");
+            if (rangeSize <= 0) throw new ArgumentOutOfRangeException("rangeSize");
             return Partitioner.Create(CreateRanges(fromInclusive, toExclusive, rangeSize), EnumerablePartitionerOptions.NoBuffering); // chunk one range at a time
         }
 
@@ -428,7 +431,7 @@ namespace System.Collections.Concurrent
                 //perform deferred allocating of the local variables. 
                 if (m_localOffset == null)
                 {
-                    Debug.Assert(m_currentChunkSize == null);
+                    Contract.Assert(m_currentChunkSize == null);
                     m_localOffset = new SharedInt(-1);
                     m_currentChunkSize = new SharedInt(0);
                     m_doublingCountdown = CHUNK_DOUBLING_RATE;
@@ -446,7 +449,7 @@ namespace System.Collections.Concurrent
                 {
                     // The second part of the || condition is necessary to handle the case when MoveNext() is called
                     // after a previous MoveNext call returned false.
-                    Debug.Assert(m_localOffset.Value == m_currentChunkSize.Value - 1 || m_currentChunkSize.Value == 0);
+                    Contract.Assert(m_localOffset.Value == m_currentChunkSize.Value - 1 || m_currentChunkSize.Value == 0);
 
                     //set the requested chunk size to a proper value
                     int requestedChunkSize;
@@ -467,11 +470,11 @@ namespace System.Collections.Concurrent
                     // Decrement your doubling countdown
                     m_doublingCountdown--;
 
-                    Debug.Assert(requestedChunkSize > 0 && requestedChunkSize <= m_maxChunkSize);
+                    Contract.Assert(requestedChunkSize > 0 && requestedChunkSize <= m_maxChunkSize);
                     //GrabNextChunk will update the value of m_currentChunkSize
                     if (GrabNextChunk(requestedChunkSize))
                     {
-                        Debug.Assert(m_currentChunkSize.Value <= requestedChunkSize && m_currentChunkSize.Value > 0);
+                        Contract.Assert(m_currentChunkSize.Value <= requestedChunkSize && m_currentChunkSize.Value > 0);
                         m_localOffset.Value = 0;
                         return true;
                     }
@@ -514,7 +517,7 @@ namespace System.Collections.Concurrent
             {
                 if (partitionCount <= 0)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(partitionCount));
+                    throw new ArgumentOutOfRangeException("partitionCount");
                 }
                 IEnumerator<KeyValuePair<long, TSource>>[] partitions
                     = new IEnumerator<KeyValuePair<long, TSource>>[partitionCount];
@@ -712,10 +715,10 @@ namespace System.Collections.Concurrent
                 /// </returns>
                 internal bool GrabChunk_Single(KeyValuePair<long,TSource>[] destArray, int requestedChunkSize, ref int actualNumElementsGrabbed)
                 {
-                    Debug.Assert(m_useSingleChunking, "Expected m_useSingleChecking to be true");
-                    Debug.Assert(requestedChunkSize == 1, "Got requested chunk size of " + requestedChunkSize + " when single-chunking was on");
-                    Debug.Assert(actualNumElementsGrabbed == 0, "Expected actualNumElementsGrabbed == 0, instead it is " + actualNumElementsGrabbed);
-                    Debug.Assert(destArray.Length == 1, "Expected destArray to be of length 1, instead its length is " + destArray.Length);
+                    Contract.Assert(m_useSingleChunking, "Expected m_useSingleChecking to be true");
+                    Contract.Assert(requestedChunkSize == 1, "Got requested chunk size of " + requestedChunkSize + " when single-chunking was on");
+                    Contract.Assert(actualNumElementsGrabbed == 0, "Expected actualNumElementsGrabbed == 0, instead it is " + actualNumElementsGrabbed);
+                    Contract.Assert(destArray.Length == 1, "Expected destArray to be of length 1, instead its length is " + destArray.Length);
 
                     lock (m_sharedLock)
                     {
@@ -761,8 +764,8 @@ namespace System.Collections.Concurrent
                 /// </returns>
                 internal bool GrabChunk_Buffered(KeyValuePair<long,TSource>[] destArray, int requestedChunkSize, ref int actualNumElementsGrabbed)
                 {
-                    Debug.Assert(requestedChunkSize > 0);
-                    Debug.Assert(!m_useSingleChunking, "Did not expect to be in single-chunking mode");
+                    Contract.Assert(requestedChunkSize > 0);
+                    Contract.Assert(!m_useSingleChunking, "Did not expect to be in single-chunking mode");
 
                     TryCopyFromFillBuffer(destArray, requestedChunkSize, ref actualNumElementsGrabbed);
                     
@@ -800,7 +803,7 @@ namespace System.Collections.Concurrent
                                 while( m_activeCopiers > 0) sw.SpinOnce();
                             }
 
-                            Debug.Assert(m_sharedIndex != null); //already been allocated in MoveNext() before calling GrabNextChunk
+                            Contract.Assert(m_sharedIndex != null); //already been allocated in MoveNext() before calling GrabNextChunk
 
                             // Now's the time to actually enumerate the source
 
@@ -937,7 +940,7 @@ namespace System.Collections.Concurrent
                 /// </returns>
                 override protected bool GrabNextChunk(int requestedChunkSize)
                 {
-                    Debug.Assert(requestedChunkSize > 0);
+                    Contract.Assert(requestedChunkSize > 0);
 
                     if (HasNoElementsLeft)
                     {
@@ -970,8 +973,8 @@ namespace System.Collections.Concurrent
                     {
                         //we only set it from false to true once
                         //we should never set it back in any circumstances
-                        Debug.Assert(value);
-                        Debug.Assert(!m_hasNoElementsLeft.Value);
+                        Contract.Assert(value);
+                        Contract.Assert(!m_hasNoElementsLeft.Value);
                         m_hasNoElementsLeft.Value = true;
                     }
                 }
@@ -985,8 +988,8 @@ namespace System.Collections.Concurrent
                         {
                             throw new InvalidOperationException(Environment.GetResourceString("PartitionerStatic_CurrentCalledBeforeMoveNext"));
                         }
-                        Debug.Assert(m_localList != null);
-                        Debug.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
+                        Contract.Assert(m_localList != null);
+                        Contract.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
                         return (m_localList[m_localOffset.Value]);
                     }
                 }
@@ -1050,7 +1053,7 @@ namespace System.Collections.Concurrent
             {
                 if (partitionCount <= 0)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(partitionCount));
+                    throw new ArgumentOutOfRangeException("partitionCount");
                 }
                 IEnumerator<KeyValuePair<long, TSource>>[] partitions
                     = new IEnumerator<KeyValuePair<long, TSource>>[partitionCount];
@@ -1124,11 +1127,11 @@ namespace System.Collections.Concurrent
             /// </returns>
             override protected bool GrabNextChunk(int requestedChunkSize)
             {
-                Debug.Assert(requestedChunkSize > 0);
+                Contract.Assert(requestedChunkSize > 0);
 
                 while (!HasNoElementsLeft)
                 {
-                    Debug.Assert(m_sharedIndex != null);
+                    Contract.Assert(m_sharedIndex != null);
                     // use the new Volatile.Read method because it is cheaper than Interlocked.Read on AMD64 architecture
                     long oldSharedIndex = Volatile.Read(ref m_sharedIndex.Value);
 
@@ -1170,13 +1173,13 @@ namespace System.Collections.Concurrent
             {
                 get
                 {
-                    Debug.Assert(m_sharedIndex != null);
+                    Contract.Assert(m_sharedIndex != null);
                     // use the new Volatile.Read method because it is cheaper than Interlocked.Read on AMD64 architecture
                     return Volatile.Read(ref m_sharedIndex.Value) >= SourceCount - 1;
                 }
                 set
                 {
-                    Debug.Assert(false);
+                    Contract.Assert(false);
                 }
             }
 
@@ -1265,7 +1268,7 @@ namespace System.Collections.Concurrent
                             throw new InvalidOperationException(Environment.GetResourceString("PartitionerStatic_CurrentCalledBeforeMoveNext"));
                         }
 
-                        Debug.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
+                        Contract.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
                         return new KeyValuePair<long, TSource>(m_startIndex + m_localOffset.Value,
                             m_sharedReader[m_startIndex + m_localOffset.Value]);
                     }
@@ -1349,7 +1352,7 @@ namespace System.Collections.Concurrent
                             throw new InvalidOperationException(Environment.GetResourceString("PartitionerStatic_CurrentCalledBeforeMoveNext"));
                         }
 
-                        Debug.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
+                        Contract.Assert(m_localOffset.Value >= 0 && m_localOffset.Value < m_currentChunkSize.Value);
                         return new KeyValuePair<long, TSource>(m_startIndex + m_localOffset.Value,
                             m_sharedReader[m_startIndex + m_localOffset.Value]);
                     }
@@ -1414,7 +1417,7 @@ namespace System.Collections.Concurrent
             {
                 if (partitionCount <= 0)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(partitionCount));
+                    throw new ArgumentOutOfRangeException("partitionCount");
                 }
 
                 int quotient, remainder;
@@ -1536,7 +1539,7 @@ namespace System.Collections.Concurrent
             internal StaticIndexRangePartitionerForIList(IList<TSource> list)
                 : base()
             {
-                Debug.Assert(list != null);
+                Contract.Assert(list != null);
                 m_list = list;
             }
             override protected int SourceCount
@@ -1562,7 +1565,7 @@ namespace System.Collections.Concurrent
             internal StaticIndexRangePartitionForIList(IList<TSource> list, int startIndex, int endIndex)
                 : base(startIndex, endIndex)
             {
-                Debug.Assert(startIndex >= 0 && endIndex <= list.Count - 1);
+                Contract.Assert(startIndex >= 0 && endIndex <= list.Count - 1);
                 m_list = list;
             }
 
@@ -1576,7 +1579,7 @@ namespace System.Collections.Concurrent
                         throw new InvalidOperationException(Environment.GetResourceString("PartitionerStatic_CurrentCalledBeforeMoveNext"));
                     }
 
-                    Debug.Assert(m_offset >= m_startIndex && m_offset <= m_endIndex);
+                    Contract.Assert(m_offset >= m_startIndex && m_offset <= m_endIndex);
                     return (new KeyValuePair<long, TSource>(m_offset, m_list[m_offset]));
                 }
             }
@@ -1594,7 +1597,7 @@ namespace System.Collections.Concurrent
             internal StaticIndexRangePartitionerForArray(TSource[] array)
                 : base()
             {
-                Debug.Assert(array != null);
+                Contract.Assert(array != null);
                 m_array = array;
             }
             override protected int SourceCount
@@ -1619,7 +1622,7 @@ namespace System.Collections.Concurrent
             internal StaticIndexRangePartitionForArray(TSource[] array, int startIndex, int endIndex)
                 : base(startIndex, endIndex)
             {
-                Debug.Assert(startIndex >= 0 && endIndex <= array.Length - 1);
+                Contract.Assert(startIndex >= 0 && endIndex <= array.Length - 1);
                 m_array = array;
             }
 
@@ -1633,7 +1636,7 @@ namespace System.Collections.Concurrent
                         throw new InvalidOperationException(Environment.GetResourceString("PartitionerStatic_CurrentCalledBeforeMoveNext"));
                     }
 
-                    Debug.Assert(m_offset >= m_startIndex && m_offset <= m_endIndex);
+                    Contract.Assert(m_offset >= m_startIndex && m_offset <= m_endIndex);
                     return (new KeyValuePair<long, TSource>(m_offset, m_array[m_offset]));
                 }
             }
@@ -1701,15 +1704,30 @@ namespace System.Collections.Concurrent
 
             if (typeof(TSource).IsValueType)
             {
+#if !FEATURE_CORECLR // Marshal.SizeOf is not supported in CoreCLR
+
+                if (typeof(TSource).StructLayoutAttribute.Value == LayoutKind.Explicit)
+                {
+                    chunkSize = Math.Max(1, DEFAULT_BYTES_PER_CHUNK / Marshal.SizeOf(typeof(TSource)));
+                }
+                else
+                {
+                    // We choose '128' because this ensures, no matter the actual size of the value type,
+                    // the total bytes used will be a multiple of 128. This ensures it's cache aligned.
+                    chunkSize = 128;
+                }
+#else
                 chunkSize = 128;
+#endif
             }
             else
             {
-                Debug.Assert((DEFAULT_BYTES_PER_CHUNK % IntPtr.Size) == 0, "bytes per chunk should be a multiple of pointer size");
+                Contract.Assert((DEFAULT_BYTES_PER_CHUNK % IntPtr.Size) == 0, "bytes per chunk should be a multiple of pointer size");
                 chunkSize = (DEFAULT_BYTES_PER_CHUNK / IntPtr.Size);
             }
             return chunkSize;
         }
         #endregion
+
     }
 }

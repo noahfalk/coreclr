@@ -498,6 +498,9 @@ namespace System.Globalization
         //
         ////////////////////////////////////////////////////////////////////////////
         
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal String[] GetDateWordsOfDTFI(DateTimeFormatInfo dtfi) {
             // Enumarate all LongDatePatterns, and get the DateWords and scan for month postfix.
             String[] datePatterns = dtfi.GetAllDateTimePatterns('D');

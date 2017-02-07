@@ -23,10 +23,7 @@
 #define _countof(_array) (sizeof(_array)/sizeof(_array[0]))
 #endif
 
-// ETW has a limitation of 64K for TOTAL event Size, however there is overhead associated with 
-// the event headers.   It is unclear exactly how much that is, but 1K should be sufficiently
-// far away to avoid problems without sacrificing the perf of bulk processing.  
-const UINT cbMaxEtwEvent = 63 * 1024;
+const UINT cbMaxEtwEvent = 64 * 1024;
 
 //---------------------------------------------------------------------------------------
 // C++ copies of ETW structures

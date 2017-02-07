@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 2.8.12.2)
 
 include_directories(SYSTEM /usr/local/include)
 
+# set kernel version to detect Alpine
+EXEC_PROGRAM(uname ARGS -v OUTPUT_VARIABLE CMAKE_SYSTEM_KERNEL_VERSION)
+string(FIND "${CMAKE_SYSTEM_KERNEL_VERSION}" "Alpine" PAL_SYSTEM_ALPINE)
+if(PAL_SYSTEM_ALPINE EQUAL -1)
+    unset(PAL_SYSTEM_ALPINE)
+endif()
+
 include(configure.cmake)
 
 project(coreclrpal)
@@ -23,46 +30,25 @@ include_directories(include)
 
 # Compile options
 
-if(CLR_CROSS_COMPONENTS_BUILD)
-    if(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL amd64)
-        if(CLR_CMAKE_TARGET_ARCH STREQUAL "arm")
-            set(PAL_CMAKE_PLATFORM_ARCH_I386 1)
-            add_definitions(-D_X86_)
-        else()
-            set(PAL_CMAKE_PLATFORM_ARCH_AMD64 1)
-            add_definitions(-D_AMD64_)
-        endif()
-    elseif(CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL i686)
-        set(PAL_CMAKE_PLATFORM_ARCH_I386 1)
-        add_definitions(-D_X86_)
-    else()
-        message(FATAL_ERROR "Only AMD64, I386 host for cross-architecture component is supported")
-    endif()
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL amd64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL AMD64)
+  set(PAL_CMAKE_PLATFORM_ARCH_AMD64 1)
+  add_definitions(-D_AMD64_)
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL armv7l)
+  set(PAL_CMAKE_PLATFORM_ARCH_ARM 1)
+  add_definitions(-D_ARM_)
+elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
+  set(PAL_CMAKE_PLATFORM_ARCH_ARM64 1)
+  add_definitions(-D_ARM64_)
 else()
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL x86_64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL amd64 OR CMAKE_SYSTEM_PROCESSOR STREQUAL AMD64)
-        set(PAL_CMAKE_PLATFORM_ARCH_AMD64 1)
-        add_definitions(-D_AMD64_)
-    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL armv7l)
-        set(PAL_CMAKE_PLATFORM_ARCH_ARM 1)
-        add_definitions(-D_ARM_)
-    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL aarch64)
-        set(PAL_CMAKE_PLATFORM_ARCH_ARM64 1)
-        add_definitions(-D_ARM64_)
-    elseif(CMAKE_SYSTEM_PROCESSOR STREQUAL i686)
-        set(PAL_CMAKE_PLATFORM_ARCH_I386 1)
-        add_definitions(-D_X86_)
-    else()
-        message(FATAL_ERROR "Only ARM, AMD64, ARM64 and I386 is supported")
-    endif()
+  message(FATAL_ERROR "Only ARM and AMD64 is supported")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL Darwin)
   add_definitions(-D_TARGET_MAC64)
-  add_definitions(-DXSTATE_SUPPORTED)
   set(PLATFORM_SOURCES
-    arch/amd64/activationhandlerwrapper.S
-    arch/amd64/context.S
-    arch/amd64/dispatchexceptionwrapper.S
+    arch/i386/activationhandlerwrapper.S
+    arch/i386/context.S
+    arch/i386/dispatchexceptionwrapper.S
     exception/machexception.cpp
     exception/machmessage.cpp
   )
@@ -82,19 +68,7 @@ elseif(PAL_CMAKE_PLATFORM_ARCH_ARM)
 elseif(PAL_CMAKE_PLATFORM_ARCH_ARM64)
   add_definitions(-DBIT64=1)
   add_definitions(-D_WIN64=1)
-elseif(PAL_CMAKE_PLATFORM_ARCH_I386)
-  add_definitions(-DBIT32=1)
 endif()
-
-if(CMAKE_SYSTEM_NAME STREQUAL Linux AND NOT CLR_CMAKE_PLATFORM_ALPINE_LINUX)
-  # Currently the _xstate is not available on Alpine Linux
-  add_definitions(-DXSTATE_SUPPORTED)
-endif(CMAKE_SYSTEM_NAME STREQUAL Linux AND NOT CLR_CMAKE_PLATFORM_ALPINE_LINUX)
-
-if(CLR_CMAKE_PLATFORM_ALPINE_LINUX)
-  # Setting RLIMIT_NOFILE breaks debugging of coreclr on Alpine Linux for some reason
-  add_definitions(-DDONT_SET_RLIMIT_NOFILE)
-endif(CLR_CMAKE_PLATFORM_ALPINE_LINUX)
 
 # turn off capability to remove unused functions (which was enabled in debug build with sanitizers)
 set(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} -Wl,--no-gc-sections")
@@ -103,10 +77,10 @@ add_compile_options(-fPIC)
 
 if(PAL_CMAKE_PLATFORM_ARCH_AMD64)
   set(ARCH_SOURCES
-    arch/amd64/context2.S
-    arch/amd64/debugbreak.S
-    arch/amd64/exceptionhelper.S
-    arch/amd64/processor.cpp
+    arch/i386/context2.S
+    arch/i386/debugbreak.S
+    arch/i386/exceptionhelper.S
+    arch/i386/processor.cpp
   )
 elseif(PAL_CMAKE_PLATFORM_ARCH_ARM)
   set(ARCH_SOURCES
@@ -121,13 +95,6 @@ elseif(PAL_CMAKE_PLATFORM_ARCH_ARM64)
     arch/arm64/debugbreak.S
     arch/arm64/exceptionhelper.S
     arch/arm64/processor.cpp
-  )
-elseif(PAL_CMAKE_PLATFORM_ARCH_I386)
-  set(ARCH_SOURCES
-    arch/i386/context2.S
-    arch/i386/debugbreak.S
-    arch/i386/exceptionhelper.S
-    arch/i386/processor.cpp
   )
 endif()
 
@@ -193,37 +160,37 @@ set(SOURCES
   objmgr/palobjbase.cpp
   objmgr/shmobject.cpp
   objmgr/shmobjectmanager.cpp
-  safecrt/makepath_s.cpp
-  safecrt/memcpy_s.cpp
-  safecrt/memmove_s.cpp
-  safecrt/mbusafecrt.cpp
-  safecrt/safecrt_input_s.cpp
-  safecrt/safecrt_output_l.cpp
-  safecrt/safecrt_output_s.cpp
-  safecrt/safecrt_winput_s.cpp
-  safecrt/safecrt_woutput_s.cpp
-  safecrt/splitpath_s.cpp
-  safecrt/sprintf_s.cpp
-  safecrt/sscanf_s.cpp
-  safecrt/strcat_s.cpp
-  safecrt/strcpy_s.cpp
-  safecrt/strlen_s.cpp
-  safecrt/strncat_s.cpp
-  safecrt/strncpy_s.cpp
-  safecrt/strtok_s.cpp
-  safecrt/swprintf.cpp
-  safecrt/vsprintf.cpp
-  safecrt/vswprint.cpp
-  safecrt/wcscat_s.cpp
-  safecrt/wcscpy_s.cpp
-  safecrt/wcslen_s.cpp
-  safecrt/wcsncat_s.cpp
-  safecrt/wcsncpy_s.cpp
-  safecrt/wcstok_s.cpp
-  safecrt/wmakepath_s.cpp
-  safecrt/wsplitpath_s.cpp
-  safecrt/xtoa_s.cpp
-  safecrt/xtow_s.cpp
+  safecrt/makepath_s.c
+  safecrt/memcpy_s.c
+  safecrt/memmove_s.c
+  safecrt/mbusafecrt.c
+  safecrt/safecrt_input_s.c
+  safecrt/safecrt_output_l.c
+  safecrt/safecrt_output_s.c
+  safecrt/safecrt_winput_s.c
+  safecrt/safecrt_woutput_s.c
+  safecrt/splitpath_s.c
+  safecrt/sprintf.c
+  safecrt/sscanf.c
+  safecrt/strcat_s.c
+  safecrt/strcpy_s.c
+  safecrt/strlen_s.c
+  safecrt/strncat_s.c
+  safecrt/strncpy_s.c
+  safecrt/strtok_s.c
+  safecrt/swprintf.c
+  safecrt/vsprintf.c
+  safecrt/vswprint.c
+  safecrt/wcscat_s.c
+  safecrt/wcscpy_s.c
+  safecrt/wcslen_s.c
+  safecrt/wcsncat_s.c
+  safecrt/wcsncpy_s.c
+  safecrt/wcstok_s.c
+  safecrt/wmakepath_s.c
+  safecrt/wsplitpath_s.c
+  safecrt/xtoa_s.c
+  safecrt/xtow_s.c
   sharedmemory/sharedmemory.cpp
   shmemory/shmemory.cpp
   sync/cs.cpp
@@ -285,7 +252,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL Linux)
     find_library(UNWIND_ARCH NAMES unwind-x86_64)
   endif()
 
-  if(CLR_CMAKE_PLATFORM_ALPINE_LINUX)
+  if(PAL_SYSTEM_ALPINE)
     find_library(INTL intl)
   endif()
 

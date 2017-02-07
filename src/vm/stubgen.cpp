@@ -631,7 +631,15 @@ ILStubLinker::LogILStubWorker(
     }
 }
 
-static void LogJitFlags(DWORD facility, DWORD level, CORJIT_FLAGS jitFlags)
+static inline void LogOneFlag(DWORD flags, DWORD flag, LPCSTR str, DWORD facility, DWORD level)
+{
+    if (flags & flag)
+    {
+        LOG((facility, level, str));
+    }
+}
+
+static void LogJitFlags(DWORD facility, DWORD level, DWORD dwJitFlags)
 {
     CONTRACTL
     {
@@ -639,28 +647,29 @@ static void LogJitFlags(DWORD facility, DWORD level, CORJIT_FLAGS jitFlags)
     }
     CONTRACTL_END;
 
-    LOG((facility, level, "jitFlags:\n"));
+    LOG((facility, level, "dwJitFlags: 0x%08x\n", dwJitFlags));
 
-#define LOG_FLAG(name) \
-    if (jitFlags.IsSet(name)) \
-    { \
-        LOG((facility, level, "   " #name "\n")); \
-        jitFlags.Clear(name); \
-    }
+#define LOG_FLAG(name)    LogOneFlag(dwJitFlags, name, "   " #name "\n", facility, level);
 
     // these are all we care about at the moment
-    LOG_FLAG(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB);
-    LOG_FLAG(CORJIT_FLAGS::CORJIT_FLAG_PUBLISH_SECRET_PARAM);
+    LOG_FLAG(CORJIT_FLG_IL_STUB);
+    LOG_FLAG(CORJIT_FLG_PUBLISH_SECRET_PARAM);
 
 #undef LOG_FLAGS
 
-    if (!jitFlags.IsEmpty())
+    DWORD dwKnownMask = 
+        CORJIT_FLG_IL_STUB                      |
+        CORJIT_FLG_PUBLISH_SECRET_PARAM         |
+        NULL;
+
+    DWORD dwUnknownFlags = dwJitFlags & ~dwKnownMask;
+    if (0 != dwUnknownFlags)
     {
-        LOG((facility, level, "UNKNOWN FLAGS also set\n"));
+        LOG((facility, level, "UNKNOWN FLAGS: 0x%08x\n", dwUnknownFlags));
     }
 }
 
-void ILStubLinker::LogILStub(CORJIT_FLAGS jitFlags, SString *pDumpILStubCode)
+void ILStubLinker::LogILStub(DWORD dwJitFlags, SString *pDumpILStubCode)
 {
     CONTRACTL
     {
@@ -674,7 +683,7 @@ void ILStubLinker::LogILStub(CORJIT_FLAGS jitFlags, SString *pDumpILStubCode)
     INT             iCurStack = 0;
 
     if (pDumpILStubCode == NULL)
-        LogJitFlags(LF_STUBS, LL_INFO1000, jitFlags);
+        LogJitFlags(LF_STUBS, LL_INFO1000, dwJitFlags);
 
     while (pCurrentStream)
     {
@@ -832,7 +841,7 @@ size_t ILStubLinker::Link(UINT* puMaxStack)
 #ifdef _DEBUG
     if (fStackUnderflow)
     {
-        LogILStub(CORJIT_FLAGS());
+        LogILStub(NULL);
         CONSISTENCY_CHECK_MSG(false, "IL stack underflow! -- see logging output");
     }
 #endif // _DEBUG

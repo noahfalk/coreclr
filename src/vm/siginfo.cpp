@@ -14,7 +14,7 @@
 #include "clsload.hpp"
 #include "vars.hpp"
 #include "excep.h"
-#include "gcheaputilities.h"
+#include "gc.h"
 #include "field.h"
 #include "eeconfig.h"
 #include "runtimehandles.h" // for SignatureNative
@@ -4956,9 +4956,7 @@ void PromoteCarefully(promote_func   fn,
 void ReportPointersFromValueType(promote_func *fn, ScanContext *sc, PTR_MethodTable pMT, PTR_VOID pSrc)
 {
     WRAPPER_NO_CONTRACT;
-
-    // SPAN-TODO: GC reporting - https://github.com/dotnet/coreclr/issues/8517
-
+    
     if (!pMT->ContainsPointers())
         return;
     

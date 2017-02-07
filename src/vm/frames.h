@@ -113,10 +113,8 @@
 //    |   +-ComPrestubMethodFrame - prestub frame for calls from COM to CLR
 //    |
 #endif //FEATURE_COMINTEROP
-#ifdef _TARGET_X86_
 //    | +-UMThkCallFrame        - this frame represents an unmanaged->managed
 //    |                           transition through N/Direct
-#endif
 //    |
 //    +-ContextTransitionFrame  - this frame is used to mark an appdomain transition
 //    |
@@ -1114,19 +1112,17 @@ class FaultingExceptionFrame : public Frame
 {
     friend class CheckAsmOffsets;
 
-#ifndef WIN64EXCEPTIONS
-#ifdef _TARGET_X86_
+#if defined(_TARGET_X86_)
     DWORD                   m_Esp;
     CalleeSavedRegisters    m_regs;
     TADDR                   m_ReturnAddress;
-#else  // _TARGET_X86_
-    #error "Unsupported architecture"
-#endif // _TARGET_X86_
-#else // WIN64EXCEPTIONS
+#endif
+
+#ifdef WIN64EXCEPTIONS
     BOOL                    m_fFilterExecuted;  // Flag for FirstCallToHandler
     TADDR                   m_ReturnAddress;
     T_CONTEXT               m_ctx;
-#endif // !WIN64EXCEPTIONS
+#endif // WIN64EXCEPTIONS
 
     VPTR_VTABLE_CLASS(FaultingExceptionFrame, Frame)
 
@@ -1158,17 +1154,13 @@ public:
         return FRAME_ATTR_EXCEPTION | FRAME_ATTR_FAULTED;
     }
 
-#ifndef WIN64EXCEPTIONS
+#if defined(_TARGET_X86_)
     CalleeSavedRegisters *GetCalleeSavedRegisters()
     {
-#ifdef _TARGET_X86_
         LIMITED_METHOD_DAC_CONTRACT;
         return &m_regs;
-#else
-        PORTABILITY_ASSERT("GetCalleeSavedRegisters");
-#endif // _TARGET_X86_
     }
-#endif // WIN64EXCEPTIONS
+#endif
 
 #ifdef WIN64EXCEPTIONS
     T_CONTEXT *GetExceptionContext ()
@@ -1913,7 +1905,7 @@ class UnmanagedToManagedFrame : public Frame
 {
     friend class CheckAsmOffsets;
 
-    VPTR_ABSTRACT_VTABLE_CLASS_AND_CTOR(UnmanagedToManagedFrame, Frame)
+    VPTR_ABSTRACT_VTABLE_CLASS(UnmanagedToManagedFrame, Frame)
 
 public:
 
@@ -2905,7 +2897,7 @@ typedef DPTR(class UMThunkMarshInfo) PTR_UMThunkMarshInfo;
 class UMEntryThunk;
 typedef DPTR(class UMEntryThunk) PTR_UMEntryThunk;
 
-#if defined(_TARGET_X86_)
+#ifdef _TARGET_X86_
 //------------------------------------------------------------------------
 // This frame guards an unmanaged->managed transition thru a UMThk
 //------------------------------------------------------------------------
@@ -2933,7 +2925,7 @@ protected:
     // Keep as last entry in class
     DEFINE_VTABLE_GETTER_AND_CTOR_AND_DTOR(UMThkCallFrame)
 };
-#endif // _TARGET_X86_ && !FEATURE_PAL
+#endif // _TARGET_X86_
 
 #if defined(_TARGET_X86_)
 //-------------------------------------------------------------------------

@@ -1,27 +1,22 @@
 project(ryujit)
-
 add_definitions(-DFEATURE_NO_HOST)
 add_definitions(-DSELF_NO_HOST)
 add_definitions(-DFEATURE_READYTORUN_COMPILER)
 remove_definitions(-DFEATURE_MERGE_JIT_AND_ENGINE)
 
-if(CLR_CMAKE_TARGET_ARCH_ARM)
+if(CLR_CMAKE_TARGET_ARCH_I386 OR CLR_CMAKE_TARGET_ARCH_ARM)
   add_definitions(-DLEGACY_BACKEND)
 endif()
 
-if(WIN32)
-  add_definitions(-DFX_VER_INTERNALNAME_STR=clrjit.dll)
-endif(WIN32)
-
-add_library_clr(clrjit
+add_library_clr(${JIT_BASE_NAME}
    SHARED
    ${SHARED_LIB_SOURCES}
 )
 
-add_dependencies(clrjit jit_exports)
+add_dependencies(${JIT_BASE_NAME} jit_exports)
 
-set_property(TARGET clrjit APPEND_STRING PROPERTY LINK_FLAGS ${JIT_EXPORTS_LINKER_OPTION})
-set_property(TARGET clrjit APPEND_STRING PROPERTY LINK_DEPENDS ${JIT_EXPORTS_FILE})
+set_property(TARGET ${JIT_BASE_NAME} APPEND_STRING PROPERTY LINK_FLAGS ${JIT_EXPORTS_LINKER_OPTION})
+set_property(TARGET ${JIT_BASE_NAME} APPEND_STRING PROPERTY LINK_DEPENDS ${JIT_EXPORTS_FILE})
 
 set(RYUJIT_LINK_LIBRARIES
    utilcodestaticnohost
@@ -52,12 +47,9 @@ else()
     )
 endif(CLR_CMAKE_PLATFORM_UNIX)
 
-target_link_libraries(clrjit
+target_link_libraries(${JIT_BASE_NAME}
    ${RYUJIT_LINK_LIBRARIES}
 )
 
 # add the install targets
-install_clr(clrjit)
-
-# Enable profile guided optimization
-add_pgo(clrjit)
+install_clr(${JIT_BASE_NAME})

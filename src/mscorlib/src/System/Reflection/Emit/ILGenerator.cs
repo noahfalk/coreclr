@@ -7,12 +7,12 @@
 namespace System.Reflection.Emit 
 {
     using System;
+    using TextWriter = System.IO.TextWriter;
     using System.Diagnostics.SymbolStore;
     using System.Runtime.InteropServices;
     using System.Reflection;
     using System.Security.Permissions;
     using System.Globalization;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     
     [ClassInterface(ClassInterfaceType.None)]
@@ -210,17 +210,20 @@ namespace System.Reflection.Emit
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private int GetMethodToken(MethodBase method, Type[] optionalParameterTypes, bool useMethodDef)
         {
             return ((ModuleBuilder)m_methodBuilder.Module).GetMethodTokenInternal(method, optionalParameterTypes, useMethodDef);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         internal virtual SignatureHelper GetMemberRefSignature(CallingConventions call, Type returnType, 
             Type[] parameterTypes, Type[] optionalParameterTypes)
         {
             return GetMemberRefSignature(call, returnType, parameterTypes, optionalParameterTypes, 0);
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private SignatureHelper GetMemberRefSignature(CallingConventions call, Type returnType, 
             Type[] parameterTypes, Type[] optionalParameterTypes, int cGenericParameters)
         {
@@ -388,17 +391,20 @@ namespace System.Reflection.Emit
             // Just a cheap insertion sort.  We don't expect many exceptions (<10), where InsertionSort beats QuickSort.
             // If we have more exceptions than this in real life, we should consider moving to a QuickSort.
 
-            for (int i = 0; i < exceptions.Length; i++)
+            int least;
+            __ExceptionInfo temp;
+            int length = exceptions.Length;
+            for (int i =0; i < length; i++)
             {
-                int least = i;
-                for (int j = i + 1; j < exceptions.Length; j++)
+                least = i;
+                for (int j =i + 1; j < length; j++)
                 {
                     if (exceptions[least].IsInner(exceptions[j]))
                     {
                         least = j;
                     }
                 }
-                __ExceptionInfo temp = exceptions[i];
+                temp = exceptions[i];
                 exceptions[i] = exceptions[least];
                 exceptions[least] = temp;
             }
@@ -408,7 +414,7 @@ namespace System.Reflection.Emit
         {
             if (m_RelocFixupCount == 0)
             {
-                Debug.Assert(m_RelocFixupList == null);
+                Contract.Assert(m_RelocFixupList == null);
                 return null;
             }
 
@@ -466,10 +472,11 @@ namespace System.Reflection.Emit
             PutInteger4(arg);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void Emit(OpCode opcode, MethodInfo meth)
         {
             if (meth == null)
-                throw new ArgumentNullException(nameof(meth));
+                throw new ArgumentNullException("meth");
             Contract.EndContractBlock();
 
             if (opcode.Equals(OpCodes.Call) || opcode.Equals(OpCodes.Callvirt) || opcode.Equals(OpCodes.Newobj))
@@ -497,6 +504,7 @@ namespace System.Reflection.Emit
         }
 
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void EmitCalli(OpCode opcode, CallingConventions callingConvention, 
             Type returnType, Type[] parameterTypes, Type[] optionalParameterTypes)
         {
@@ -585,13 +593,14 @@ namespace System.Reflection.Emit
             PutInteger4(modBuilder.GetSignatureToken(sig).Token);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void EmitCall(OpCode opcode, MethodInfo methodInfo, Type[] optionalParameterTypes)
         {
             if (methodInfo == null)
-                throw new ArgumentNullException(nameof(methodInfo));
+                throw new ArgumentNullException("methodInfo");
 
             if (!(opcode.Equals(OpCodes.Call) || opcode.Equals(OpCodes.Callvirt) || opcode.Equals(OpCodes.Newobj)))
-                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), nameof(opcode));
+                throw new ArgumentException(Environment.GetResourceString("Argument_NotMethodCallOpcode"), "opcode");
 
             Contract.EndContractBlock();
 
@@ -625,7 +634,7 @@ namespace System.Reflection.Emit
         public virtual void Emit(OpCode opcode, SignatureHelper signature)
         {
             if (signature == null)
-                throw new ArgumentNullException(nameof(signature));
+                throw new ArgumentNullException("signature");
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -644,7 +653,7 @@ namespace System.Reflection.Emit
             // SignatureHelper.
             if (opcode.StackBehaviourPop == StackBehaviour.Varpop)
             {
-                Debug.Assert(opcode.Equals(OpCodes.Calli),
+                Contract.Assert(opcode.Equals(OpCodes.Calli),
                                 "Unexpected opcode encountered for StackBehaviour VarPop.");
                 // Pop the arguments..
                 stackchange -= signature.ArgumentCount;
@@ -657,11 +666,12 @@ namespace System.Reflection.Emit
             PutInteger4(tempVal);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         [System.Runtime.InteropServices.ComVisible(true)]
         public virtual void Emit(OpCode opcode, ConstructorInfo con)
         {
             if (con == null)
-                throw new ArgumentNullException(nameof(con));
+                throw new ArgumentNullException("con");
             Contract.EndContractBlock();
 
             int stackchange = 0;
@@ -677,7 +687,7 @@ namespace System.Reflection.Emit
             if (opcode.StackBehaviourPush == StackBehaviour.Varpush)
             {
                 // Instruction must be one of call or callvirt.
-                Debug.Assert(opcode.Equals(OpCodes.Call) ||
+                Contract.Assert(opcode.Equals(OpCodes.Call) ||
                                 opcode.Equals(OpCodes.Callvirt),
                                 "Unexpected opcode encountered for StackBehaviour of VarPush.");
                 stackchange++;
@@ -685,7 +695,7 @@ namespace System.Reflection.Emit
             if (opcode.StackBehaviourPop == StackBehaviour.Varpop)
             {
                 // Instruction must be one of call, callvirt or newobj.
-                Debug.Assert(opcode.Equals(OpCodes.Call) ||
+                Contract.Assert(opcode.Equals(OpCodes.Call) ||
                                 opcode.Equals(OpCodes.Callvirt) ||
                                 opcode.Equals(OpCodes.Newobj),
                                 "Unexpected opcode encountered for StackBehaviour of VarPop.");
@@ -700,6 +710,7 @@ namespace System.Reflection.Emit
             PutInteger4(tk);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public virtual void Emit(OpCode opcode, Type cls)
         {
             // Puts opcode onto the stream and then the metadata token represented
@@ -739,6 +750,7 @@ namespace System.Reflection.Emit
             m_ILStream[m_length++] = (byte) (arg>>56);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe public virtual void Emit(OpCode opcode, float arg) {
             EnsureCapacity(7);
             InternalEmit(opcode);
@@ -749,6 +761,7 @@ namespace System.Reflection.Emit
             m_ILStream[m_length++] = (byte) (tempVal>>24);
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         unsafe public virtual void Emit(OpCode opcode, double arg) {
             EnsureCapacity(11);
             InternalEmit(opcode);
@@ -792,7 +805,7 @@ namespace System.Reflection.Emit
         public virtual void Emit(OpCode opcode, Label[] labels)
         {
             if (labels == null)
-                throw new ArgumentNullException(nameof(labels));
+                throw new ArgumentNullException("labels");
             Contract.EndContractBlock();
 
             // Emitting a switch table
@@ -841,13 +854,13 @@ namespace System.Reflection.Emit
 
             if (local == null)
             {
-                throw new ArgumentNullException(nameof(local));
+                throw new ArgumentNullException("local");
             }
             Contract.EndContractBlock();
             int tempVal = local.GetLocalIndex();
             if (local.GetMethodBuilder() != m_methodBuilder)
             {
-                throw new ArgumentException(Environment.GetResourceString("Argument_UnmatchedMethodForLocal"), nameof(local));
+                throw new ArgumentException(Environment.GetResourceString("Argument_UnmatchedMethodForLocal"), "local");
             }
             // If the instruction is a ldloc, ldloca a stloc, morph it to the optimal form.
             if (opcode.Equals(OpCodes.Ldloc))
@@ -1007,7 +1020,7 @@ namespace System.Reflection.Emit
 
         public virtual void BeginExceptFilterBlock() 
         {
-            // Begins an exception filter block.  Emits a branch instruction to the end of the current exception block.
+            // Begins a eception filter block.  Emits a branch instruction to the end of the current exception block.
 
             if (m_currExcStackCount == 0)
                 throw new NotSupportedException(Environment.GetResourceString("Argument_NotInExceptionBlock"));
@@ -1038,7 +1051,7 @@ namespace System.Reflection.Emit
             } else {
                 // execute this branch if previous clause is Catch or Fault
                 if (exceptionType==null) {
-                    throw new ArgumentNullException(nameof(exceptionType));
+                    throw new ArgumentNullException("exceptionType");
                 }
 
                 Label endLabel = current.GetEndLabel();
@@ -1140,7 +1153,7 @@ namespace System.Reflection.Emit
             // Emits the il to throw an exception
 
             if (excType==null) {
-                throw new ArgumentNullException(nameof(excType));
+                throw new ArgumentNullException("excType");
             }
 
             if (!excType.IsSubclassOf(typeof(Exception)) && excType!=typeof(Exception)) {
@@ -1157,9 +1170,13 @@ namespace System.Reflection.Emit
 
         private static Type GetConsoleType()
         {
+#if FEATURE_LEGACYSURFACE
+            return typeof(Console);
+#else
             return Type.GetType(
                 "System.Console, System.Console, Version=4.0.0.0, Culture=neutral, PublicKeyToken=" + AssemblyRef.MicrosoftPublicKeyToken, 
                 throwOnError: true);
+#endif
         }
 
         public virtual void EmitWriteLine(String value)
@@ -1195,9 +1212,9 @@ namespace System.Reflection.Emit
                 throw new ArgumentException(Environment.GetResourceString("NotSupported_OutputStreamUsingTypeBuilder"));
             }
             parameterTypes[0] = (Type)cls;
-            MethodInfo mi = prop.ReturnType.GetMethod("WriteLine", parameterTypes);
+            MethodInfo mi = typeof(TextWriter).GetMethod("WriteLine", parameterTypes);
              if (mi==null) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), nameof(localBuilder));
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), "localBuilder");
             }
 
             Emit(OpCodes.Callvirt, mi);
@@ -1214,7 +1231,7 @@ namespace System.Reflection.Emit
 
             if (fld == null)
             {
-                throw new ArgumentNullException(nameof(fld));
+                throw new ArgumentNullException("fld");
             }
             Contract.EndContractBlock();
             
@@ -1233,9 +1250,9 @@ namespace System.Reflection.Emit
                 throw new NotSupportedException(Environment.GetResourceString("NotSupported_OutputStreamUsingTypeBuilder"));
             }
             parameterTypes[0] = (Type)cls;
-            MethodInfo mi = prop.ReturnType.GetMethod("WriteLine", parameterTypes);
+            MethodInfo mi = typeof(TextWriter).GetMethod("WriteLine", parameterTypes);
             if (mi==null) {
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), nameof(fld));
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmitWriteLineType"), "fld");
             }
             Emit(OpCodes.Callvirt, mi);
         }
@@ -1266,7 +1283,7 @@ namespace System.Reflection.Emit
             }
 
             if (localType==null) {
-                throw new ArgumentNullException(nameof(localType));
+                throw new ArgumentNullException("localType");
             }
 
             if (methodBuilder.m_bIsBaked) {
@@ -1287,10 +1304,10 @@ namespace System.Reflection.Emit
             // for the current active lexical scope.
 
             if (usingNamespace == null)
-                throw new ArgumentNullException(nameof(usingNamespace));
+                throw new ArgumentNullException("usingNamespace");
 
             if (usingNamespace.Length == 0)
-                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), nameof(usingNamespace));
+                throw new ArgumentException(Environment.GetResourceString("Argument_EmptyName"), "usingNamespace");
             Contract.EndContractBlock();
 
             int index;
@@ -1318,7 +1335,7 @@ namespace System.Reflection.Emit
         {
             if (startLine == 0 || startLine < 0 || endLine == 0 || endLine < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(startLine));
+                throw new ArgumentOutOfRangeException("startLine");
             }
             Contract.EndContractBlock();
             m_LineNumberInfo.AddLineNumberInfo(document, m_length, startLine, startColumn, endLine, endColumn);
@@ -1345,6 +1362,28 @@ namespace System.Reflection.Emit
         #endregion
 
         #endregion
+
+#if !FEATURE_CORECLR
+        void _ILGenerator.GetTypeInfoCount(out uint pcTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _ILGenerator.GetTypeInfo(uint iTInfo, uint lcid, IntPtr ppTInfo)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _ILGenerator.GetIDsOfNames([In] ref Guid riid, IntPtr rgszNames, uint cNames, uint lcid, IntPtr rgDispId)
+        {
+            throw new NotImplementedException();
+        }
+
+        void _ILGenerator.Invoke(uint dispIdMember, [In] ref Guid riid, uint lcid, short wFlags, IntPtr pDispParams, IntPtr pVarResult, IntPtr pExcepInfo, IntPtr puArgErr)
+        {
+            throw new NotImplementedException();
+        }
+#endif
     }
 
     internal struct __FixupData
@@ -1433,7 +1472,7 @@ namespace System.Reflection.Emit
                 m_catchAddr[m_currentCatch] = -1;
                 if (m_currentCatch > 0)
                 {
-                    Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+                    Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
                     m_catchEndAddr[m_currentCatch-1] = catchorfilterAddr;
                 }
             }
@@ -1450,7 +1489,7 @@ namespace System.Reflection.Emit
                 {
                         if (m_type[m_currentCatch] != Filter)
                         {
-                            Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+                            Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
                             m_catchEndAddr[m_currentCatch-1] = catchEndAddr;
                         }
                 }
@@ -1492,9 +1531,9 @@ namespace System.Reflection.Emit
         }
 
         internal void Done(int endAddr) {
-            Debug.Assert(m_currentCatch > 0,"m_currentCatch > 0");
-            Debug.Assert(m_catchAddr[m_currentCatch-1] > 0,"m_catchAddr[m_currentCatch-1] > 0");
-            Debug.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
+            Contract.Assert(m_currentCatch > 0,"m_currentCatch > 0");
+            Contract.Assert(m_catchAddr[m_currentCatch-1] > 0,"m_catchAddr[m_currentCatch-1] > 0");
+            Contract.Assert(m_catchEndAddr[m_currentCatch-1] == -1,"m_catchEndAddr[m_currentCatch-1] == -1");
             m_catchEndAddr[m_currentCatch-1] = endAddr;
             m_currentState = State_Done;
         }
@@ -1557,8 +1596,8 @@ namespace System.Reflection.Emit
         // not having a nesting relation. 
         internal bool IsInner(__ExceptionInfo exc) {
             Contract.Requires(exc != null);
-            Debug.Assert(m_currentCatch > 0,"m_currentCatch > 0");
-            Debug.Assert(exc.m_currentCatch > 0,"exc.m_currentCatch > 0");
+            Contract.Assert(m_currentCatch > 0,"m_currentCatch > 0");
+            Contract.Assert(exc.m_currentCatch > 0,"exc.m_currentCatch > 0");
 
             int exclast = exc.m_currentCatch - 1;
             int last = m_currentCatch - 1;
@@ -1567,7 +1606,7 @@ namespace System.Reflection.Emit
                 return true;
             else if (exc.m_catchEndAddr[exclast] == m_catchEndAddr[last])
             {
-                Debug.Assert(exc.GetEndAddress() != GetEndAddress(),
+                Contract.Assert(exc.GetEndAddress() != GetEndAddress(),
                                 "exc.GetEndAddress() != GetEndAddress()");
                 if (exc.GetEndAddress() > GetEndAddress())
                     return true;
@@ -1723,6 +1762,9 @@ namespace System.Reflection.Emit
             }
         }
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal void EmitScopeTree(ISymbolWriter symWriter)
         {
             int         i;
@@ -1779,7 +1821,7 @@ namespace System.Reflection.Emit
             // make sure that arrays are large enough to hold addition info
             i = FindDocument(document);
             
-            Debug.Assert(i < m_DocumentCount, "Bad document look up!");
+            Contract.Assert(i < m_DocumentCount, "Bad document look up!");
             m_Documents[i].AddLineNumberInfo(document, iOffset, iStartLine, iStartColumn, iEndLine, iEndColumn);
         }
         
@@ -1832,6 +1874,9 @@ namespace System.Reflection.Emit
             }
         }
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal void EmitLineNumberInfo(ISymbolWriter symWriter)
         {
             for (int i = 0; i < m_DocumentCount; i++)
@@ -1867,7 +1912,7 @@ namespace System.Reflection.Emit
             int             iEndLine,
             int             iEndColumn)
         {
-            Debug.Assert(document == m_document, "Bad document look up!");
+            Contract.Assert(document == m_document, "Bad document look up!");
             
             // make sure that arrays are large enough to hold addition info
             EnsureCapacity();
@@ -1923,6 +1968,9 @@ namespace System.Reflection.Emit
             }
         }
 
+        #if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+        #endif
         internal void EmitLineNumberInfo(ISymbolWriter symWriter)
         {
             int[]       iOffsetsTemp;

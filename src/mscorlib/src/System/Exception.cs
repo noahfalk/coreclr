@@ -73,10 +73,11 @@ namespace System {
             _innerException = innerException;
         }
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         protected Exception(SerializationInfo info, StreamingContext context) 
         {
             if (info==null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
     
             _className = info.GetString("ClassName");
@@ -142,6 +143,7 @@ namespace System {
         }
 
         public virtual IDictionary Data { 
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 if (_data == null)
                     if (IsImmutableAgileException(this))
@@ -153,6 +155,7 @@ namespace System {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern bool IsImmutableAgileException(Exception e);
 
@@ -257,9 +260,11 @@ namespace System {
         }
 
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         static extern private IRuntimeMethodInfo GetMethodFromStackTrace(Object stackTrace);
 
+        [System.Security.SecuritySafeCritical]  // auto-generated
         private MethodBase GetExceptionMethodFromStackTrace()
         {
             IRuntimeMethodInfo method = GetMethodFromStackTrace(_stackTrace);
@@ -272,6 +277,7 @@ namespace System {
         }
     
         public MethodBase TargetSite {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return GetTargetSiteInternal();
             }
@@ -279,6 +285,7 @@ namespace System {
     
 
         // this function is provided as a private helper to avoid the security demand
+        [System.Security.SecurityCritical]  // auto-generated
         private MethodBase GetTargetSiteInternal() {
             if (_exceptionMethod!=null) {
                 return _exceptionMethod;
@@ -299,6 +306,9 @@ namespace System {
         // available, null is returned.
         public virtual String StackTrace
         {
+#if FEATURE_CORECLR
+            [System.Security.SecuritySafeCritical] 
+#endif
             get 
             {
                 // By default attempt to include file and line number info
@@ -311,10 +321,23 @@ namespace System {
         // is true.  Note that this requires FileIOPermission(PathDiscovery), and so
         // will usually fail in CoreCLR.  To avoid the demand and resulting
         // SecurityException we can explicitly not even try to get fileinfo.
+#if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+#endif
         private string GetStackTrace(bool needFileInfo)
         {
             string stackTraceString = _stackTraceString;
             string remoteStackTraceString = _remoteStackTraceString;
+
+#if !FEATURE_CORECLR
+            if (!needFileInfo)
+            {
+                // Filter out file names/paths and line numbers from _stackTraceString and _remoteStackTraceString.
+                // This is used only when generating stack trace for Watson where the strings must be PII-free.
+                stackTraceString = StripFileInfo(stackTraceString, false);
+                remoteStackTraceString = StripFileInfo(remoteStackTraceString, true);
+            }
+#endif // !FEATURE_CORECLR
 
             // if no stack trace, try to get one
             if (stackTraceString != null)
@@ -357,6 +380,9 @@ namespace System {
         }
     
         public virtual String Source {
+#if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+#endif
             get { 
                 if (_source == null)
                 {
@@ -385,14 +411,23 @@ namespace System {
 
                 return _source;
             }
+#if FEATURE_CORECLR
+            [System.Security.SecurityCritical] // auto-generated
+#endif
             set { _source = value; }
         }
 
+#if FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical] 
+#endif
         public override String ToString()
         {
             return ToString(true, true);
         }
 
+#if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+#endif
         private String ToString(bool needFileLineInfo, bool needMessage) {
             String message = (needMessage ? Message : null);
             String s;
@@ -419,6 +454,7 @@ namespace System {
             return s;
         }
     
+        [System.Security.SecurityCritical]  // auto-generated
         private String GetExceptionMethodString() {
             MethodBase methBase = GetTargetSiteInternal();
             if (methBase==null) {
@@ -451,7 +487,7 @@ namespace System {
                 result.Append(separator);
                 result.Append(rci.ToString());
             } else {
-                Debug.Assert(methBase is MethodInfo, "[Exception.GetExceptionMethodString]methBase is MethodInfo");
+                Contract.Assert(methBase is MethodInfo, "[Exception.GetExceptionMethodString]methBase is MethodInfo");
                 RuntimeMethodInfo rmi = (RuntimeMethodInfo)methBase;
                 Type t = rmi.DeclaringType;
                 result.Append((int)MemberTypes.Method);
@@ -471,8 +507,9 @@ namespace System {
             return result.ToString();
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         private MethodBase GetExceptionMethodFromString() {
-            Debug.Assert(_exceptionMethodString != null, "Method string cannot be NULL!");
+            Contract.Assert(_exceptionMethodString != null, "Method string cannot be NULL!");
             String[] args = _exceptionMethodString.Split(new char[]{'\0', '\n'});
             if (args.Length!=5) {
                 throw new SerializationException();
@@ -499,19 +536,14 @@ namespace System {
             add { _safeSerializationManager.SerializeObjectState += value; }
             remove { _safeSerializationManager.SerializeObjectState -= value; }
         }
-#else
-        protected event EventHandler<SafeSerializationEventArgs> SerializeObjectState
-        {
-            add    { throw new PlatformNotSupportedException();}
-            remove { throw new PlatformNotSupportedException();}
-        }
 #endif // FEATURE_SERIALIZATION
 
+        [System.Security.SecurityCritical]  // auto-generated_required
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context) 
         {
             if (info == null)
             {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
             Contract.EndContractBlock();
 
@@ -559,7 +591,7 @@ namespace System {
                 // often created in the VM with AllocateObject instead if the managed construtor)
                 // If you are adding code to use a SafeSerializationManager from an mscorlib exception, update
                 // this assert to ensure that it fails when that exception's _safeSerializationManager is NULL 
-                Debug.Assert(((_safeSerializationManager != null) || (this.GetType().Assembly == typeof(object).Assembly)), 
+                Contract.Assert(((_safeSerializationManager != null) || (this.GetType().Assembly == typeof(object).Assembly)), 
                                 "User defined exceptions must have a valid _safeSerializationManager");
             
                 // Handle serializing any transparent or partial trust subclass data
@@ -624,6 +656,9 @@ namespace System {
 
         // This is used by the runtime when re-throwing a managed exception.  It will
         //  copy the stack trace to _remoteStackTraceString.
+#if FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical] 
+#endif
         internal void InternalPreserveStackTrace()
         {
             string tmpStackTraceString;
@@ -696,21 +731,33 @@ namespace System {
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void PrepareForForeignExceptionRaise();
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void GetStackTracesDeepCopy(Exception exception, out object currentStackTrace, out object dynamicMethodArray);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         internal static extern void SaveStackTracesFromDeepCopy(Exception exception, object currentStackTrace, object dynamicMethodArray);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern object CopyStackTrace(object currentStackTrace);
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern object CopyDynamicMethods(object currentDynamicMethods);
 
+#if !FEATURE_CORECLR
+        [System.Security.SecuritySafeCritical]
+        [MethodImplAttribute(MethodImplOptions.InternalCall)]
+        private extern string StripFileInfo(string stackTrace, bool isRemoteStackTrace);
+#endif // !FEATURE_CORECLR
+
+        [SecuritySafeCritical]
         internal object DeepCopyStackTrace(object currentStackTrace)
         {
             if (currentStackTrace != null)
@@ -723,6 +770,7 @@ namespace System {
             }
         }
 
+        [SecuritySafeCritical]
         internal object DeepCopyDynamicMethods(object currentDynamicMethods)
         {
             if (currentDynamicMethods != null)
@@ -735,6 +783,7 @@ namespace System {
             }
         }
         
+        [SecuritySafeCritical]
         internal void GetStackTracesDeepCopy(out object currentStackTrace, out object dynamicMethodArray)
         {
             GetStackTracesDeepCopy(this, out currentStackTrace, out dynamicMethodArray);
@@ -742,6 +791,7 @@ namespace System {
 
         // This is invoked by ExceptionDispatchInfo.Throw to restore the exception stack trace, corresponding to the original throw of the
         // exception, just before the exception is "rethrown".
+        [SecuritySafeCritical]
         internal void RestoreExceptionDispatchInfo(System.Runtime.ExceptionServices.ExceptionDispatchInfo exceptionDispatchInfo)
         {
             bool fCanProcessException = !(IsImmutableAgileException(this));
@@ -844,6 +894,7 @@ namespace System {
 
         // InternalToString is called by the runtime to get the exception text 
         // and create a corresponding CrossAppDomainMarshaledException
+        [System.Security.SecurityCritical]  // auto-generated
         internal virtual String InternalToString()
         {
             try 
@@ -872,11 +923,13 @@ namespace System {
 
         internal bool IsTransient
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 return nIsTransient(_HResult);
             }
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private extern static bool nIsTransient(int hr);
 
@@ -898,6 +951,7 @@ namespace System {
         }
 
         // See comment on ExceptionMessageKind
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal static String GetMessageFromNativeResources(ExceptionMessageKind kind)
         {
             string retMesg = null;
@@ -905,10 +959,15 @@ namespace System {
             return retMesg;
         }
 
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void GetMessageFromNativeResources(ExceptionMessageKind kind, StringHandleOnStack retMesg);
     }
+
+
+
+#if FEATURE_CORECLR
 
     //--------------------------------------------------------------------------
     // Telesto: Telesto doesn't support appdomain marshaling of objects so
@@ -931,10 +990,17 @@ namespace System {
         // Normally, only Telesto's UEF will see these exceptions.
         // This override prints out the original Exception's ToString()
         // output and hides the fact that it is wrapped inside another excepton.
+#if FEATURE_CORECLR
+        [System.Security.SecurityCritical] // auto-generated
+#endif
         internal override String InternalToString()
         {
             return Message;
         }
+    
     }
+#endif
+
+
 }
 

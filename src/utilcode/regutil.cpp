@@ -1439,7 +1439,8 @@ void REGUTIL::InitOptionalConfigCache()
     s_fUseRegCache = TRUE;
 
     // Now create a cache of environment variables
-    if (WCHAR * wszStrings = WszGetEnvironmentStrings())
+    WCHAR * wszStrings = WszGetEnvironmentStrings();
+    if (wszStrings)
     {
         // GetEnvironmentStrings returns pointer to a null terminated block containing
         // null terminated strings

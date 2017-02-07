@@ -14,8 +14,6 @@ using Microsoft.Xunit.Performance;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Serialization
-{
 public class JsonBenchmarks
 {
 
@@ -74,7 +72,7 @@ public class JsonBenchmarks
     }
 
     [Benchmark]
-    private void SerializeDataContract()
+    private void SerializeDataContract() 
     {
         foreach (var iteration in Benchmark.Iterations) {
             using (iteration.StartMeasurement()) {
@@ -187,5 +185,4 @@ public class JsonBenchmarks
         bool result = tests.Serialize();
         return result ? 100 : -1;
     }
-}
 }

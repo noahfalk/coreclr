@@ -1856,7 +1856,9 @@ private:
     OBJECTREF dateTimeInfo;
     OBJECTREF calendar;
     OBJECTREF m_cultureData;
+#ifndef FEATURE_CORECLR
     OBJECTREF m_consoleFallbackCulture;
+#endif // !FEATURE_CORECLR
     STRINGREF m_name;                       // "real" name - en-US, de-DE_phoneb or fj-FJ
     STRINGREF m_nonSortName;                // name w/o sort info (de-DE for de-DE_phoneb)
     STRINGREF m_sortName;                   // Sort only name (de-DE_phoneb, en-us for fj-fj (w/us sort)
@@ -2192,28 +2194,15 @@ public:
     }
 #endif // FEATURE_LEAK_CULTURE_INFO
 
-#ifdef FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
-#ifdef FEATURE_CORECLR
+#ifndef FEATURE_CORECLR
     OBJECTREF GetSynchronizationContext()
     {
-        LIMITED_METHOD_CONTRACT;
-        return m_SynchronizationContext;
-    }
-#else // !FEATURE_CORECLR
-    OBJECTREF GetSynchronizationContext()
-    {
-        LIMITED_METHOD_CONTRACT;
+        LIMITED_METHOD_CONTRACT; 
         if (m_ExecutionContext != NULL)
-        {
             return m_ExecutionContext->GetSynchronizationContext();
-        }
         return NULL;
     }
-#endif // FEATURE_CORECLR
-#endif // FEATURE_SYNCHRONIZATIONCONTEXT_WAIT
-
-#ifndef FEATURE_CORECLR
-    OBJECTREF GetExecutionContext()
+    OBJECTREF GetExecutionContext() 
     { 
         LIMITED_METHOD_CONTRACT; 
         return (OBJECTREF)m_ExecutionContext;
@@ -2743,6 +2732,10 @@ class FrameSecurityDescriptorBaseObject : public Object
     OBJECTREF       m_DeclarativeAssertions;
     OBJECTREF       m_DeclarativeDenials;
     OBJECTREF       m_DeclarativeRestrictions;
+#ifndef FEATURE_PAL
+    SAFEHANDLEREF   m_callerToken; // the thread token (or process token if there was no thread token) when a call to Impersonate was made ("previous" token)
+    SAFEHANDLEREF   m_impToken; // the thread token after a call to Impersonate is made (the "current" impersonation)
+#endif // !FEATURE_PAL
     CLR_BOOL        m_assertFT;
     CLR_BOOL        m_assertAllPossible;
     CLR_BOOL        m_declSecComputed;
@@ -2876,6 +2869,8 @@ class FrameSecurityDescriptorBaseObject : public Object
         LIMITED_METHOD_CONTRACT;
         m_declSecComputed = !!declSec;
     }
+    LPVOID GetCallerToken();
+    LPVOID GetImpersonationToken();
 };
 
 #ifdef FEATURE_COMPRESSEDSTACK
@@ -4568,7 +4563,9 @@ public:
     INT32 cPositivePercentFormat;   // positivePercentFormat
     INT32 cNegativePercentFormat;   // negativePercentFormat
     INT32 cPercentDecimals;         // percentDecimalDigits
+#ifndef FEATURE_COREFX_GLOBALIZATION    
     INT32 iDigitSubstitution;       // digitSubstitution
+#endif
 
     CLR_BOOL bIsReadOnly;              // Is this NumberFormatInfo ReadOnly?
 #ifndef FEATURE_COREFX_GLOBALIZATION

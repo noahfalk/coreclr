@@ -38,7 +38,6 @@ void genSetRegToIcon(regNumber reg, ssize_t val, var_types type = TYP_INT, insFl
 
 regNumber genGetRegSetToIcon(ssize_t val, regMaskTP regBest = 0, var_types type = TYP_INT);
 void genDecRegBy(regNumber reg, ssize_t ival, GenTreePtr tree);
-void genIncRegBy(regNumber reg, ssize_t ival, GenTreePtr tree, var_types dstType = TYP_INT, bool ovfl = false);
 
 void genMulRegBy(regNumber reg, ssize_t ival, GenTreePtr tree, var_types dstType = TYP_INT, bool ovfl = false);
 
@@ -62,6 +61,10 @@ regNumber genPInvokeCallProlog(LclVarDsc*            varDsc,
 void genPInvokeCallEpilog(LclVarDsc* varDsc, regMaskTP retVal);
 
 regNumber genLclHeap(GenTreePtr size);
+
+void genSinglePush();
+
+void genSinglePop();
 
 void genDyingVars(VARSET_VALARG_TP beforeSet, VARSET_VALARG_TP afterSet);
 
@@ -282,6 +285,9 @@ void genCodeForTreeFlt(GenTreePtr tree, regMaskTP needReg = RBM_ALLFLOAT, regMas
 void genCodeForJumpTable(GenTreePtr tree);
 void genCodeForSwitchTable(GenTreePtr tree);
 void genCodeForSwitch(GenTreePtr tree);
+
+regMaskTP genPushRegs(regMaskTP regs, regMaskTP* byrefRegs, regMaskTP* noRefRegs);
+void genPopRegs(regMaskTP regs, regMaskTP byrefRegs, regMaskTP noRefRegs);
 
 size_t genPushArgList(GenTreePtr call);
 

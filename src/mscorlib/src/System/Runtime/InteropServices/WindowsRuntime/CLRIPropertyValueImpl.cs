@@ -184,6 +184,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Point GetPoint()
         {
             if (this.Type != PropertyType.Point)
@@ -194,6 +195,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Size GetSize()
         {
             if (this.Type != PropertyType.Size)
@@ -204,6 +206,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Rect GetRect()
         {
             if (this.Type != PropertyType.Rect)
@@ -325,6 +328,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Point[] GetPointArray()
         {
             if (this.Type != PropertyType.PointArray)
@@ -335,6 +339,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Size[] GetSizeArray()
         {
             if (this.Type != PropertyType.SizeArray)
@@ -346,6 +351,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         [Pure]
+        [SecuritySafeCritical]
         public Rect[] GetRectArray()
         {
             if (this.Type != PropertyType.RectArray)
@@ -499,6 +505,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
 
         // Unbox the data stored in the property value to a structurally equivilent type
         [Pure]
+        [SecurityCritical]
         private unsafe T Unbox<T>(Type expectedBoxedType) where T : struct {
             Contract.Requires(expectedBoxedType != null);
             Contract.Requires(Marshal.SizeOf(expectedBoxedType) == Marshal.SizeOf(typeof(T)));
@@ -519,6 +526,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
 
         // Convert the array stored in the property value to a structurally equivilent array type
         [Pure]
+        [SecurityCritical]
         private unsafe T[] UnboxArray<T>(Type expectedArrayElementType) where T : struct {
             Contract.Requires(expectedArrayElementType != null);
             Contract.Requires(Marshal.SizeOf(expectedArrayElementType) == Marshal.SizeOf(typeof(T)));

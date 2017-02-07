@@ -8,7 +8,6 @@ using System;
 using System.Security;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Diagnostics.Contracts;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -27,11 +26,12 @@ namespace System.Runtime.InteropServices.WindowsRuntime
     {
         private VectorToCollectionAdapter()
         {
-            Debug.Assert(false, "This class is never instantiated");
+            Contract.Assert(false, "This class is never instantiated");
         }
 
         // int Count { get }
         [Pure]
+        [SecurityCritical]
         internal int Count<T>()
         {
             IVector<T> _this = JitHelpers.UnsafeCast<IVector<T>>(this);
@@ -45,12 +45,14 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // bool IsReadOnly { get }
+        [SecurityCritical]
         internal bool IsReadOnly<T>()
         {
             return false;
         }
 
         // void Add(T item)
+        [SecurityCritical]
         internal void Add<T>(T item)
         {
             IVector<T> _this = JitHelpers.UnsafeCast<IVector<T>>(this);
@@ -58,6 +60,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void Clear()
+        [SecurityCritical]
         internal void Clear<T>()
         {
             IVector<T> _this = JitHelpers.UnsafeCast<IVector<T>>(this);
@@ -65,6 +68,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // bool Contains(T item)
+        [SecurityCritical]
         internal bool Contains<T>(T item)
         {
             IVector<T> _this = JitHelpers.UnsafeCast<IVector<T>>(this);
@@ -74,13 +78,14 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // void CopyTo(T[] array, int arrayIndex)
+        [SecurityCritical]
         internal void CopyTo<T>(T[] array, int arrayIndex)
         {
             if (array == null)
-                throw new ArgumentNullException(nameof(array));
+                throw new ArgumentNullException("array");
 
             if (arrayIndex < 0)
-                throw new ArgumentOutOfRangeException(nameof(arrayIndex));
+                throw new ArgumentOutOfRangeException("arrayIndex");
 
             if (array.Length <= arrayIndex && Count<T>() > 0)
                 throw new ArgumentException(Environment.GetResourceString("Argument_IndexOutOfArrayBounds"));
@@ -99,6 +104,7 @@ namespace System.Runtime.InteropServices.WindowsRuntime
         }
 
         // bool Remove(T item)
+        [SecurityCritical]
         internal bool Remove<T>(T item)
         {
             IVector<T> _this = JitHelpers.UnsafeCast<IVector<T>>(this);

@@ -4,7 +4,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
 set(SOURCES
   mtx_critsect.cpp
-  pal_composite_native_cs.cpp
+  pal_composite_native_cs.c
   resultbuffer.cpp
 )
 

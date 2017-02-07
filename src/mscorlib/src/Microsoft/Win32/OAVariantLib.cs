@@ -73,12 +73,13 @@ namespace Microsoft.Win32 {
          * Variant and the types that CLR supports explicitly in the 
          * CLR Variant class.  
          */
+        [System.Security.SecurityCritical]  // auto-generated
         internal static Variant ChangeType(Variant source, Type targetClass, short options, CultureInfo culture)
         {
             if (targetClass == null)
-                throw new ArgumentNullException(nameof(targetClass));
+                throw new ArgumentNullException("targetClass");
             if (culture == null)
-                throw new ArgumentNullException(nameof(culture));
+                throw new ArgumentNullException("culture");
             Variant result = new Variant ();
             ChangeTypeEx(ref result, ref source, 
 #if FEATURE_USE_LCID
@@ -124,6 +125,7 @@ namespace Microsoft.Win32 {
 
         #region Private FCalls
 
+        [System.Security.SecurityCritical]  // auto-generated
         [MethodImplAttribute(MethodImplOptions.InternalCall)]
         private static extern void ChangeTypeEx(ref Variant result, ref Variant source, int lcid, IntPtr typeHandle, int cvType, short flags);
 

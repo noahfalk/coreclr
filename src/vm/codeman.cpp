@@ -31,10 +31,6 @@
 #include "debuginfostore.h"
 #include "strsafe.h"
 
-#ifdef FEATURE_CORECLR
-#include "configuration.h"
-#endif
-
 #ifdef _WIN64
 #define CHECK_DUPLICATED_STRUCT_LAYOUTS
 #include "../debug/daccess/fntableaccess.h"
@@ -1187,7 +1183,6 @@ EEJitManager::EEJitManager()
     // CRST_TAKEN_DURING_SHUTDOWN - We take this lock during shutdown if ETW is on (to do rundown)
     m_CodeHeapCritSec( CrstSingleUseLock,
                         CrstFlags(CRST_UNSAFE_ANYMODE|CRST_DEBUGGER_THREAD|CRST_TAKEN_DURING_SHUTDOWN)),
-    m_CPUCompileFlags(),
     m_EHClauseCritSec( CrstSingleUseLock )
 {
     CONTRACTL {
@@ -1201,34 +1196,41 @@ EEJitManager::EEJitManager()
 #ifdef _TARGET_AMD64_
     m_pEmergencyJumpStubReserveList = NULL;
 #endif
-#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#ifdef _TARGET_AMD64_
     m_JITCompilerOther = NULL;
 #endif
-    m_fLegacyJitUsed   = FALSE;
-
 #ifdef ALLOW_SXS_JIT
     m_alternateJit     = NULL;
     m_AltJITCompiler   = NULL;
     m_AltJITRequired   = false;
 #endif
 
+    m_dwCPUCompileFlags = 0;
+
     m_cleanupList = NULL;
 }
 
-#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#if defined(_TARGET_AMD64_)
+extern "C" DWORD __stdcall getcpuid(DWORD arg, unsigned char result[16]);
+extern "C" DWORD __stdcall xmmYmmStateSupport();
 
 bool DoesOSSupportAVX()
 {
-    LIMITED_METHOD_CONTRACT;
-
 #ifndef FEATURE_PAL
     // On Windows we have an api(GetEnabledXStateFeatures) to check if AVX is supported
     typedef DWORD64 (WINAPI *PGETENABLEDXSTATEFEATURES)();
     PGETENABLEDXSTATEFEATURES pfnGetEnabledXStateFeatures = NULL;
     
-    HMODULE hMod = WszLoadLibraryEx(WINDOWS_KERNEL32_DLLNAME_W, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
-    if(hMod == NULL)
-        return FALSE;
+    // Probe ApiSet first
+    HMODULE hMod = WszLoadLibraryEx(W("api-ms-win-core-xstate-l2-1-0.dll"), NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+
+    if (hMod == NULL)
+    {
+        // On older OS's where apiset is not present probe kernel32
+        hMod = WszLoadLibraryEx(WINDOWS_KERNEL32_DLLNAME_W, NULL, LOAD_LIBRARY_SEARCH_SYSTEM32);
+        if(hMod = NULL)
+            return FALSE;
+    }
         
     pfnGetEnabledXStateFeatures = (PGETENABLEDXSTATEFEATURES)GetProcAddress(hMod, "GetEnabledXStateFeatures");
         
@@ -1247,7 +1249,7 @@ bool DoesOSSupportAVX()
     return TRUE;
 }
 
-#endif // defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#endif // defined(_TARGET_AMD64_)
 
 void EEJitManager::SetCpuInfo()
 {
@@ -1257,7 +1259,7 @@ void EEJitManager::SetCpuInfo()
     // NOTE: This function needs to be kept in sync with Zapper::CompileAssembly()
     //
 
-    CORJIT_FLAGS CPUCompileFlags;
+    DWORD dwCPUCompileFlags = 0;
 
 #if defined(_TARGET_X86_)
     // NOTE: if you're adding any flags here, you probably should also be doing it
@@ -1268,7 +1270,7 @@ void EEJitManager::SetCpuInfo()
     switch (CPU_X86_FAMILY(cpuInfo.dwCPUType))
     {
     case CPU_X86_PENTIUM_4:
-        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_TARGET_P4);
+        dwCPUCompileFlags |= CORJIT_FLG_TARGET_P4;
         break;
     default:
         break;
@@ -1276,17 +1278,15 @@ void EEJitManager::SetCpuInfo()
 
     if (CPU_X86_USE_CMOV(cpuInfo.dwFeatures))
     {
-        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_CMOV);
-        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_FCOMI);
+        dwCPUCompileFlags |= CORJIT_FLG_USE_CMOV |
+                             CORJIT_FLG_USE_FCOMI;
     }
 
     if (CPU_X86_USE_SSE2(cpuInfo.dwFeatures))
     {
-        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_SSE2);
+        dwCPUCompileFlags |= CORJIT_FLG_USE_SSE2;
     }
-#endif // _TARGET_X86_
-
-#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#elif defined(_TARGET_AMD64_)
     unsigned char buffer[16];
     DWORD maxCpuId = getcpuid(0, buffer);
     if (maxCpuId >= 0)
@@ -1295,17 +1295,17 @@ void EEJitManager::SetCpuInfo()
         // It returns the resulting eax in buffer[0-3], ebx in buffer[4-7], ecx in buffer[8-11],
         // and edx in buffer[12-15].
         // We will set the following flags:
-        // CORJIT_FLAG_USE_SSE3_4 if the following feature bits are set (input EAX of 1)
+        // CORJIT_FLG_USE_SSE3_4 if the following feature bits are set (input EAX of 1)
         //    SSE3 - ECX bit 0     (buffer[8]  & 0x01)
         //    SSSE3 - ECX bit 9    (buffer[9]  & 0x02)
         //    SSE4.1 - ECX bit 19  (buffer[10] & 0x08)
         //    SSE4.2 - ECX bit 20  (buffer[10] & 0x10)
-        // CORJIT_FLAG_USE_AVX if the following feature bits are set (input EAX of 1), and xmmYmmStateSupport returns 1:
+        // CORJIT_FLG_USE_AVX if the following feature bits are set (input EAX of 1), and xmmYmmStateSupport returns 1:
         //    OSXSAVE - ECX bit 27 (buffer[11] & 0x08)
         //    AVX - ECX bit 28     (buffer[11] & 0x10)
-        // CORJIT_FLAG_USE_AVX2 if the following feature bit is set (input EAX of 0x07 and input ECX of 0):
+        // CORJIT_FLG_USE_AVX2 if the following feature bit is set (input EAX of 0x07 and input ECX of 0):
         //    AVX2 - EBX bit 5     (buffer[4]  & 0x20)
-        // CORJIT_FLAG_USE_AVX_512 is not currently set, but defined so that it can be used in future without
+        // CORJIT_FLG_USE_AVX_512 is not currently set, but defined so that it can be used in future without
         // synchronously updating VM and JIT.
         (void) getcpuid(1, buffer);
         // If SSE2 is not enabled, there is no point in checking the rest.
@@ -1318,7 +1318,7 @@ void EEJitManager::SetCpuInfo()
                 ((buffer[10] & 0x08) != 0) &&       // SSE4.1
                 ((buffer[10] & 0x10) != 0))         // SSE4.2
             {
-                CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_SSE3_4);
+                dwCPUCompileFlags |= CORJIT_FLG_USE_SSE3_4;
             }
             if ((buffer[11] & 0x18) == 0x18)
             {
@@ -1326,13 +1326,13 @@ void EEJitManager::SetCpuInfo()
                 {
                     if (xmmYmmStateSupport() == 1)
                     {
-                        CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_AVX);
+                        dwCPUCompileFlags |= CORJIT_FLG_USE_AVX;
                         if (maxCpuId >= 0x07)
                         {
                             (void) getcpuid(0x07, buffer);
                             if ((buffer[4]  & 0x20) != 0)
                             {
-                                CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_USE_AVX2);
+                                dwCPUCompileFlags |= CORJIT_FLG_USE_AVX2;
                             }
                         }
                     }
@@ -1341,13 +1341,13 @@ void EEJitManager::SetCpuInfo()
             static ConfigDWORD fFeatureSIMD;
             if (fFeatureSIMD.val(CLRConfig::EXTERNAL_FeatureSIMD) != 0)
             {
-                CPUCompileFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_FEATURE_SIMD);
+                dwCPUCompileFlags |= CORJIT_FLG_FEATURE_SIMD;
             }
         }
     }
-#endif // defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#endif // defined(_TARGET_AMD64_)
 
-    m_CPUCompileFlags = CPUCompileFlags;
+    m_dwCPUCompileFlags = dwCPUCompileFlags;
 }
 
 // Define some data that we can use to get a better idea of what happened when we get a Watson dump that indicates the JIT failed to load.
@@ -1356,7 +1356,7 @@ void EEJitManager::SetCpuInfo()
 enum JIT_LOAD_JIT_ID
 {
     JIT_LOAD_MAIN = 500,    // The "main" JIT. Normally, this is named "clrjit.dll". Start at a number that is somewhat uncommon (i.e., not zero or 1) to help distinguish from garbage, in process dumps.
-    JIT_LOAD_LEGACY,        // The "legacy" JIT. Normally, this is named "compatjit.dll". This applies to AMD64 on Windows desktop, or x86 on Windows .NET Core.
+    JIT_LOAD_LEGACY,        // The "legacy" JIT. Normally, this is named "compatjit.dll" (aka, JIT64). This only applies to AMD64.
     JIT_LOAD_ALTJIT         // An "altjit". By default, named "protojit.dll". Used both internally, as well as externally for JIT CTP builds.
 };
 
@@ -1432,43 +1432,33 @@ static void LoadAndInitializeJIT(LPCWSTR pwzJitName, OUT HINSTANCE* phJit, OUT I
 #ifdef FEATURE_CORECLR
     PathString CoreClrFolderHolder;
     extern HINSTANCE g_hThisInst;
-    bool havePath = false;
 
 #if !defined(FEATURE_MERGE_JIT_AND_ENGINE)
     if (g_CLRJITPath != nullptr)
     {
-        // If we have been asked to load a specific JIT binary, load from that path.
-        // The main JIT load will use exactly that name because pwzJitName will have
-        // been computed as the last component of g_CLRJITPath by ExecutionManager::GetJitName().
-        // Non-primary JIT names (such as compatjit or altjit) will be loaded from the
-        // same directory.
-        // (Ideally, g_CLRJITPath would just be the JIT path without the filename component,
-        // but that's not how the JIT_PATH variable was originally defined.)
+        // If we have been asked to load a specific JIT binary, load it.
         CoreClrFolderHolder.Set(g_CLRJITPath);
-        havePath = true;
     }
     else 
 #endif // !defined(FEATURE_MERGE_JIT_AND_ENGINE)
     if (WszGetModuleFileName(g_hThisInst, CoreClrFolderHolder))
     {
         // Load JIT from next to CoreCLR binary
-        havePath = true;
-    }
-
-    if (havePath && !CoreClrFolderHolder.IsEmpty())
-    {
         SString::Iterator iter = CoreClrFolderHolder.End();
         BOOL findSep = CoreClrFolderHolder.FindBack(iter, DIRECTORY_SEPARATOR_CHAR_W);
         if (findSep)
         {
             SString sJitName(pwzJitName);
             CoreClrFolderHolder.Replace(iter + 1, CoreClrFolderHolder.End() - (iter + 1), sJitName);
+        }
+    }
 
-            *phJit = CLRLoadLibrary(CoreClrFolderHolder.GetUnicode());
-            if (*phJit != NULL)
-            {
-                hr = S_OK;
-            }
+    if (!CoreClrFolderHolder.IsEmpty())
+    {
+        *phJit = CLRLoadLibrary(CoreClrFolderHolder.GetUnicode());
+        if (*phJit != NULL)
+        {
+            hr = S_OK;
         }
     }
 
@@ -1624,7 +1614,7 @@ BOOL EEJitManager::LoadJIT()
 #else // !FEATURE_MERGE_JIT_AND_ENGINE
 
     m_JITCompiler = NULL;
-#if defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
+#ifdef _TARGET_AMD64_
     m_JITCompilerOther = NULL;
 #endif
 
@@ -1633,8 +1623,8 @@ BOOL EEJitManager::LoadJIT()
 
     // Set as a courtesy to code:CorCompileGetRuntimeDll
     s_ngenCompilerDll = m_JITCompiler;
-
-#if (defined(_TARGET_AMD64_) && !defined(CROSSGEN_COMPILE) && !defined(FEATURE_CORECLR)) || (defined(_TARGET_X86_) && defined(FEATURE_CORECLR))
+    
+#if defined(_TARGET_AMD64_) && !defined(CROSSGEN_COMPILE) && !defined(FEATURE_CORECLR)
     // If COMPlus_UseLegacyJit=1, then we fall back to compatjit.dll.
     //
     // This fallback mechanism was introduced for Visual Studio "14" Preview, when JIT64 (the legacy JIT) was replaced with
@@ -1655,16 +1645,8 @@ BOOL EEJitManager::LoadJIT()
     // is set, we also must use JIT64 for all NGEN compilations as well.
     //
     // See the document "RyuJIT Compatibility Fallback Specification.docx" for details.
-    //
-    // For .NET Core 1.2, RyuJIT for x86 is the primary jit (clrjit.dll) and JIT32 for x86 is the fallback, legacy JIT (compatjit.dll).
-    // Thus, the COMPlus_useLegacyJit=1 mechanism has been enabled for x86 CoreCLR. This scenario does not have the UseRyuJIT
-    // registry key, nor the AppX binder mode.
 
-#if defined(FEATURE_CORECLR)
-    bool fUseRyuJit = true;
-#else
     bool fUseRyuJit = UseRyuJit();
-#endif
 
     if ((!IsCompilationProcess() || !fUseRyuJit) &&     // Use RyuJIT for all NGEN, unless we're falling back to JIT64 for everything.
         (newJitCompiler != nullptr))    // the main JIT must successfully load before we try loading the fallback JIT
@@ -1678,11 +1660,7 @@ BOOL EEJitManager::LoadJIT()
 
         if (!fUsingCompatJit)
         {
-#if defined(FEATURE_CORECLR)
-            DWORD useLegacyJit = Configuration::GetKnobBooleanValue(W("System.JIT.UseWindowsX86CoreLegacyJit"), CLRConfig::EXTERNAL_UseWindowsX86CoreLegacyJit);
-#else
             DWORD useLegacyJit = CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_UseLegacyJit); // uncached access, since this code is run no more than one time
-#endif
             if (useLegacyJit == 1)
             {
                 fUsingCompatJit = TRUE;
@@ -1711,7 +1689,7 @@ BOOL EEJitManager::LoadJIT()
         {
             // Now, load the compat jit and initialize it.
 
-            LPCWSTR pwzJitName = MAKEDLLNAME_W(W("compatjit"));
+            LPWSTR pwzJitName = MAKEDLLNAME_W(L"compatjit");
 
             // Note: if the compatjit fails to load, we ignore it, and continue to use the main JIT for
             // everything. You can imagine a policy where if the user requests the compatjit, and we fail
@@ -1724,13 +1702,10 @@ BOOL EEJitManager::LoadJIT()
                 // Tell the main JIT to fall back to the "fallback" JIT compiler, in case some
                 // obfuscator tries to directly call the main JIT's getJit() function.
                 newJitCompiler->setRealJit(fallbackICorJitCompiler);
-
-                // Now, the compat JIT will be used.
-                m_fLegacyJitUsed = TRUE;
             }
         }
     }
-#endif // (defined(_TARGET_AMD64_) && !defined(CROSSGEN_COMPILE) && !defined(FEATURE_CORECLR)) || (defined(_TARGET_X86_) && defined(FEATURE_CORECLR))
+#endif // defined(_TARGET_AMD64_) && !defined(CROSSGEN_COMPILE) && !defined(FEATURE_CORECLR)
 
 #endif // !FEATURE_MERGE_JIT_AND_ENGINE
 
@@ -3020,7 +2995,7 @@ void * EEJitManager::allocCodeFragmentBlock(size_t blockSize, unsigned alignment
     {
         CrstHolder ch(&m_CodeHeapCritSec);
 
-        mem = (TADDR) allocCodeRaw(&requestInfo, sizeof(CodeHeader), blockSize, alignment, &pCodeHeap);
+        mem = (TADDR) allocCodeRaw(&requestInfo, sizeof(TADDR), blockSize, alignment, &pCodeHeap);
 
         // CodeHeader comes immediately before the block
         CodeHeader * pCodeHdr = (CodeHeader *) (mem - sizeof(CodeHeader));
@@ -3422,7 +3397,7 @@ void ExecutionManager::CleanupCodeHeaps()
     }
     CONTRACTL_END;
 
-    _ASSERTE (g_fProcessDetach || (GCHeapUtilities::IsGCInProgress()  && ::IsGCThread()));
+    _ASSERTE (g_fProcessDetach || (GCHeap::IsGCInProgress()  && ::IsGCThread()));
 
     GetEEJitManager()->CleanupCodeHeaps();
 }
@@ -3436,17 +3411,7 @@ void EEJitManager::CleanupCodeHeaps()
     }
     CONTRACTL_END;
 
-    _ASSERTE (g_fProcessDetach || (GCHeapUtilities::IsGCInProgress() && ::IsGCThread()));
-
-	// Quick out, don't even take the lock if we have not cleanup to do.
-	// This is important because ETW takes the CodeHeapLock when it is doing
-	// rundown, and if there are many JIT compiled methods, this can take a while.
-	// Because cleanup is called synchronously before a GC, this means GCs get
-	// blocked while ETW is doing rundown.   By not taking the lock we avoid
-	// this stall most of the time since cleanup is rare, and ETW rundown is rare
-	// the likelihood of both is very very rare.   
-	if (m_cleanupList == NULL)
-		return;
+    _ASSERTE (g_fProcessDetach || (GCHeap::IsGCInProgress() && ::IsGCThread()));
 
     CrstHolder ch(&m_CodeHeapCritSec);
 
@@ -4394,22 +4359,7 @@ LPCWSTR ExecutionManager::GetJitName()
 
     LPCWSTR  pwzJitName = NULL;
 
-#if defined(FEATURE_CORECLR)
-#if !defined(CROSSGEN_COMPILE)
-    if (g_CLRJITPath != nullptr)
-    {
-        const wchar_t* p = wcsrchr(g_CLRJITPath, DIRECTORY_SEPARATOR_CHAR_W);
-        if (p != nullptr)
-        {
-            pwzJitName = p + 1; // Return just the filename, not the directory name
-        }
-        else
-        {
-            pwzJitName = g_CLRJITPath;
-        }
-    }
-#endif // !defined(CROSSGEN_COMPILE)
-#else // !FEATURE_CORECLR
+#if !defined(FEATURE_CORECLR)
     // Try to obtain a name for the jit library from the env. variable
     IfFailThrow(CLRConfig::GetConfigValue(CLRConfig::EXTERNAL_JitName, const_cast<LPWSTR *>(&pwzJitName)));
 #endif // !FEATURE_CORECLR
@@ -4501,7 +4451,7 @@ RangeSection* ExecutionManager::GetRangeSection(TADDR addr)
     // Unless we are on an MP system with many cpus
     // where this sort of caching actually diminishes scaling during server GC
     // due to many processors writing to a common location
-    if (g_SystemInfo.dwNumberOfProcessors < 4 || !GCHeapUtilities::IsServerHeap() || !GCHeapUtilities::IsGCInProgress())
+    if (g_SystemInfo.dwNumberOfProcessors < 4 || !GCHeap::IsServerHeap() || !GCHeap::IsGCInProgress())
         pHead->pLastUsed = pLast;
 #endif
 
@@ -6154,12 +6104,12 @@ __forceinline bool Nirvana_PrintMethodDescWorker(__in_ecount(iBuffer) char * szB
 
     if (*pNamespace != 0)
     {
-        if (_snprintf_s(szBuffer, iBuffer, _TRUNCATE, "%s.%s.%s", pNamespace, pClassName, pSigString) == -1)
+        if(FAILED(StringCchPrintfA(szBuffer, iBuffer, "%s.%s.%s", pNamespace, pClassName, pSigString)))
             return false;
     }
     else
     {
-        if (_snprintf_s(szBuffer, iBuffer, _TRUNCATE, "%s.%s", pClassName, pSigString) == -1)
+        if(FAILED(StringCchPrintfA(szBuffer, iBuffer, "%s.%s", pClassName, pSigString)))
             return false;
     }
 

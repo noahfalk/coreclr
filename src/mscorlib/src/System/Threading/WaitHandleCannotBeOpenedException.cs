@@ -12,7 +12,11 @@ namespace System.Threading
     [Serializable]
     [ComVisibleAttribute(false)]
 
+#if FEATURE_CORECLR
+    public class WaitHandleCannotBeOpenedException : Exception {
+#else
     public class WaitHandleCannotBeOpenedException : ApplicationException { 
+#endif // FEATURE_CORECLR
         public WaitHandleCannotBeOpenedException() : base(Environment.GetResourceString("Threading.WaitHandleCannotBeOpenedException")) 
         {
             SetErrorCode(__HResults.COR_E_WAITHANDLECANNOTBEOPENED);

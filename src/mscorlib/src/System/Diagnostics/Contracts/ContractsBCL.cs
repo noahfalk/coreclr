@@ -51,6 +51,7 @@ namespace System.Diagnostics.Contracts {
         /// This method is used internally to trigger a failure indicating to the "programmer" that he is using the interface incorrectly.
         /// It is NEVER used to indicate failure of actual contracts at runtime.
         /// </summary>
+        [SecuritySafeCritical]
         static partial void AssertMustUseRewriter(ContractFailureKind kind, String contractKind)
         {
             if (_assertingMustUseRewriter)
@@ -98,7 +99,7 @@ namespace System.Diagnostics.Contracts {
         static partial void ReportFailure(ContractFailureKind failureKind, String userMessage, String conditionText, Exception innerException)
         {
             if (failureKind < ContractFailureKind.Precondition || failureKind > ContractFailureKind.Assume)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", failureKind), nameof(failureKind));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", failureKind), "failureKind");
             Contract.EndContractBlock();
 
             // displayMessage == null means: yes we handled it. Otherwise it is the localized failure message
@@ -120,14 +121,18 @@ namespace System.Diagnostics.Contracts {
         /// </summary>
         public static event EventHandler<ContractFailedEventArgs> ContractFailed {
 #if FEATURE_UNTRUSTED_CALLERS
+            [SecurityCritical]
 #if FEATURE_LINK_DEMAND
+            [SecurityPermission(SecurityAction.LinkDemand, Unrestricted = true)]
 #endif
 #endif
             add {
                 System.Runtime.CompilerServices.ContractHelper.InternalContractFailed += value;
             }
 #if FEATURE_UNTRUSTED_CALLERS
+            [SecurityCritical]
 #if FEATURE_LINK_DEMAND
+            [SecurityPermission(SecurityAction.LinkDemand, Unrestricted = true)]
 #endif
 #endif
             remove {
@@ -171,7 +176,9 @@ namespace System.Diagnostics.Contracts {
         }
 
 #if FEATURE_UNTRUSTED_CALLERS
+        [SecurityCritical]
 #if FEATURE_LINK_DEMAND
+        [SecurityPermission(SecurityAction.LinkDemand, Unrestricted = true)]
 #endif
 #endif
         public void SetHandled()
@@ -184,7 +191,9 @@ namespace System.Diagnostics.Contracts {
         }
 
 #if FEATURE_UNTRUSTED_CALLERS
+        [SecurityCritical]
 #if FEATURE_LINK_DEMAND
+        [SecurityPermission(SecurityAction.LinkDemand, Unrestricted = true)]
 #endif
 #endif
         public void SetUnwind()
@@ -234,7 +243,9 @@ namespace System.Diagnostics.Contracts {
         }
 
 #if FEATURE_UNTRUSTED_CALLERS && FEATURE_SERIALIZATION
+        [SecurityCritical]
 #if FEATURE_LINK_DEMAND && FEATURE_SERIALIZATION
+        [SecurityPermission(SecurityAction.LinkDemand, Flags = SecurityPermissionFlag.SerializationFormatter)]
 #endif // FEATURE_LINK_DEMAND
 #endif // FEATURE_UNTRUSTED_CALLERS
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context)
@@ -273,6 +284,7 @@ namespace System.Runtime.CompilerServices
         internal static event EventHandler<ContractFailedEventArgs> InternalContractFailed
         {
 #if FEATURE_UNTRUSTED_CALLERS
+            [SecurityCritical]
 #endif
             add {
                 // Eagerly prepare each event handler _marked with a reliability contract_, to 
@@ -289,6 +301,7 @@ namespace System.Runtime.CompilerServices
                 }
             }
 #if FEATURE_UNTRUSTED_CALLERS
+            [SecurityCritical]
 #endif
             remove {
                 lock (lockObject)
@@ -313,11 +326,12 @@ namespace System.Runtime.CompilerServices
         [SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
         [System.Diagnostics.DebuggerNonUserCode]
 #if FEATURE_RELIABILITY_CONTRACTS
+        [SecuritySafeCritical]
 #endif
         static partial void RaiseContractFailedEventImplementation(ContractFailureKind failureKind, String userMessage, String conditionText, Exception innerException, ref string resultFailureMessage)
         {
             if (failureKind < ContractFailureKind.Precondition || failureKind > ContractFailureKind.Assume)
-                throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", failureKind), nameof(failureKind));
+                throw new ArgumentException(Environment.GetResourceString("Arg_EnumIllegalVal", failureKind), "failureKind");
             Contract.EndContractBlock();
 
             string returnValue;
@@ -347,6 +361,10 @@ namespace System.Runtime.CompilerServices
                     }
                     if (eventArgs.Unwind)
                     {
+#if !FEATURE_CORECLR 
+                        if (Environment.IsCLRHosted)
+                            TriggerCodeContractEscalationPolicy(failureKind, displayMessage, conditionText, innerException);
+#endif
                         // unwind
                         if (innerException == null) { innerException = eventArgs.thrownDuringHandler; }
                         throw new ContractException(failureKind, displayMessage, userMessage, conditionText, innerException);
@@ -375,6 +393,9 @@ namespace System.Runtime.CompilerServices
         [SuppressMessage("Microsoft.Usage", "CA1801:ReviewUnusedParameters", MessageId = "kind")]
         [SuppressMessage("Microsoft.Usage", "CA1801:ReviewUnusedParameters", MessageId = "innerException")]
         [System.Diagnostics.DebuggerNonUserCode]
+#if FEATURE_UNTRUSTED_CALLERS && !FEATURE_CORECLR
+        [SecuritySafeCritical]
+#endif
         static partial void TriggerFailureImplementation(ContractFailureKind kind, String displayMessage, String userMessage, String conditionText, Exception innerException)
         {
             // If we're here, our intent is to pop up a dialog box (if we can).  For developers 
@@ -382,12 +403,21 @@ namespace System.Runtime.CompilerServices
             // hosted in Internet Explorer, the assert window is great.  If we cannot
             // pop up a dialog box, throw an exception (consider a library compiled with 
             // "Assert On Failure" but used in a process that can't pop up asserts, like an 
-            // NT Service).
-
+            // NT Service).  For the CLR hosted by server apps like SQL or Exchange, we should 
+            // trigger escalation policy.  
+#if !FEATURE_CORECLR
+            if (Environment.IsCLRHosted)
+            {
+                TriggerCodeContractEscalationPolicy(kind, displayMessage, conditionText, innerException);
+                // Hosts like SQL may choose to abort the thread, so we will not get here in all cases.
+                // But if the host's chosen action was to throw an exception, we should throw an exception
+                // here (which is easier to do in managed code with the right parameters).  
+                throw new ContractException(kind, displayMessage, userMessage, conditionText, innerException);
+            }
+#endif // !FEATURE_CORECLR
             if (!Environment.UserInteractive) {
                 throw new ContractException(kind, displayMessage, userMessage, conditionText, innerException);
             }
-
             // May need to rethink Assert.Fail w/ TaskDialogIndirect as a model.  Window title.  Main instruction.  Content.  Expanded info.
             // Optional info like string for collapsed text vs. expanded text.
             String windowTitle = Environment.GetResourceString(GetResourceNameForFailure(kind));
@@ -464,6 +494,28 @@ namespace System.Runtime.CompilerServices
                 return failureMessage;
             }
         }
+
+#if !FEATURE_CORECLR
+        // Will trigger escalation policy, if hosted and the host requested us to do something (such as 
+        // abort the thread or exit the process).  Starting in Dev11, for hosted apps the default behavior 
+        // is to throw an exception.  
+        // Implementation notes:
+        // We implement our default behavior of throwing an exception by simply returning from our native 
+        // method inside the runtime and falling through to throw an exception.
+        // We must call through this method before calling the method on the Environment class
+        // because our security team does not yet support SecuritySafeCritical on P/Invoke methods.
+        // Note this can be called in the context of throwing another exception (EnsuresOnThrow).
+        [SecuritySafeCritical]
+        [DebuggerNonUserCode]
+        [ReliabilityContract(Consistency.WillNotCorruptState, Cer.Success)]
+        private static void TriggerCodeContractEscalationPolicy(ContractFailureKind failureKind, String message, String conditionText, Exception innerException)
+        {
+            String exceptionAsString = null;
+            if (innerException != null)
+                exceptionAsString = innerException.ToString();
+            Environment.TriggerCodeContractFailure(failureKind, message, conditionText, exceptionAsString);
+        }
+#endif // !FEATURE_CORECLR
     }
 }  // namespace System.Runtime.CompilerServices
 

@@ -296,9 +296,10 @@ void TransitionFrame::UpdateRegDisplayHelper(const PREGDISPLAY pRD, UINT cbStack
 
     pRD->pContext = NULL;
 
-#define CALLEE_SAVED_REGISTER(regname) pRD->p##regname = (DWORD*) &regs->regname;
-    ENUM_CALLEE_SAVED_REGISTERS();
-#undef CALLEE_SAVED_REGISTER
+    pRD->pEdi = (DWORD*) &regs->edi;
+    pRD->pEsi = (DWORD*) &regs->esi;
+    pRD->pEbx = (DWORD*) &regs->ebx;
+    pRD->pEbp = (DWORD*) &regs->ebp;
     pRD->PCTAddr = GetReturnAddressPtr();
     pRD->ControlPC = *PTR_PCODE(pRD->PCTAddr);
     pRD->Esp  = (DWORD)(pRD->PCTAddr + sizeof(TADDR) + cbStackPop);
@@ -508,33 +509,18 @@ void FaultingExceptionFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
     }
     CONTRACT_END;
 
-#ifndef WIN64EXCEPTIONS
     CalleeSavedRegisters* regs = GetCalleeSavedRegisters();
 
     // reset pContext; it's only valid for active (top-most) frame
     pRD->pContext = NULL;
 
-#define CALLEE_SAVED_REGISTER(regname) pRD->p##regname = (DWORD*) &regs->regname;
-    ENUM_CALLEE_SAVED_REGISTERS();
-#undef CALLEE_SAVED_REGISTER
-    pRD->Esp = m_Esp;
+    pRD->pEdi = (DWORD*) &regs->edi;
+    pRD->pEsi = (DWORD*) &regs->esi;
+    pRD->pEbx = (DWORD*) &regs->ebx;
+    pRD->pEbp = (DWORD*) &regs->ebp;
     pRD->PCTAddr = GetReturnAddressPtr();
     pRD->ControlPC = *PTR_PCODE(pRD->PCTAddr);
-#else
-    memcpy(pRD->pCurrentContext, &m_ctx, sizeof(CONTEXT));
-
-    pRD->ControlPC = m_ctx.Eip;
-
-    pRD->Esp = m_ctx.Esp;
-
-    pRD->pCurrentContextPointers->Ebx = &m_ctx.Ebx;
-    pRD->pCurrentContextPointers->Edi = &m_ctx.Edi;
-    pRD->pCurrentContextPointers->Esi = &m_ctx.Esi;
-    pRD->pCurrentContextPointers->Ebp = &m_ctx.Ebp;
-
-    pRD->IsCallerContextValid = FALSE;
-    pRD->IsCallerSPValid      = FALSE;        // Don't add usage of this field.  This is only temporary.
-#endif // WIN64EXCEPTIONS
+    pRD->Esp = m_Esp;
     RETURN;
 }
 
@@ -620,7 +606,6 @@ void ResumableFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
 
     CONTEXT* pUnwoundContext = m_Regs;
 
-#ifndef WIN64EXCEPTIONS
 #if !defined(DACCESS_COMPILE)
     // "pContextForUnwind" field is only used on X86 since not only is it initialized just for it,
     // but its used only under the confines of STACKWALKER_MAY_POP_FRAMES preprocessor define,
@@ -640,7 +625,6 @@ void ResumableFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
         pUnwoundContext->Eip = m_Regs->Eip;
     }
 #endif // !defined(DACCESS_COMPILE)
-#endif // !WIN64EXCEPTIONS
 
     pRD->pEax = &pUnwoundContext->Eax;
     pRD->pEcx = &pUnwoundContext->Ecx;
@@ -721,9 +705,10 @@ void TailCallFrame::UpdateRegDisplay(const PREGDISPLAY pRD)
     // reset pContext; it's only valid for active (top-most) frame
     pRD->pContext = NULL;
 
-#define CALLEE_SAVED_REGISTER(regname) pRD->p##regname = (DWORD*) &m_regs.regname;
-    ENUM_CALLEE_SAVED_REGISTERS();
-#undef CALLEE_SAVED_REGISTER
+    pRD->pEdi = (DWORD*)&m_regs.edi;
+    pRD->pEsi = (DWORD*)&m_regs.esi;
+    pRD->pEbx = (DWORD*)&m_regs.ebx;
+    pRD->pEbp = (DWORD*)&m_regs.ebp;
 
     pRD->PCTAddr = GetReturnAddressPtr();
     pRD->ControlPC = *PTR_PCODE(pRD->PCTAddr);
@@ -775,7 +760,6 @@ WORD GetUnpatchedCodeData(LPCBYTE pAddr)
 
 #ifndef DACCESS_COMPILE
 
-#if defined(_TARGET_X86_) && !defined(FEATURE_STUBS_AS_IL)
 //-------------------------------------------------------------------------
 // One-time creation of special prestub to initialize UMEntryThunks.
 //-------------------------------------------------------------------------
@@ -825,7 +809,6 @@ Stub *GenerateUMThunkPrestub()
 
     RETURN psl->Link(SystemDomain::GetGlobalLoaderAllocator()->GetExecutableHeap());
 }
-#endif // _TARGET_X86_ && !FEATURE_STUBS_AS_IL
 
 Stub *GenerateInitPInvokeFrameHelper()
 {
@@ -1073,7 +1056,7 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return offsetof(StubForHostStackFrame, m_calleeSavedRegisters) + 
-               offsetof(CalleeSavedRegisters, Ebp);
+               offsetof(CalleeSavedRegisters, ebp); 
     }
 
     static INT32 GetFPrelOffsOfArgumentRegisters() 
@@ -1610,7 +1593,6 @@ extern "C" VOID STDCALL StubRareDisableTHROWWorker(Thread *pThread)
     pThread->HandleThreadAbort();
 }
 
-#ifndef FEATURE_PAL
 // Note that this logic is copied below, in PopSEHRecords
 __declspec(naked)
 VOID __cdecl PopSEHRecords(LPVOID pTargetSP)
@@ -1632,7 +1614,6 @@ VOID __cdecl PopSEHRecords(LPVOID pTargetSP)
         retn
     }
 }
-#endif // FEATURE_PAL
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -1699,10 +1680,9 @@ void ResumeAtJit(PCONTEXT pContext, LPVOID oldESP)
 #endif // !EnC_SUPPORTED
 
 
-#ifndef FEATURE_PAL
 #pragma warning(push)
 #pragma warning(disable: 4035)
-extern "C" DWORD __stdcall getcpuid(DWORD arg, unsigned char result[16])
+DWORD getcpuid(DWORD arg, unsigned char result[16])
 {
     LIMITED_METHOD_CONTRACT
 
@@ -1729,7 +1709,7 @@ extern "C" DWORD __stdcall getcpuid(DWORD arg, unsigned char result[16])
 //     Arg3 is a pointer to the return buffer
 //   No need to check whether or not CPUID is supported because we have already called CPUID with success to come here.
 
-extern "C" DWORD __stdcall getextcpuid(DWORD arg1, DWORD arg2, unsigned char result[16])
+DWORD getextcpuid(DWORD arg1, DWORD arg2, unsigned char result[16])
 {
     LIMITED_METHOD_CONTRACT
 
@@ -1750,75 +1730,8 @@ extern "C" DWORD __stdcall getextcpuid(DWORD arg1, DWORD arg2, unsigned char res
     }
 }
 
-extern "C" DWORD __stdcall xmmYmmStateSupport()
-{
-    // No CONTRACT
-    STATIC_CONTRACT_NOTHROW;
-    STATIC_CONTRACT_GC_NOTRIGGER;
-
-    __asm
-    {
-        mov     ecx, 0                  ; Specify xcr0
-        xgetbv                          ; result in EDX:EAX
-        and eax, 06H
-        cmp eax, 06H                    ; check OS has enabled both XMM and YMM state support
-        jne     not_supported
-        mov     eax, 1
-        jmp     done
-    not_supported:
-        mov     eax, 0
-    done:
-    }
-}
-
 #pragma warning(pop)
 
-#else // !FEATURE_PAL
-
-extern "C" DWORD __stdcall getcpuid(DWORD arg, unsigned char result[16])
-{
-    DWORD eax;
-    __asm("  xor %%ecx, %%ecx\n" \
-            "  cpuid\n" \
-            "  mov %%eax, 0(%[result])\n" \
-            "  mov %%ebx, 4(%[result])\n" \
-            "  mov %%ecx, 8(%[result])\n" \
-            "  mov %%edx, 12(%[result])\n" \
-        : "=a"(eax) /*output in eax*/\
-        : "a"(arg), [result]"r"(result) /*inputs - arg in eax, result in any register*/\
-        : "eax", "rbx", "ecx", "edx", "memory" /* registers that are clobbered, *result is clobbered */
-        );
-    return eax;
-}
-
-extern "C" DWORD __stdcall getextcpuid(DWORD arg1, DWORD arg2, unsigned char result[16])
-{
-    DWORD eax;
-    __asm("  cpuid\n" \
-            "  mov %%eax, 0(%[result])\n" \
-            "  mov %%ebx, 4(%[result])\n" \
-            "  mov %%ecx, 8(%[result])\n" \
-            "  mov %%edx, 12(%[result])\n" \
-        : "=a"(eax) /*output in eax*/\
-        : "c"(arg1), "a"(arg2), [result]"r"(result) /*inputs - arg1 in ecx, arg2 in eax, result in any register*/\
-        : "eax", "rbx", "ecx", "edx", "memory" /* registers that are clobbered, *result is clobbered */
-        );
-    return eax;
-}
-
-extern "C" DWORD __stdcall xmmYmmStateSupport()
-{
-    DWORD eax;
-    __asm("  xgetbv\n" \
-        : "=a"(eax) /*output in eax*/\
-        : "c"(0) /*inputs - 0 in ecx*/\
-        : "eax", "edx" /* registers that are clobbered*/
-        );
-    // check OS has enabled both XMM and YMM state support
-    return ((eax & 0x06) == 0x06) ? 1 : 0;
-}
-
-#endif // !FEATURE_PAL
 
 // This function returns the number of logical processors on a given physical chip.  If it cannot
 // determine the number of logical cpus, or the machine is not populated uniformly with the same
@@ -1848,14 +1761,13 @@ DWORD GetLogicalCpuCount()
     PAL_TRY(Param *, pParam, &param)
     {
         unsigned char buffer[16];
-        DWORD* dwBuffer = NULL;
 
         DWORD maxCpuId = getcpuid(0, buffer);
 
         if (maxCpuId < 1)
             goto lDone;
 
-        dwBuffer = (DWORD*)buffer;
+        DWORD* dwBuffer = (DWORD*)buffer;
 
         if (dwBuffer[1] == 'uneG') {
             if (dwBuffer[3] == 'Ieni') {

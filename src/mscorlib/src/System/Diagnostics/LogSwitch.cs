@@ -33,10 +33,11 @@ namespace System.Diagnostics {
         // 
         // All switches (except for the global LogSwitch) have a parent LogSwitch.
         //
+        [System.Security.SecuritySafeCritical]  // auto-generated
         public LogSwitch(String name, String description, LogSwitch parent)
         {
             if (name != null && name.Length == 0)
-                throw new ArgumentOutOfRangeException(nameof(Name), Environment.GetResourceString("Argument_StringZeroLength"));
+                throw new ArgumentOutOfRangeException("Name", Environment.GetResourceString("Argument_StringZeroLength"));
             Contract.EndContractBlock();
 
             if ((name != null) && (parent != null))
@@ -54,9 +55,10 @@ namespace System.Diagnostics {
                 Log.AddLogSwitch (this);
             }
             else
-                throw new ArgumentNullException ((name==null ? nameof(name) : nameof(parent)));
+                throw new ArgumentNullException ((name==null ? "name" : "parent"));
         }
     
+        [System.Security.SecuritySafeCritical]  // auto-generated
         internal LogSwitch(String name, String description)
         {
             strName = name;
@@ -98,6 +100,7 @@ namespace System.Diagnostics {
         public  virtual LoggingLevels  MinimumLevel
         {
             get { return iLevel; }
+            [System.Security.SecuritySafeCritical]  // auto-generated
             set 
             { 
                 iLevel = value; 

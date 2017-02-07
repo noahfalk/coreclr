@@ -26,6 +26,7 @@ namespace System.Runtime.CompilerServices
             }
         }
 
+        [System.Security.SecurityCritical]
         internal static TypeForwardedToAttribute[] GetCustomAttribute(RuntimeAssembly assembly)
         {
             Type[] types = null;

@@ -839,8 +839,7 @@ public:
         {
             // Help mitigate the impact of buffer overflow
             // Fail fast with a null-reference AV
-            volatile char* nullPointer = nullptr;
-            *nullPointer;
+            return *(static_cast<T*>(0)) ;
         }
         return m_array[ i ];
     }

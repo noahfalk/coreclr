@@ -10,7 +10,6 @@
     <IsPartialFacadeAssembly>true</IsPartialFacadeAssembly>
     <OutputType>Library</OutputType>
     <ExcludeMscorlibFacade>true</ExcludeMscorlibFacade>
-    <HighEntropyVA>true</HighEntropyVA>
 
     <!-- This prevents the default MsBuild targets from referencing System.Core.dll -->
     <AddAdditionalExplicitAssemblyReferences>false</AddAdditionalExplicitAssemblyReferences>
@@ -20,13 +19,13 @@
 
     <DebugSymbols>true</DebugSymbols>
     <DebugType>full</DebugType>
-    <AvailablePlatforms>amd64,x86,arm,armel,arm64</AvailablePlatforms>
+    <AvailablePlatforms>amd64,x86,arm,arm-softfp,arm64</AvailablePlatforms>
     <Configuration Condition=" '$(Configuration)' == '' ">$(BuildType)</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">$(BuildArch)</Platform>
     <!-- The CLR properties use amd64 as their platform string, we want to keep in sync with those, so set Platform appropriately,
          though still use the 'x64' output path (see use of BuildArch below) -->
     <Platform Condition=" '$(Platform)' == 'x64' ">amd64</Platform>
-    <Platform Condition=" '$(Platform)' == 'armel' ">arm</Platform>
+    <Platform Condition=" '$(Platform)' == 'arm-softfp' ">arm</Platform>
 
     <!-- We want to exclude the transitive closure of the packages pulled in via project.json as that introduces ambiguity -->
     <OmitTransitiveCompileReferences>true</OmitTransitiveCompileReferences>
@@ -49,18 +48,29 @@
     <DebugType>none</DebugType>
   </PropertyGroup>
 
+  <!-- Some of the type forwards should only be build when targeting Windows. -->
+  <PropertyGroup>
+    <DefineConstants Condition="'$(TargetsWindows)'=='true'">$(DefineConstants);WINDOWS_TYPEFORWARDS</DefineConstants>
+  </PropertyGroup>
+
   <!-- Output paths -->
   <PropertyGroup>
     <BaseIntermediateOutputPath>$(RootBinDir)\obj</BaseIntermediateOutputPath>
-    <!-- IntermediateOutputPath must have a trailing slash, however GenFacades
-         surrounds the value in quotes when passing as the '-facadepath' argument.
-         To avoid escaping the trailing quote, use a forward slash. -->
-    <IntermediateOutputPath>$(BaseIntermediateOutputPath)\$(BuildOS).$(BuildArch).$(Configuration)\facade/</IntermediateOutputPath>
+    <!-- Note the trailing '\\' - they are needed so that genfacade does not fail due to an invalid path
+         In particular, the facadepath is sent in quotes.
+         And the IntermediateOutputPath is required to end in a '\' in the coreclr repo. This means that the
+         facadepath ends up being sent as 'mypath\"' and that trips the Path normalization.
+         Introducing a second '\' tricks the normalization logic to treat this '\\"' as '\"' and not complain.    -->
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)\$(BuildOS).$(BuildArch).$(Configuration)\facade\\</IntermediateOutputPath>
     <OutputPath>$(BinDir)\facade</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\System.Private.CoreLib.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="TypeForwards.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -86,24 +96,6 @@
   <ItemGroup>
     <SeedTypePreference Include="System.Console">
       <Assembly>System.Console</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.BinaryReader">
-      <Assembly>System.IO</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.BinaryWriter">
-      <Assembly>System.IO</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.EndOfStreamException">
-      <Assembly>System.IO</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.MemoryStream">
-      <Assembly>System.IO</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.SeekOrigin">
-      <Assembly>System.IO</Assembly>
-    </SeedTypePreference>
-    <SeedTypePreference Include="System.IO.Stream">
-      <Assembly>System.IO</Assembly>
     </SeedTypePreference>
   </ItemGroup>
 

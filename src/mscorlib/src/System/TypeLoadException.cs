@@ -44,12 +44,14 @@ namespace System {
     
         public override String Message
         {
+            [System.Security.SecuritySafeCritical]  // auto-generated
             get {
                 SetMessageField();
                 return _message;
             }
         }
     
+        [System.Security.SecurityCritical]  // auto-generated
         private void SetMessageField()
         {
             if (_message == null) {
@@ -81,6 +83,7 @@ namespace System {
         }
     
         // This is called from inside the EE. 
+        [System.Security.SecurityCritical]  // auto-generated
         private TypeLoadException(String className,
                                   String assemblyName,
                                   String messageArg,
@@ -100,7 +103,7 @@ namespace System {
 
         protected TypeLoadException(SerializationInfo info, StreamingContext context) : base(info, context) {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             ClassName =  info.GetString("TypeLoadClassName");
@@ -109,15 +112,17 @@ namespace System {
             ResourceId = info.GetInt32("TypeLoadResourceID");
         }
     
+        [System.Security.SecurityCritical]  // auto-generated
         [DllImport(JitHelpers.QCall, CharSet = CharSet.Unicode)]
         [SuppressUnmanagedCodeSecurity]
         private static extern void GetTypeLoadExceptionMessage(int resourceId, StringHandleOnStack retString);
     
         //We can rely on the serialization mechanism on Exception to handle most of our needs, but
         //we need to add a few fields of our own.
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info == null)
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             Contract.EndContractBlock();
 
             base.GetObjectData(info, context);

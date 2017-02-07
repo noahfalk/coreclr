@@ -1024,7 +1024,7 @@ public:
             pcsUnmarshal->EmitRET();
         }
 
-        CORJIT_FLAGS jitFlags(CORJIT_FLAGS::CORJIT_FLAG_IL_STUB);
+        DWORD dwJitFlags = CORJIT_FLG_IL_STUB;
                 
         if (m_slIL.HasInteropParamExceptionInfo())
         {
@@ -1049,7 +1049,7 @@ public:
         else
         {
             // All other IL stubs will need to use the secret parameter.
-            jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_PUBLISH_SECRET_PARAM);
+            dwJitFlags |= CORJIT_FLG_PUBLISH_SECRET_PARAM;
         }
 
         if (SF_IsReverseStub(m_dwStubFlags))
@@ -1114,7 +1114,7 @@ public:
         m_slIL.GenerateCode(pbBuffer, cbCode);
         m_slIL.GetLocalSig(pbLocalSig, cbSig);
 
-        pResolver->SetJitFlags(jitFlags);
+        pResolver->SetJitFlags(dwJitFlags);
 
 #ifdef LOGGING
         LOG((LF_STUBS, LL_INFO1000, "---------------------------------------------------------------------\n"));
@@ -1153,7 +1153,7 @@ public:
 
             LogILStubFlags(LF_STUBS, LL_INFO1000, m_dwStubFlags);
 
-            m_slIL.LogILStub(jitFlags);
+            m_slIL.LogILStub(dwJitFlags);
         }
         LOG((LF_STUBS, LL_INFO1000, "^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n"));
 #endif // LOGGING
@@ -1170,7 +1170,7 @@ public:
                 pStubMD, 
                 pbLocalSig, 
                 cbSig,
-                jitFlags,
+                dwJitFlags,
                 &convertToHRTryCatch,
                 &cleanupTryFinally,
                 maxStack,
@@ -1188,7 +1188,7 @@ public:
         MethodDesc *    pStubMD, 
         PCCOR_SIGNATURE pbLocalSig, 
         DWORD           cbSig, 
-        CORJIT_FLAGS    jitFlags,
+        DWORD           dwJitFlags, 
         ILStubEHClause * pConvertToHRTryCatchBounds,
         ILStubEHClause * pCleanupTryFinallyBounds,
         DWORD           maxStack, 
@@ -1256,7 +1256,7 @@ public:
         strILStubCode.AppendPrintf(W(".maxstack %d \n"), maxStack);
         strILStubCode.AppendPrintf(W(".locals %s\n"), strLocalSig.GetUnicode());
         
-        m_slIL.LogILStub(jitFlags, &strILStubCode);
+        m_slIL.LogILStub(dwJitFlags, &strILStubCode);
 
         if (pConvertToHRTryCatchBounds->cbTryLength != 0 && pConvertToHRTryCatchBounds->cbHandlerLength != 0)
         {
@@ -3201,7 +3201,7 @@ void PInvokeStaticSigInfo::DllImportInit(MethodDesc* pMD, LPCUTF8 *ppLibName, LP
     // initialize data members to defaults
     PreInit(pMD);
 
-    // System.Runtime.InteropServices.DllImportAttribute
+    // System.Runtime.InteropServices.DLLImportAttribute
     IMDInternalImport  *pInternalImport = pMD->GetMDImport();
     CorPinvokeMap mappingFlags = pmMaxValue;
     mdModuleRef modref = mdModuleRefNil;
@@ -4940,7 +4940,7 @@ void NDirect::PopulateNDirectMethodDesc(NDirectMethodDesc* pNMD, PInvokeStaticSi
 // Currently only ManagedToNativeComInteropStubAttribute is supported.
 // It returns NULL if no such attribute(s) can be found.  
 // But if the attribute is found and is invalid, or something went wrong in the looking up
-// process, an exception will be thrown. If everything goes well, you'll get the MethodDesc
+// process, a exception will be thrown. If everything goes well, you'll get the MethodDesc
 // of the stub method
 HRESULT FindPredefinedILStubMethod(MethodDesc *pTargetMD, DWORD dwStubFlags, MethodDesc **ppRetStubMD)
 {
@@ -5947,8 +5947,8 @@ PCODE JitILStub(MethodDesc* pStubMD)
             // A dynamically generated IL stub
             //
             
-            CORJIT_FLAGS jitFlags = pStubMD->AsDynamicMethodDesc()->GetILStubResolver()->GetJitFlags();
-            pCode = pStubMD->MakeJitWorker(NULL, jitFlags);
+            DWORD dwFlags = pStubMD->AsDynamicMethodDesc()->GetILStubResolver()->GetJitFlags();
+            pCode = pStubMD->MakeJitWorker(NULL, dwFlags, 0);
 
             _ASSERTE(pCode == pStubMD->GetNativeCode());            
         }
@@ -6832,29 +6832,15 @@ HMODULE NDirect::LoadLibraryModuleViaHost(NDirectMethodDesc * pMD, AppDomain* pD
     CLRPrivBinderCoreCLR *pTPABinder = pDomain->GetTPABinderContext();
     Assembly* pAssembly = pMD->GetMethodTable()->GetAssembly();
    
-    PEFile *pManifestFile = pAssembly->GetManifestFile();
-    PTR_ICLRPrivBinder pBindingContext = pManifestFile->GetBindingContext();
+    PTR_ICLRPrivBinder pBindingContext = pAssembly->GetManifestFile()->GetBindingContext();
 
     //Step 0: Check if  the assembly was bound using TPA. 
     //        The Binding Context can be null or an overridden TPA context
     if (pBindingContext == NULL)
     {
-        pBindingContext = nullptr;
-
-        // If the assembly does not have a binder associated with it explicitly, then check if it is
-        // a dynamic assembly, or not, since they can have a fallback load context associated with them.
-        if (pManifestFile->IsDynamic())
-        {
-            pBindingContext = pManifestFile->GetFallbackLoadContextBinder();
-        } 
-    }
-
-    // If we do not have any binder associated, then return to the default resolution mechanism.
-    if (pBindingContext == nullptr)
-    {
         return NULL;
-    }    
-
+    }
+    
     UINT_PTR assemblyBinderID = 0;
     IfFailThrow(pBindingContext->GetBinderID(&assemblyBinderID));
         

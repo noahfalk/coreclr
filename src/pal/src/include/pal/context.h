@@ -139,8 +139,6 @@ typedef ucontext_t native_context_t;
 /////////////////////
 // Extended state
 
-#ifdef XSTATE_SUPPORTED
-
 inline _fpx_sw_bytes *FPREG_FpxSwBytes(const ucontext_t *uc)
 {
     // Bytes 464..511 in the FXSAVE format are available for software to use for any purpose. In this case, they are used to
@@ -186,8 +184,6 @@ inline void *FPREG_Xstate_Ymmh(const ucontext_t *uc)
 
     return reinterpret_cast<_xstate *>(FPREG_Fpstate(uc))->ymmh.ymmh_space;
 }
-
-#endif // XSTATE_SUPPORTED
 
 /////////////////////
 
@@ -454,8 +450,6 @@ inline static DWORD64 CONTEXTGetPC(LPCONTEXT pContext)
 {
 #if defined(_AMD64_)
     return pContext->Rip;
-#elif defined(_X86_)
-    return pContext->Eip;
 #elif defined(_ARM64_) || defined(_ARM_)
     return pContext->Pc;
 #else
@@ -467,27 +461,10 @@ inline static void CONTEXTSetPC(LPCONTEXT pContext, DWORD64 pc)
 {
 #if defined(_AMD64_)
     pContext->Rip = pc;
-#elif defined(_X86_)
-    pContext->Eip = pc;
 #elif defined(_ARM64_) || defined(_ARM_)
     pContext->Pc = pc;
 #else
 #error don't know how to set the program counter for this architecture
-#endif
-}
-
-inline static DWORD64 CONTEXTGetFP(LPCONTEXT pContext)
-{
-#if defined(_AMD64_)
-    return pContext->Rbp;
-#elif defined(_X86_)
-    return pContext->Ebp;
-#elif defined(_ARM_)
-    return pContext->R7;
-#elif defined(_ARM64_)
-    return pContext->Fp;
-#else
-#error don't know how to get the frame pointer for this architecture
 #endif
 }
 
@@ -504,7 +481,6 @@ Parameters :
 
 --*/
 void
-PALAPI
 CONTEXT_CaptureContext(
     LPCONTEXT lpContext
     );

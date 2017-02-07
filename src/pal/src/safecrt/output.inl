@@ -857,12 +857,6 @@ int __cdecl _output (
                     flags |= FL_LONG;   /* 'l' => long int or wchar_t */
                 }
                 break;
-            case _T('L'):
-                if (*format == _T('p'))
-                {
-                    flags |= FL_LONG;   
-                }
-                break;
 
             case _T('I'):
                 /*
@@ -962,11 +956,7 @@ int __cdecl _output (
 #else  /* _UNICODE */
                 if (flags & (FL_LONG|FL_WIDECHAR)) {
                     wchar = (wchar_t) get_int_arg(&argptr);
-                    textlen = snprintf(buffer.sz, BUFFERSIZE, "%lc", wchar);
-                    if (textlen == 0)
-                    {
-                        no_output = 1;
-                    }
+                    no_output = 1;
                 } else {
                     /* format multibyte character */
                     /* this is an extension of ANSI */
@@ -1182,15 +1172,7 @@ int __cdecl _output (
 
                 precision = 2 * sizeof(void *);     /* number of hex digits needed */
 #if PTR_IS_INT64
-                if (flags & (FL_LONG | FL_SHORT))
-                {
-                    /* %lp, %Lp or %hp - these print 8 hex digits*/
-                    precision = 2 * sizeof(int32_t);
-                }
-                else
-                {
-                    flags |= FL_I64;                /* assume we're converting an int64 */
-                }
+                flags |= FL_I64;                    /* assume we're converting an int64 */
 #elif !PTR_IS_INT
                 flags |= FL_LONG;                   /* assume we're converting a long */
 #endif  /* !PTR_IS_INT */
@@ -1389,22 +1371,7 @@ int __cdecl _output (
                 /* write text */
 #ifndef _UNICODE
                 if (bufferiswide && (textlen > 0)) {
-                    const WCHAR *p;
-                    int mbCharCount;
-                    int count;
-                    char mbStr[5];
-
-                    p = text.wz;
-                    count = textlen;
-                    while (count-- > 0) {
-                        mbCharCount = snprintf(mbStr, sizeof(mbStr), "%lc", *p);
-                        if (mbCharCount == 0) {
-                            charsout = -1;
-                            break;
-                        }
-                        WRITE_STRING(mbStr, mbCharCount, &charsout);
-                        p++;
-                    }
+                    charsout = -1;
                 } else {
                     WRITE_STRING(text.sz, textlen, &charsout);
                 }

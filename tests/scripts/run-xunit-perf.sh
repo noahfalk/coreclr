@@ -30,11 +30,6 @@ function print_usage {
     echo '                                     (e.g. "corefx/bin/Linux.AnyCPU.Debug;corefx/bin/Unix.AnyCPU.Debug;corefx/bin/AnyOS.AnyCPU.Debug").'
     echo '                                     If files with the same name are present in multiple directories, the first one wins.'
     echo '  --coreFxNativeBinDir=<path>      : Directory of the CoreFX native build (e.g. corefx/bin/Linux.x64.Debug).'
-	echo '  --uploadToBenchview              : Specify this flag in order to have the results of the run uploaded to Benchview.'
-	echo '                                     This also requires that the os flag and runtype flag to be set.  Lastly you must'
-	echo '                                     also have the BV_UPLOAD_SAS_TOKEN set to a SAS token for the Benchview upload container'
-	echo '  --benchViewOS=<os>               : Specify the os that will be used to insert data into Benchview.'
-	echo '  --runType=<private|rolling>      : Specify the runType for Benchview.'
 }
 
 # Variables for xUnit-style XML output. XML format: https://xunit.github.io/docs/format-xml-v2.html
@@ -316,9 +311,6 @@ coreClrBinDir=
 mscorlibDir=
 coreFxBinDir=
 coreFxNativeBinDir=
-uploadToBenchview=
-benchViewOS=
-runType=
 
 for i in "$@"
 do
@@ -348,15 +340,6 @@ do
         --coreFxNativeBinDir=*)
             coreFxNativeBinDir=${i#*=}
             ;;
-		--benchViewOS=*)
-            benchViewOS=${i#*=}
-            ;;
-		--runType=*)
-            runType=${i#*=}
-            ;;
-        --uploadToBenchview)
-            uploadToBenchview=TRUE
-            ;;
         *)
             echo "Unknown switch: $i"
             print_usage
@@ -385,12 +368,14 @@ if [ -d "$mscorlibDir" ] && [ -d "$mscorlibDir/bin" ]; then
 fi
 
 # Install xunit performance packages
-export NUGET_PACKAGES=$testNativeBinDir/../../../../packages
-echo "NUGET_PACKAGES = $NUGET_PACKAGES"
+export NUGET_PACKAGE=$testNativeBinDir/../../../../packages
 
-pushd $testNativeBinDir/../../../../tests/scripts
+echo "dir $testNativeBinDir/../../../../Tools"
+dir $testNativeBinDir/../../../../Tools
+echo "dir $testNativeBinDir/../../../../Tools/dotnetcli"
+dir $testNativeBinDir/../../../../Tools/dotnetcli
+
 $testNativeBinDir/../../../../Tools/dotnetcli/dotnet restore --fallbacksource https://dotnet.myget.org/F/dotnet-buildtools/ --fallbacksource https://dotnet.myget.org/F/dotnet-core/
-popd
 
 # Creat coreoverlay dir which contains all dependent binaries
 create_core_overlay
@@ -399,43 +384,42 @@ copy_test_native_bin_to_test_root
 
 # Deploy xunit performance packages
 cd $CORE_ROOT
-echo "CORE_ROOT dir = $CORE_ROOT"
 
 DO_SETUP=TRUE
 
 if [ ${DO_SETUP} == "TRUE" ]; then
-cp  $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0040/lib/netstandard1.3/Microsoft.DotNet.xunit.performance.runner.cli.dll .
-cp  $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.analysis.cli/1.0.0-alpha-build0040/lib/netstandard1.3/Microsoft.DotNet.xunit.performance.analysis.cli.dll .
-cp  $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.run.core/1.0.0-alpha-build0040/lib/dotnet/*.dll .
+
+echo "dir $testNativeBinDir/../../../../../"
+dir $testNativeBinDir/../../../../../
+echo "dir $testNativeBinDir/../../../../../packages"
+dir $testNativeBinDir/../../../../../packages
+echo "dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli"
+dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli
+echo "dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035"
+dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035
+echo "dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035/lib"
+dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035/lib
+echo "dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035/lib/netstandard1.3"
+dir $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035/lib/netstandard1.3
+
+sudo cp  $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.runner.cli/1.0.0-alpha-build0035/lib/netstandard1.3/Microsoft.DotNet.xunit.performance.runner.cli.dll .
+
+sudo cp  $testNativeBinDir/../../../../../packages/Microsoft.DotNet.xunit.performance.run.core/1.0.0-alpha-build0035/lib/dotnet/*.dll .
+
 fi
 
 # Run coreclr performance tests
 echo "Test root dir is: $testRootDir"
-tests=($(find $testRootDir/JIT/Performance/CodeQuality -name '*.exe') $(find $testRootDir/performance/perflab/PerfLab -name '*.dll'))
+tests=($(find $testRootDir/JIT/Performance/CodeQuality -name '*.exe'))
 
-echo "current dir is $PWD"
-rm measurement.json
 for testcase in ${tests[@]}; do
 
 test=$(basename $testcase)
 testname=$(basename $testcase .exe)
 echo "....Running $testname"
+
 cp $testcase .
 
-chmod u+x ./corerun
-echo "./corerun Microsoft.DotNet.xunit.performance.runner.cli.dll $test -runner xunit.console.netcore.exe -runnerhost ./corerun -verbose -runid perf-$testname"
 ./corerun Microsoft.DotNet.xunit.performance.runner.cli.dll $test -runner xunit.console.netcore.exe -runnerhost ./corerun -verbose -runid perf-$testname
-echo "./corerun Microsoft.DotNet.xunit.performance.analysis.cli.dll perf-$testname.xml -xml perf-$testname-summary.xml"
-./corerun Microsoft.DotNet.xunit.performance.analysis.cli.dll perf-$testname.xml -xml perf-$testname-summary.xml
-if [ "$uploadToBenchview" == "TRUE" ]
-    then
-	python3.5 ../../../../../tests/scripts/Microsoft.BenchView.JSONFormat/tools/measurement.py xunit perf-$testname.xml --better desc --drop-first-value --append
-fi
+
 done
-if [ "$uploadToBenchview" == "TRUE" ]
-    then
-	python3.5 ../../../../../tests/scripts/Microsoft.BenchView.JSONFormat/tools/submission.py measurement.json --build ../../../../../build.json --machine-data ../../../../../machinedata.json --metadata ../../../../../submission-metadata.json --group "CoreCLR" --type "$runType" --config-name "Release" --config Configuration "Release" --config OS "$benchViewOS" --arch "x64" --machinepool "Perfsnake"
-	python3.5 ../../../../../tests/scripts/Microsoft.BenchView.JSONFormat/tools/upload.py submission.json --container coreclr
-fi
-mkdir ../../../../../sandbox
-cp *.xml ../../../../../sandbox

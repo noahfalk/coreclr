@@ -11,8 +11,6 @@ using Xunit;
 [assembly: OptimizeForBenchmarks]
 [assembly: MeasureInstructionsRetired]
 
-namespace Benchstone.BenchF
-{
 public static class BenchMk2
 {
 #if DEBUG
@@ -65,5 +63,4 @@ public static class BenchMk2
         bool result = TestBase();
         return (result ? 100 : -1);
     }
-}
 }

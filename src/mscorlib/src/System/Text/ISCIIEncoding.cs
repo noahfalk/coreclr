@@ -9,7 +9,6 @@
 namespace System.Text
 {
     using System;
-    using System.Diagnostics;
     using System.Diagnostics.Contracts;
     using System.Globalization;
     using System.Runtime.Serialization;
@@ -73,13 +72,13 @@ namespace System.Text
             defaultCodePage = codePage - 57000;
 
             // Legal windows code pages are between Devanagari and Punjabi
-            Debug.Assert(defaultCodePage >= CodeDevanagari && defaultCodePage <= CodePunjabi,
+            Contract.Assert(defaultCodePage >= CodeDevanagari && defaultCodePage <= CodePunjabi,
                 "[ISCIIEncoding] Code page (" + codePage + " isn't supported by ISCIIEncoding!");
 
             // This shouldn't really be possible
             if (defaultCodePage < CodeDevanagari || defaultCodePage > CodePunjabi)
                 throw new ArgumentException(Environment.GetResourceString(
-                       "Argument_CodepageNotSupported", codePage), nameof(codePage));
+                       "Argument_CodepageNotSupported", codePage), "codePage");
         }
 
         // Constructor called by serialization.
@@ -87,16 +86,17 @@ namespace System.Text
         {
             // Actually this can't ever get called, MLangCodePageEncoding is our proxy
             // (In Everett this was done by MLang)
-            Debug.Assert(false, "Didn't expect to make it to ISCIIEncoding serialization constructor");
+            Contract.Assert(false, "Didn't expect to make it to ISCIIEncoding serialization constructor");
             throw new ArgumentException(Environment.GetResourceString("Arg_ExecutionEngineException"));
         }
 
         // ISerializable implementation
+        [System.Security.SecurityCritical]  // auto-generated_required
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
             // Make sure to get the base stuff too This throws if info is null
             SerializeEncoding(info, context);
-            Debug.Assert(info!=null, "[ISCIIEncoding.GetObjectData] Expected null info to throw");
+            Contract.Assert(info!=null, "[ISCIIEncoding.GetObjectData] Expected null info to throw");
 
             // Just need Everett MLangCodePageEncoding maxCharSize
             info.AddValue("m_maxByteSize", 2);
@@ -111,7 +111,7 @@ namespace System.Text
         public override int GetMaxByteCount(int charCount)
         {
             if (charCount < 0)
-               throw new ArgumentOutOfRangeException(nameof(charCount),
+               throw new ArgumentOutOfRangeException("charCount",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -125,7 +125,7 @@ namespace System.Text
             byteCount *= 4;
 
             if (byteCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException(nameof(charCount), Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
+                throw new ArgumentOutOfRangeException("charCount", Environment.GetResourceString("ArgumentOutOfRange_GetByteCountOverflow"));
 
             return (int)byteCount;
         }
@@ -135,7 +135,7 @@ namespace System.Text
         public override int GetMaxCharCount(int byteCount)
         {
             if (byteCount < 0)
-               throw new ArgumentOutOfRangeException(nameof(byteCount),
+               throw new ArgumentOutOfRangeException("byteCount",
                     Environment.GetResourceString("ArgumentOutOfRange_NeedNonNegNum"));
             Contract.EndContractBlock();
 
@@ -149,12 +149,13 @@ namespace System.Text
                 charCount *= DecoderFallback.MaxCharCount;
 
             if (charCount > 0x7fffffff)
-                throw new ArgumentOutOfRangeException(nameof(byteCount), Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
+                throw new ArgumentOutOfRangeException("byteCount", Environment.GetResourceString("ArgumentOutOfRange_GetCharCountOverflow"));
 
             return (int)charCount;
         }
 
         // Our workhorse version
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetByteCount(char* chars, int count, EncoderNLS baseEncoder)
         {
             // Use null pointer to ask GetBytes for count
@@ -162,14 +163,15 @@ namespace System.Text
         }
 
         // Workhorse
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetBytes(char *chars, int charCount,
                                                 byte* bytes, int byteCount, EncoderNLS baseEncoder)
         {
             // Allow null bytes for counting
-            Debug.Assert(chars != null, "[ISCIIEncoding.GetBytes]chars!=null");
-//            Debug.Assert(bytes != null, "[ISCIIEncoding.GetBytes]bytes!=null");
-            Debug.Assert(charCount >=0, "[ISCIIEncoding.GetBytes]charCount >=0");
-            Debug.Assert(byteCount >=0, "[ISCIIEncoding.GetBytes]byteCount >=0");
+            Contract.Assert(chars != null, "[ISCIIEncoding.GetBytes]chars!=null");
+//            Contract.Assert(bytes != null, "[ISCIIEncoding.GetBytes]bytes!=null");
+            Contract.Assert(charCount >=0, "[ISCIIEncoding.GetBytes]charCount >=0");
+            Contract.Assert(byteCount >=0, "[ISCIIEncoding.GetBytes]byteCount >=0");
 
             // Need the ISCII Encoder
             ISCIIEncoder encoder = (ISCIIEncoder) baseEncoder;
@@ -266,7 +268,7 @@ namespace System.Text
 
                 // See if our code page ("font" in ISCII spec) has to change
                 // (This if doesn't add character, just changes character set)
-                Debug.Assert(indicScript!=0, "[ISCIIEncoding.GetBytes]expected an indic script value");
+                Contract.Assert(indicScript!=0, "[ISCIIEncoding.GetBytes]expected an indic script value");
                 if (indicScript != currentCodePage)
                 {
                     // It changed, spit out the ATR
@@ -277,7 +279,7 @@ namespace System.Text
                     currentCodePage = indicScript;
 
                     // We only know how to map from Unicode to pages from Devanagari to Punjabi (2 to 11)
-                    Debug.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
+                    Contract.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
                         "[ISCIIEncoding.GetBytes]Code page (" + currentCodePage + " shouldn't appear in ISCII from Unicode table!");
                 }
 
@@ -292,7 +294,7 @@ namespace System.Text
                 if (indicTwoBytes != 0)
                 {
                     // This one needs another byte
-                    Debug.Assert((indicTwoBytes >> 12) > 0 && (indicTwoBytes >> 12) <= 3,
+                    Contract.Assert((indicTwoBytes >> 12) > 0 && (indicTwoBytes >> 12) <= 3,
                         "[ISCIIEncoding.GetBytes]Expected indicTwoBytes from 1-3, not " + (indicTwoBytes >> 12));
 
                     // Already did buffer checking, but...
@@ -339,6 +341,7 @@ namespace System.Text
        }
 
         // Workhorse
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetCharCount(byte* bytes, int count, DecoderNLS baseDecoder)
         {
             // Just call GetChars with null chars saying we want count
@@ -351,15 +354,16 @@ namespace System.Text
         // Devenagari F0, B8 -> \u0952
         // Devenagari F0, BF -> \u0970
         // Some characters followed by E9 become a different character instead.
+        [System.Security.SecurityCritical]  // auto-generated
         internal override unsafe int GetChars(byte* bytes, int byteCount,
                                                 char* chars, int charCount, DecoderNLS baseDecoder)
         {
             // Just need to ASSERT, this is called by something else internal that checked parameters already
             // Allow null chars for counting
-            Debug.Assert(bytes != null, "[ISCIIEncoding.GetChars]bytes is null");
-            Debug.Assert(byteCount >= 0, "[ISCIIEncoding.GetChars]byteCount is negative");
-//            Debug.Assert(chars != null, "[ISCIIEncoding.GetChars]chars is null");
-            Debug.Assert(charCount >= 0, "[ISCIIEncoding.GetChars]charCount is negative");
+            Contract.Assert(bytes != null, "[ISCIIEncoding.GetChars]bytes is null");
+            Contract.Assert(byteCount >= 0, "[ISCIIEncoding.GetChars]byteCount is negative");
+//            Contract.Assert(chars != null, "[ISCIIEncoding.GetChars]chars is null");
+            Contract.Assert(charCount >= 0, "[ISCIIEncoding.GetChars]charCount is negative");
 
             // Need the ISCII Decoder
             ISCIIDecoder decoder = (ISCIIDecoder) baseDecoder;
@@ -391,7 +395,7 @@ namespace System.Text
 
             // Get our current code page index (some code pages are dups)
             int currentCodePageIndex = -1;
-            Debug.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
+            Contract.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
                 "[ISCIIEncoding.GetChars]Decoder code page must be >= Devanagari and <= Punjabi, not " + currentCodePage);
 
             if (currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi)
@@ -411,7 +415,7 @@ namespace System.Text
                     bLastSpecial = false;
 
                     // One and only one of our flags should be set
-                    Debug.Assert(((bLastVirama ? 1 : 0) + (bLastATR ? 1 : 0) +
+                    Contract.Assert(((bLastVirama ? 1 : 0) + (bLastATR ? 1 : 0) +
                                (bLastDevenagariStressAbbr ? 1 : 0) +
                                ((cLastCharForNextNukta > 0) ? 1 : 0)) == 1,
                         String.Format(CultureInfo.InvariantCulture,
@@ -472,10 +476,10 @@ namespace System.Text
                         bLastATR = false;
 
                         // we know we can't have any of these other modes
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastATR mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastATR mode");
-                        Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastATR mode");
-                        Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastATR mode");
+                        Contract.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastATR mode");
+                        Contract.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastATR mode");
+                        Contract.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastATR mode");
+                        Contract.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastATR mode");
 
                         // Keep processing this byte
                     }
@@ -504,10 +508,10 @@ namespace System.Text
                         bLastVirama = false;
 
                         // We know we can't have any of these other modes
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastVirama mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastVirama mode");
-                        Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastVirama mode");
-                        Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastVirama mode");
+                        Contract.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastVirama mode");
+                        Contract.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastVirama mode");
+                        Contract.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastVirama mode");
+                        Contract.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastVirama mode");
                     }
                     else if (bLastDevenagariStressAbbr)
                     {
@@ -540,15 +544,15 @@ namespace System.Text
                         // (last character was added when mode was set)
                         bLastDevenagariStressAbbr = false;
 
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastDevenagariStressAbbr mode");
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastDevenagariStressAbbr mode");
-                        Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastDevenagariStressAbbr mode");
-                        Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastDevenagariStressAbbr mode");                        
+                        Contract.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastDevenagariStressAbbr mode");
+                        Contract.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastDevenagariStressAbbr mode");
+                        Contract.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastDevenagariStressAbbr mode");
+                        Contract.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastDevenagariStressAbbr mode");                        
                     }
                     else
                     {
                         // We were checking for next char being a nukta
-                        Debug.Assert(cLastCharForNextNukta > 0 && cLastCharForNoNextNukta > 0,
+                        Contract.Assert(cLastCharForNextNukta > 0 && cLastCharForNoNextNukta > 0,
                             "[ISCIIEncoding.GetChars]No other special case found, but cLastCharFor(No)NextNukta variable(s) aren't set.");
 
                         // We'll either add combined char or last char
@@ -570,14 +574,14 @@ namespace System.Text
                         // Keep processing this byte, turn off mode.
                         cLastCharForNextNukta = cLastCharForNoNextNukta = '\0';
                         
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in cLastCharForNextNukta mode");
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in cLastCharForNextNukta mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in cLastCharForNextNukta mode");                        
+                        Contract.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in cLastCharForNextNukta mode");
+                        Contract.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in cLastCharForNextNukta mode");
+                        Contract.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in cLastCharForNextNukta mode");                        
                     }
                 }
 
                 // Now bLastSpecial should be false and all flags false.
-                Debug.Assert (!bLastSpecial && !bLastDevenagariStressAbbr && !bLastVirama && !bLastATR &&
+                Contract.Assert (!bLastSpecial && !bLastDevenagariStressAbbr && !bLastVirama && !bLastATR &&
                           cLastCharForNextNukta == '\0',
                           "[ISCIIEncoding.GetChars]No special state for last code point should exist at this point.");
 
@@ -596,7 +600,7 @@ namespace System.Text
                     continue;
                 }
 
-                Debug.Assert (currentCodePageIndex != -1, "[ISCIIEncoding.GetChars]Expected valid currentCodePageIndex != -1");
+                Contract.Assert (currentCodePageIndex != -1, "[ISCIIEncoding.GetChars]Expected valid currentCodePageIndex != -1");
                 char ch = IndicMapping[currentCodePageIndex, 0, b - MultiByteBegin];
                 char cAlt = IndicMapping[currentCodePageIndex, 1, b - MultiByteBegin];
 
@@ -642,7 +646,7 @@ namespace System.Text
                 }
 
                 // We must be the Devenagari special case for F0, B8 & F0, BF
-                Debug.Assert(currentCodePage == CodeDevanagari && b == DevenagariExt,
+                Contract.Assert(currentCodePage == CodeDevanagari && b == DevenagariExt,
                     String.Format(CultureInfo.InvariantCulture,
                         "[ISCIIEncoding.GetChars] Devenagari special case must {0} not {1} or in Devanagari code page {2} not {3}.",
                         DevenagariExt, b, CodeDevanagari, currentCodePage));
@@ -697,7 +701,7 @@ namespace System.Text
                     cLastCharForNoNextNukta != '\0' || bLastATR || bLastDevenagariStressAbbr)
                 {
                     // Either not flushing or had state (from convert)
-                    Debug.Assert(!decoder.MustFlush || !decoder.m_throwOnOverflow,
+                    Contract.Assert(!decoder.MustFlush || !decoder.m_throwOnOverflow,
                         "[ISCIIEncoding.GetChars]Expected no state or not converting or not flushing");
                     decoder.currentCodePage = currentCodePage;
                     decoder.bLastVirama = bLastVirama;

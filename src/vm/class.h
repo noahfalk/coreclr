@@ -703,9 +703,7 @@ class EEClassOptionalFields
     #define    MODULE_NON_DYNAMIC_STATICS      ((DWORD)-1)
     DWORD m_cbModuleDynamicID;
 
-#ifdef FEATURE_CER
     DWORD m_dwReliabilityContract;
-#endif
 
     SecurityProperties m_SecProps;
 
@@ -1770,14 +1768,12 @@ public:
     // Cached class level reliability contract info, see ConstrainedExecutionRegion.cpp for details.
     DWORD GetReliabilityContract();
 
-#ifdef FEATURE_CER
     inline void SetReliabilityContract(DWORD dwValue)
     {
         LIMITED_METHOD_CONTRACT;
         _ASSERTE(HasOptionalFields());
         GetOptionalFields()->m_dwReliabilityContract = dwValue;
     }
-#endif
 
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
     // Get number of eightbytes used by a struct passed in registers.
@@ -2416,7 +2412,6 @@ public:
     PTR_Stub            m_pInstRetBuffCallStub;
     PTR_MethodDesc      m_pInvokeMethod;
     PTR_Stub            m_pMultiCastInvokeStub;
-    PTR_Stub            m_pSecureDelegateInvokeStub;
     UMThunkMarshInfo*   m_pUMThunkMarshInfo;
     PTR_MethodDesc      m_pBeginInvokeMethod;
     PTR_MethodDesc      m_pEndInvokeMethod;

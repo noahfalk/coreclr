@@ -82,9 +82,10 @@ namespace System {
             get { return m_paramName; }
         }
     
+        [System.Security.SecurityCritical]  // auto-generated_required
         public override void GetObjectData(SerializationInfo info, StreamingContext context) {
             if (info==null) {
-                throw new ArgumentNullException(nameof(info));
+                throw new ArgumentNullException("info");
             }
             Contract.EndContractBlock();
             base.GetObjectData(info, context);
