@@ -402,6 +402,10 @@ HRESULT EEConfig::Init()
 #if defined(_DEBUG)
     bDiagnosticSuspend = false;
 #endif
+
+#if defined(FEATURE_FITJIT)
+    fTieredCompilation = false;
+#endif
     
     // After initialization, register the code:#GetConfigValueCallback method with code:CLRConfig to let
     // CLRConfig access config files. This is needed because CLRConfig lives outside the VM and can't
@@ -1276,6 +1280,10 @@ HRESULT EEConfig::sync()
 #endif
 
     dwSleepOnExit = CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_SleepOnExit);
+
+#if defined(FEATURE_FITJIT)
+    fTieredCompilation = CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_TieredCompilation) != 0;
+#endif
 
     return hr;
 }
