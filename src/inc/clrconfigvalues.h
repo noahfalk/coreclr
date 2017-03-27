@@ -973,7 +973,7 @@ RETAIL_CONFIG_DWORD_INFO(INTERNAL_HillClimbing_GainExponent,                    
 //
 // Tiered Compilation
 //
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 RETAIL_CONFIG_DWORD_INFO(UNSUPPORTED_TieredCompilation, W("EXPERIMENTAL_TieredCompilation"), 0, "Enables tiered compilation")
 #endif
 

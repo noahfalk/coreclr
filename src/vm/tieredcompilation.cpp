@@ -80,7 +80,7 @@
 // errors are limited to OS resource exhaustion or poorly behaved managed code
 // (for example within an AssemblyResolve event or static constructor triggered by the JIT).
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 
 // Called at AppDomain construction
 TieredCompilationManager::TieredCompilationManager() :
@@ -374,4 +374,4 @@ MethodDesc* TieredCompilationManager::GetNextMethodToOptimize()
     return NULL;
 }
 
-#endif // FEATURE_FITJIT
+#endif // FEATURE_TIERED_COMPILATION

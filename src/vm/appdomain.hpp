@@ -43,7 +43,7 @@
 
 #include "appxutil.h"
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 #include "tieredcompilation.h"
 #include "callcounter.h"
 #endif
@@ -3828,7 +3828,7 @@ public:
 
 #endif
 
-#if defined(FEATURE_FITJIT)
+#if defined(FEATURE_TIERED_COMPILATION)
 
 public:
     TieredCompilationManager & GetTieredCompilationManager()

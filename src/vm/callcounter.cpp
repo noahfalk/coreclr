@@ -14,7 +14,7 @@
 #include "tieredcompilation.h"
 #include "callcounter.h"
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 
 CallCounter::CallCounter()
 {
@@ -98,4 +98,4 @@ BOOL CallCounter::OnMethodCalled(MethodDesc* pMethodDesc)
     return pCallCounterSink->OnMethodCalled(pMethodDesc, callCount);
 }
 
-#endif // FEATURE_FITJIT
+#endif // FEATURE_TIERED_COMPILATION

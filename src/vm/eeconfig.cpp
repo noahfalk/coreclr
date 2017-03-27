@@ -403,7 +403,7 @@ HRESULT EEConfig::Init()
     bDiagnosticSuspend = false;
 #endif
 
-#if defined(FEATURE_FITJIT)
+#if defined(FEATURE_TIERED_COMPILATION)
     fTieredCompilation = false;
 #endif
     
@@ -1281,7 +1281,7 @@ HRESULT EEConfig::sync()
 
     dwSleepOnExit = CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_SleepOnExit);
 
-#if defined(FEATURE_FITJIT)
+#if defined(FEATURE_TIERED_COMPILATION)
     fTieredCompilation = CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_TieredCompilation) != 0;
 #endif
 

@@ -6713,7 +6713,7 @@ BOOL FixupPrecode::SetTargetInterlocked(TADDR target, TADDR expected)
     }
     else if (pOldValue[OFFSETOF_PRECODE_TYPE_CALL_OR_JMP] == FixupPrecode::Type)
     {
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
         // No change needed, jmp is already in place
 #else
         // Setting the target more than once is unexpected

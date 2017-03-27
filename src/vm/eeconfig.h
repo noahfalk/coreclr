@@ -295,7 +295,7 @@ public:
     bool          JitMinOpts(void)                  const {LIMITED_METHOD_CONTRACT;  return fJitMinOpts; }
     
     // Tiered Compilation config
-#if defined(FEATURE_FITJIT)
+#if defined(FEATURE_TIERED_COMPILATION)
     bool          TieredCompilation(void)           const {LIMITED_METHOD_CONTRACT;  return fTieredCompilation; }
 #endif
 
@@ -1187,7 +1187,7 @@ private: //----------------------------------------------------------------
     DWORD testThreadAbort;
 #endif
 
-#if defined(FEATURE_FITJIT)
+#if defined(FEATURE_TIERED_COMPILATION)
     bool fTieredCompilation;
 #endif
 

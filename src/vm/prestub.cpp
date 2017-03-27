@@ -48,7 +48,7 @@
 #include "perfmap.h"
 #endif
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 #include "callcounter.h"
 #endif
 
@@ -271,7 +271,7 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
     PCODE pCode = NULL;
     ULONG sizeOfCode = 0;
-#if defined(FEATURE_INTERPRETER) || defined(FEATURE_FITJIT)
+#if defined(FEATURE_INTERPRETER) || defined(FEATURE_TIERED_COMPILATION)
     BOOL fStable = TRUE;  // True iff the new code address (to be stored in pCode), is a stable entry point.
 #endif
 #ifdef FEATURE_INTERPRETER
@@ -287,7 +287,7 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
     // If this is the first stage of a tiered compilation progression, use min-opt, otherwise
     // use default compilation options
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     if (!IsEligibleForTieredCompilation())
     {
         fStable = TRUE;
@@ -1307,7 +1307,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         // in place so that we can continue intercepting method invocations.
         // When the TieredCompilationManager has received enough call notifications
         // for this method only then do we back-patch it.
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
         PCODE pNativeCode = GetNativeCode();
         if (pNativeCode && IsEligibleForTieredCompilation())
         {
@@ -1623,7 +1623,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     // in place so that we can continue intercepting method invocations.
     // When the TieredCompilationManager has received enough call notifications
     // for this method only then do we back-patch it.
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     if (pCode && IsEligibleForTieredCompilation())
     {
         CallCounter & callCounter = GetAppDomain()->GetCallCounter();

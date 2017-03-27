@@ -10,7 +10,7 @@
 #ifndef TIERED_COMPILATION_H
 #define TIERED_COMPILATION_H
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 
 // TieredCompilationManager determines which methods should be recompiled and
 // how they should be recompiled to best optimize the running code. It then
@@ -46,6 +46,6 @@ private:
     DWORD m_optimizationQuantumMs;
 };
 
-#endif // FEATURE_FITJIT
+#endif // FEATURE_TIERED_COMPILATION
 
 #endif // TIERED_COMPILATION_H

@@ -10,7 +10,7 @@
 #ifndef CALL_COUNTER_H
 #define CALL_COUNTER_H
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
 
 // One entry in our dictionary mapping methods to the number of times they
 // have been invoked
@@ -80,6 +80,6 @@ private:
     CallCounterHash m_methodToCallCount;
 };
 
-#endif // FEATURE_FITJIT
+#endif // FEATURE_TIERED_COMPILATION
 
 #endif // CALL_COUNTER_H

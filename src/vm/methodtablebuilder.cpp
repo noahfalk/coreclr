@@ -7032,7 +7032,7 @@ MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
     LIMITED_METHOD_CONTRACT;
 
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     // Keep in-sync with MethodDesc::IsEligibleForTieredCompilation()
 	if (g_pConfig->TieredCompilation() &&
         !GetModule()->HasNativeOrReadyToRunImage() &&

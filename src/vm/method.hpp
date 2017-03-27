@@ -1290,7 +1290,7 @@ public:
 
 public:
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     // Is this method allowed to be recompiled and the entrypoint redirected so that we
     // can optimize its performance? Eligibility is invariant for the lifetime of a method.
     BOOL IsEligibleForTieredCompilation()
@@ -1325,7 +1325,7 @@ public:
     {
         LIMITED_METHOD_DAC_CONTRACT;
         return 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
             !IsEligibleForTieredCompilation() &&
 #endif
             !IsEnCMethod();

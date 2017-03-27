@@ -4333,7 +4333,7 @@ void AppDomain::Init()
     }
 #endif //FEATURE_COMINTEROP
 
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     m_callCounter.SetTieredCompilationManager(&GetTieredCompilationManager());
     m_tieredCompilationManager.Init(GetId());
 #endif
@@ -8266,7 +8266,7 @@ void AppDomain::Exit(BOOL fRunFinalizers, BOOL fAsyncExit)
     // and then the UnwindThreads() call below is where blocking will occur to ensure the threads 
     // have exited the domain.
     //
-#ifdef FEATURE_FITJIT
+#ifdef FEATURE_TIERED_COMPILATION
     m_tieredCompilationManager.OnAppDomainShutdown();
 #endif
 
