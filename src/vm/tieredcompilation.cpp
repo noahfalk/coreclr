@@ -257,7 +257,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
                     {
                         SpinLockHolder holder(&m_lock);
                         m_countOptimizationThreadsRunning--;
-                        STRESS_LOG(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OptimizeMethodsCallback: "
+                        STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OptimizeMethodsCallback: "
                             "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run)\n");
                     }
                     break;
