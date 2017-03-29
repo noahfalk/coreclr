@@ -37,8 +37,7 @@ void CallCounter::SetTieredCompilationManager(TieredCompilationManager* pTieredC
     }
     CONTRACTL_END;
 
-    SpinLockHolder holder(&m_lock);
-    m_pTieredCompilationManager = pTieredCompilationManager;
+    m_pTieredCompilationManager.Store(pTieredCompilationManager);
 }
 
 // This is called by the prestub each time the method is invoked in a particular
@@ -80,8 +79,6 @@ BOOL CallCounter::OnMethodCalled(MethodDesc* pMethodDesc)
         //each claiming to be exactly the threshhold call count needed to trigger
         //optimization.
         SpinLockHolder holder(&m_lock);
-        pCallCounterSink = m_pTieredCompilationManager;
-
         CallCounterEntry* pEntry = const_cast<CallCounterEntry*>(m_methodToCallCount.LookupPtr(pMethodDesc));
         if (pEntry == NULL)
         {
@@ -95,7 +92,7 @@ BOOL CallCounter::OnMethodCalled(MethodDesc* pMethodDesc)
         }
     }
 
-    return pCallCounterSink->OnMethodCalled(pMethodDesc, callCount);
+    return m_pTieredCompilationManager.Load()->OnMethodCalled(pMethodDesc, callCount);
 }
 
 #endif // FEATURE_TIERED_COMPILATION

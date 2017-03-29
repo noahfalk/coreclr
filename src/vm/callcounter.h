@@ -75,8 +75,10 @@ public:
 
 private:
 
+    VolatilePtr<TieredCompilationManager> m_pTieredCompilationManager;
+
+    // fields protected by lock
     SpinLock m_lock;
-    TieredCompilationManager* m_pTieredCompilationManager;
     CallCounterHash m_methodToCallCount;
 };
 

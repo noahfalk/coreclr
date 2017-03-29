@@ -1311,8 +1311,8 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         PCODE pNativeCode = GetNativeCode();
         if (pNativeCode && IsEligibleForTieredCompilation())
         {
-            CallCounter & callCounter = GetAppDomain()->GetCallCounter();
-            BOOL doBackPatch = callCounter.OnMethodCalled(this);
+            CallCounter * pCallCounter = GetAppDomain()->GetCallCounter();
+            BOOL doBackPatch = pCallCounter->OnMethodCalled(this);
             if (!doBackPatch)
             {
                 return pNativeCode;
@@ -1626,8 +1626,8 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 #ifdef FEATURE_TIERED_COMPILATION
     if (pCode && IsEligibleForTieredCompilation())
     {
-        CallCounter & callCounter = GetAppDomain()->GetCallCounter();
-        BOOL doBackPatch = callCounter.OnMethodCalled(this);
+        CallCounter * pCallCounter = GetAppDomain()->GetCallCounter();
+        BOOL doBackPatch = pCallCounter->OnMethodCalled(this);
         if (!doBackPatch)
         {
             return pCode;

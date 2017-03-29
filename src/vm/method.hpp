@@ -1318,7 +1318,7 @@ public:
     // pointer need to be very careful about if and when they cache it
     // if it is not stable.
     //
-    // The stability of the native code pointer is seperate from the
+    // The stability of the native code pointer is separate from the
     // stability of the entrypoint. A stable entrypoint can be a precode
     // which dispatches to an unstable native code pointer.
     BOOL IsNativeCodeStableAfterInit()

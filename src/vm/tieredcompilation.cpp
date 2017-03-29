@@ -141,8 +141,8 @@ BOOL TieredCompilationManager::OnMethodCalled(MethodDesc* pMethodDesc, DWORD cur
     // unserviced. Synchronous retries appear unlikely to offer any material improvement 
     // and complicating the code to narrow an already rare error case isn't desirable.
     {
-        SpinLockHolder holder(&m_lock);
         SListElem<MethodDesc*>* pMethodListItem = new (nothrow) SListElem<MethodDesc*>(pMethodDesc);
+        SpinLockHolder holder(&m_lock);
         if (pMethodListItem != NULL)
         {
             m_methodsToOptimize.InsertTail(pMethodListItem);

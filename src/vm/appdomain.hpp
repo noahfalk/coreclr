@@ -3831,20 +3831,20 @@ public:
 #if defined(FEATURE_TIERED_COMPILATION)
 
 public:
-    TieredCompilationManager & GetTieredCompilationManager()
+    TieredCompilationManager * GetTieredCompilationManager()
     {
         LIMITED_METHOD_CONTRACT;
-        return m_tieredCompilationManager;
+        return &m_tieredCompilationManager;
     }
 
 private:
     TieredCompilationManager m_tieredCompilationManager;
 
 public:
-    CallCounter & GetCallCounter()
+    CallCounter * GetCallCounter()
     {
         LIMITED_METHOD_CONTRACT;
-        return m_callCounter;
+        return &m_callCounter;
     }
 
 private:
