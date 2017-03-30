@@ -24,7 +24,7 @@ public:
     TieredCompilationManager();
 #endif
 
-    void Init(ADID appDomainId);
+    void Init(ADID appDomainId, MethodCodeUpdater* pMethodCodeUpdater);
     BOOL OnMethodCalled(MethodDesc* pMethodDesc, DWORD currentCallCount);
     void OnAppDomainShutdown();
 
@@ -44,6 +44,7 @@ private:
     DWORD m_countOptimizationThreadsRunning;
     DWORD m_callCountOptimizationThreshhold;
     DWORD m_optimizationQuantumMs;
+    MethodCodeUpdater* m_pMethodCodeUpdater;
 };
 
 #endif // FEATURE_TIERED_COMPILATION

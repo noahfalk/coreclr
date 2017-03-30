@@ -4335,7 +4335,7 @@ void AppDomain::Init()
 
 #ifdef FEATURE_TIERED_COMPILATION
     m_callCounter.SetTieredCompilationManager(GetTieredCompilationManager());
-    m_tieredCompilationManager.Init(GetId());
+    m_tieredCompilationManager.Init(GetId(), GetMethodCodeUpdater());
 #endif
 #endif // CROSSGEN_COMPILE
 } // AppDomain::Init

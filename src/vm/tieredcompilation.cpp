@@ -94,7 +94,7 @@ TieredCompilationManager::TieredCompilationManager() :
 }
 
 // Called at AppDomain Init
-void TieredCompilationManager::Init(ADID appDomainId)
+void TieredCompilationManager::Init(ADID appDomainId, MethodCodeUpdater* pMethodCodeUpdater)
 {
     CONTRACTL
     {
@@ -107,6 +107,7 @@ void TieredCompilationManager::Init(ADID appDomainId)
 
     SpinLockHolder holder(&m_lock);
     m_domainId = appDomainId;
+    m_pMethodCodeUpdater = pMethodCodeUpdater;
 }
 
 // Called each time code in this AppDomain has been run. This is our sole entrypoint to begin
@@ -128,6 +129,18 @@ BOOL TieredCompilationManager::OnMethodCalled(MethodDesc* pMethodDesc, DWORD cur
         return TRUE; // stop notifications for this method
     }
 
+    // Add an inactive native code entry in the versioning table to track the tier1 
+    // compilation we are going to create. This entry binds the compilation to a
+    // particular version of the IL code regardless of any changes that may
+    // occur between now and when jitting completes. If the IL does change in that
+    // interval the new code entry won't be activated.
+    m_pMethodCodeUpdater->EnterLock();
+    ILVersionHandle ilVersion = m_pMethodCodeUpdater->GetActiveILVersion(pMethodDesc);
+    NativeCodeVersionHandle nativeCodeVersion = m_pMethodCodeUpdater->AddNativeCode(pMethodDesc, ilVersion);
+    m_pMethodCodeUpdater->SetCompilationTier(pMethodDesc, nativeCodeVersion, 1);
+    m_pMethodCodeUpdater->LeaveLock();
+
+
     // Insert the method into the optimization queue and trigger a thread to service
     // the queue if needed.
     //
@@ -141,7 +154,7 @@ BOOL TieredCompilationManager::OnMethodCalled(MethodDesc* pMethodDesc, DWORD cur
     // unserviced. Synchronous retries appear unlikely to offer any material improvement 
     // and complicating the code to narrow an already rare error case isn't desirable.
     {
-        SListElem<MethodDesc*>* pMethodListItem = new (nothrow) SListElem<MethodDesc*>(pMethodDesc);
+        SListElem<NativeCodeVersionHandle>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersionHandle>(nativeCodeVersion);
         SpinLockHolder holder(&m_lock);
         if (pMethodListItem != NULL)
         {
@@ -245,7 +258,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
                     }
                     
                 }
-                OptimizeMethod(pMethod);
+                OptimizeMethod(pMethod, nativeCodeVersionHandle);
 
                 // If we have been running for too long return the thread to the threadpool and queue another event
                 // This gives the threadpool a chance to service other requests on this thread before returning to
@@ -277,12 +290,12 @@ void TieredCompilationManager::OptimizeMethodsCallback()
 
 // Jit compiles and installs new optimized code for a method.
 // Called on a background thread.
-void TieredCompilationManager::OptimizeMethod(MethodDesc* pMethod)
+void TieredCompilationManager::OptimizeMethod(MethodDesc* pMethod, NativeCodeVersionHandle nativeVersion)
 {
     STANDARD_VM_CONTRACT;
 
     _ASSERTE(pMethod->IsEligibleForTieredCompilation());
-    PCODE pJittedCode = CompileMethod(pMethod);
+    PCODE pJittedCode = CompileMethod(pMethod, nativeVersion);
     if (pJittedCode != NULL)
     {
         InstallMethodCode(pMethod, pJittedCode);
@@ -291,7 +304,7 @@ void TieredCompilationManager::OptimizeMethod(MethodDesc* pMethod)
 
 // Compiles new optimized code for a method.
 // Called on a background thread.
-PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod)
+PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod, NativeCodeVersionHandle nativeVersion)
 {
     STANDARD_VM_CONTRACT;
 
@@ -312,7 +325,9 @@ PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod)
         else
         {
             COR_ILMETHOD_DECODER::DecoderStatus status;
-            COR_ILMETHOD_DECODER header(pMethod->GetILHeader(), pMethod->GetModule()->GetMDImport(), &status);
+            ILVersionHandle ilVersion = m_pMethodCodeUpdater->GetILVersion(pMethod, nativeVersion);
+            COR_ILMETHOD* pILHeader = m_pMethodCodeUpdater->GetILHeader(pMethod, ilVersion);
+            COR_ILMETHOD_DECODER header(pILHeader, pMethod->GetModule()->GetMDImport(), &status);
             pCode = UnsafeJitFunction(pMethod, &header, flags, &sizeOfCode);
         }
     }
@@ -330,9 +345,15 @@ PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod)
 // Updates the MethodDesc and precode so that future invocations of a method will
 // execute the native code pointed to by pCode.
 // Called on a background thread.
-void TieredCompilationManager::InstallMethodCode(MethodDesc* pMethod, PCODE pCode)
+void TieredCompilationManager::InstallMethodCode(MethodDesc* pMethod, NativeCodeVersionHandle nativeCodeVersion, PCODE pCode)
 {
     STANDARD_VM_CONTRACT;
+
+    m_pMethodCodeUpdater->EnterLock();
+    m_pMethodCodeUpdater->SetNativeCode(pMethod, nativeCodeVersion, pCode);
+    m_pMethodCodeUpdater->SetActive(pMethod, nativeCodeVersion);
+    m_pMethodCodeUpdater->LeaveLock();
+
 
     _ASSERTE(!pMethod->IsNativeCodeStableAfterInit());
 
@@ -360,16 +381,16 @@ void TieredCompilationManager::InstallMethodCode(MethodDesc* pMethod, PCODE pCod
 // Dequeues the next method in the optmization queue.
 // This should be called with m_lock already held and runs
 // on the background thread.
-MethodDesc* TieredCompilationManager::GetNextMethodToOptimize()
+NativeCodeVersionHandle TieredCompilationManager::GetNextMethodToOptimize()
 {
     STANDARD_VM_CONTRACT;
 
-    SListElem<MethodDesc*>* pElem = m_methodsToOptimize.RemoveHead();
+    SListElem<NativeCodeVersionHandle>* pElem = m_methodsToOptimize.RemoveHead();
     if (pElem != NULL)
     {
-        MethodDesc* pMD = pElem->GetValue();
+        NativeCodeVersionHandle versionHandle = pElem->GetValue();
         delete pElem;
-        return pMD;
+        return versionHandle;
     }
     return NULL;
 }

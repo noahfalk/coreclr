@@ -81,6 +81,7 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     loaderallocator.cpp
     memberload.cpp
     method.cpp
+    methodcodeupdater.cpp
     methodimpl.cpp
     methoditer.cpp
     methodtable.cpp

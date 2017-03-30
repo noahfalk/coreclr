@@ -46,6 +46,7 @@
 #ifdef FEATURE_TIERED_COMPILATION
 #include "tieredcompilation.h"
 #include "callcounter.h"
+#include "methodcodeupdater.h"
 #endif
 
 class BaseDomain;
@@ -3849,6 +3850,16 @@ public:
 
 private:
     CallCounter m_callCounter;
+
+public:
+        MethodCodeUpdater * GetMethodCodeUpdater()
+        {
+            LIMITED_METHOD_CONTRACT;
+            return &m_methodCodeUpdater;
+        }
+
+private:
+    MethodCodeUpdater m_methodCodeUpdater;
 #endif
 
 #ifdef FEATURE_COMINTEROP
