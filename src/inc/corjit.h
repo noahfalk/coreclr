@@ -88,7 +88,11 @@ public:
         CORJIT_FLAG_MIN_OPT                 = 5, // disable all jit optimizations (not necesarily debuggable code)
         CORJIT_FLAG_GCPOLL_CALLS            = 6, // Emit calls to JIT_POLLGC for thread suspension.
         CORJIT_FLAG_MCJIT_BACKGROUND        = 7, // Calling from multicore JIT background thread, do not call JitComplete
-
+        CORJIT_FLAG_TIER0                   = CORJIT_FLAG_MIN_OPT, // This is the initial tier for tiered compilation
+                                                 // which should generate code as quickly as possible
+                                                 // Note: Currently this policy is implemented as MIN_OPT
+                                                 // but that may not be the ideal implementation.
+        
     #if defined(_TARGET_X86_)
 
         CORJIT_FLAG_PINVOKE_RESTORE_ESP     = 8, // Restore ESP after returning from inlined PInvoke
