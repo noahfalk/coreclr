@@ -10,6 +10,9 @@
 #ifndef TIERED_COMPILATION_H
 #define TIERED_COMPILATION_H
 
+
+
+
 #ifdef FEATURE_TIERED_COMPILATION
 
 // TieredCompilationManager determines which methods should be recompiled and
@@ -38,13 +41,29 @@ private:
     void InstallMethodCode(MethodDesc* pMethod, PCODE pCode);
 
     SpinLock m_lock;
-    SList<SListElem<MethodDesc*>> m_methodsToOptimize;
+    SList<SListElem<NativeCodeVersionHandle>> m_methodsToOptimize;
     ADID m_domainId;
     BOOL m_isAppDomainShuttingDown;
     DWORD m_countOptimizationThreadsRunning;
     DWORD m_callCountOptimizationThreshhold;
     DWORD m_optimizationQuantumMs;
     MethodCodeUpdater* m_pMethodCodeUpdater;
+};
+
+
+struct TieredCompilationCodeConfiguration
+{
+public:
+    enum OptimizationTier
+    {
+        Tier0 = 0,
+        Tier1 = 1
+    };
+
+    OptimizationTier GetOptimizationTier() { return m_tier; }
+    void SetOptimizationTier(OptimizationTier tier) { m_tier = tier; }
+private:
+    OptimizationTier m_tier;
 };
 
 #endif // FEATURE_TIERED_COMPILATION

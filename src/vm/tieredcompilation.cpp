@@ -129,16 +129,27 @@ BOOL TieredCompilationManager::OnMethodCalled(MethodDesc* pMethodDesc, DWORD cur
         return TRUE; // stop notifications for this method
     }
 
+    NativeCodeVersionHandle t1NativeCodeVersionHandle;
+
+    m_pMethodCodeUpdater->EnterLock();
+
+    // Ensure that a native code entry for the tier0 code exists (as a perf optimization we avoid
+    // creating it if there is no other version of the code in existence)
+    ILCodeVersionHandle ilVersionHandle = m_pMethodCodeUpdater->GetActiveILVersionHandle(pMethodDesc);
+    NativeCodeVersionDesc* pT0NativeCodeVersion = ilVersionHandle.GetActiveNativeCodeVersion(pMethodDesc);
+    TieredCompilationCodeConfiguration* pT0Config = pT0NativeCodeVersion->GetTieredCompilationConfig();
+    pT0Config->SetOptimizationTier(TieredCompilationCodeConfiguration::Tier0);
+
     // Add an inactive native code entry in the versioning table to track the tier1 
     // compilation we are going to create. This entry binds the compilation to a
     // particular version of the IL code regardless of any changes that may
     // occur between now and when jitting completes. If the IL does change in that
     // interval the new code entry won't be activated.
-    m_pMethodCodeUpdater->EnterLock();
-    ILVersionHandle ilVersion = m_pMethodCodeUpdater->GetActiveILVersion(pMethodDesc);
-    NativeCodeVersionHandle nativeCodeVersion = m_pMethodCodeUpdater->AddNativeCode(pMethodDesc, ilVersion);
-    m_pMethodCodeUpdater->SetCompilationTier(pMethodDesc, nativeCodeVersion, 1);
-    m_pMethodCodeUpdater->LeaveLock();
+    NativeCodeVersionDesc* pT1NativeCodeVersion = ilVersionHandle.AddNativeCodeVersion(pMethodDesc);
+    TieredCompilationCodeConfiguration* pT1Config = pT1NativeCodeVersion->GetTieredCompilationConfig();
+    pT1Config->SetOptimizationTier(TieredCompilationCodeConfiguration::Tier1);
+    t1NativeCodeVersionHandle = pT1NativeCodeVersion->GetHandle();
+    m_pMethodCodeUpdater->ReleaseLock();
 
 
     // Insert the method into the optimization queue and trigger a thread to service
@@ -154,7 +165,7 @@ BOOL TieredCompilationManager::OnMethodCalled(MethodDesc* pMethodDesc, DWORD cur
     // unserviced. Synchronous retries appear unlikely to offer any material improvement 
     // and complicating the code to narrow an already rare error case isn't desirable.
     {
-        SListElem<NativeCodeVersionHandle>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersionHandle>(nativeCodeVersion);
+        SListElem<NativeCodeVersionHandle>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersionHandle>(t1NativeCodeVersionHandle);
         SpinLockHolder holder(&m_lock);
         if (pMethodListItem != NULL)
         {
@@ -220,7 +231,7 @@ DWORD WINAPI TieredCompilationManager::StaticOptimizeMethodsCallback(void *args)
 // optimizations enabled and then installed as the active implementation
 // of the method entrypoint.
 // 
-// We need to be carefuly not to work for too long in a single invocation
+// We need to be careful not to work for too long in a single invocation
 // of this method or we could starve the threadpool and force
 // it to create unnecessary additional threads.
 void TieredCompilationManager::OptimizeMethodsCallback()
@@ -240,7 +251,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
     }
 
     ULONGLONG startTickCount = CLRGetTickCount64();
-    MethodDesc* pMethod = NULL;
+    NativeCodeVersionHandle nativeCodeVersionHandle;
     EX_TRY
     {
         ENTER_DOMAIN_ID(m_domainId);
@@ -249,8 +260,8 @@ void TieredCompilationManager::OptimizeMethodsCallback()
             {
                 {
                     SpinLockHolder holder(&m_lock); 
-                    pMethod = GetNextMethodToOptimize();
-                    if (pMethod == NULL ||
+                    nativeCodeVersionHandle = GetNextMethodToOptimize();
+                    if (nativeCodeVersionHandle.IsNull() ||
                         m_isAppDomainShuttingDown)
                     {
                         m_countOptimizationThreadsRunning--;
@@ -258,7 +269,7 @@ void TieredCompilationManager::OptimizeMethodsCallback()
                     }
                     
                 }
-                OptimizeMethod(pMethod, nativeCodeVersionHandle);
+                OptimizeMethod(nativeCodeVersionHandle);
 
                 // If we have been running for too long return the thread to the threadpool and queue another event
                 // This gives the threadpool a chance to service other requests on this thread before returning to
@@ -283,28 +294,28 @@ void TieredCompilationManager::OptimizeMethodsCallback()
     {
         STRESS_LOG2(LF_TIEREDCOMPILATION, LL_ERROR, "TieredCompilationManager::OptimizeMethodsCallback: "
             "Unhandled exception during method optimization, hr=0x%x, last method=%pM\n",
-            GET_EXCEPTION()->GetHR(), pMethod);
+            GET_EXCEPTION()->GetHR(), nativeCodeVersionHandle.GetMethod());
     }
     EX_END_CATCH(RethrowTerminalExceptions);
 }
 
 // Jit compiles and installs new optimized code for a method.
 // Called on a background thread.
-void TieredCompilationManager::OptimizeMethod(MethodDesc* pMethod, NativeCodeVersionHandle nativeVersion)
+void TieredCompilationManager::OptimizeMethod(NativeCodeVersionHandle nativeCodeVersion)
 {
     STANDARD_VM_CONTRACT;
 
-    _ASSERTE(pMethod->IsEligibleForTieredCompilation());
-    PCODE pJittedCode = CompileMethod(pMethod, nativeVersion);
+    _ASSERTE(nativeCodeVersion.GetMethod()->IsEligibleForTieredCompilation());
+    PCODE pJittedCode = CompileMethod(nativeCodeVersion);
     if (pJittedCode != NULL)
     {
-        InstallMethodCode(pMethod, pJittedCode);
+        ActivateCodeVersion(nativeCodeVersion);
     }
 }
 
 // Compiles new optimized code for a method.
 // Called on a background thread.
-PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod, NativeCodeVersionHandle nativeVersion)
+PCODE TieredCompilationManager::CompileMethod(NativeCodeVersionHandle nativeCodeVersion)
 {
     STANDARD_VM_CONTRACT;
 
@@ -314,7 +325,7 @@ PCODE TieredCompilationManager::CompileMethod(MethodDesc* pMethod, NativeCodeVer
     {
         CORJIT_FLAGS flags = CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_MCJIT_BACKGROUND);
         flags.Add(CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_SPEED_OPT));
-
+        MethodDesc* pMethod = nativeCodeVersion.GetMethod();
         if (pMethod->IsDynamicMethod())
         {
             ILStubResolver* pResolver = pMethod->AsDynamicMethodDesc()->GetILStubResolver();
