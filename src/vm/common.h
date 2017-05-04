@@ -352,6 +352,7 @@ namespace Loader
 #include "pefile.h"
 #include "clrex.h"
 #include "clsload.hpp"  // <NICE> We should not really need to put this so early... </NICE>
+#include "fileloadlevel.h"
 #include "siginfo.hpp"
 #include "binder.h"
 #include "jitinterface.h"  // <NICE> We should not really need to put this so early... </NICE>

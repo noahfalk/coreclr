@@ -681,7 +681,8 @@ Module *ZapSig::DecodeModuleFromIndexes(Module *fromModule,
 
 Module *ZapSig::DecodeModuleFromIndexesIfLoaded(Module *fromModule,
                                                 DWORD assemblyIndex,
-                                                DWORD moduleIndex)
+                                                DWORD moduleIndex,
+                                                FileLoadLevel minLoadLevel /* = -1 */)
 {
     CONTRACTL
     {
@@ -702,7 +703,13 @@ Module *ZapSig::DecodeModuleFromIndexesIfLoaded(Module *fromModule,
         if (assemblyIndex < fromModule->GetAssemblyRefMax())
         {
             tkAssemblyRef = RidToToken(assemblyIndex, mdtAssemblyRef);
-            pAssembly = fromModule->GetAssemblyIfLoaded(tkAssemblyRef);
+            pAssembly = fromModule->GetAssemblyIfLoaded(tkAssemblyRef,
+                                                        NULL, // szWinRtNamespace
+                                                        NULL, // szWinRtClassName
+                                                        NULL, // pMDImportOverride
+                                                        FALSE, // fDoNotUtilizeExtraChecks
+                                                        NULL, // pBindingContextForLoadedAssembly
+                                                        minLoadLevel);
         }
         else
         {

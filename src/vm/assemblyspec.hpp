@@ -61,7 +61,8 @@ class AssemblySpec  : public BaseAssemblySpec
                 LPCSTR              szWinRtClassName, 
                 IMDInternalImport * pMDImportOverride,
                 BOOL                fDoNotUtilizeExtraChecks,
-                ICLRPrivBinder      *pBindingContextForLoadedAssembly);
+                ICLRPrivBinder      *pBindingContextForLoadedAssembly,
+                FileLoadLevel       minLoadLevel);
     
   public:
 

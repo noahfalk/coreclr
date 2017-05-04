@@ -28,6 +28,7 @@
 #include "eetwain.h"    // For EnumGCRefs (we should probably move that somewhere else, but can't
                         // find anything better (modulo common or vars.hpp)
 #include "classloadlevel.h"
+#include "fileloadlevel.h"
 #include "precode.h"
 #include "corbbtprof.h"
 #include "ilstubcache.h"
@@ -2268,7 +2269,8 @@ protected:
             LPCSTR              szWinRtClassName = NULL, 
             IMDInternalImport * pMDImportOverride = NULL,
             BOOL                fDoNotUtilizeExtraChecks = FALSE,
-            ICLRPrivBinder      *pBindingContextForLoadedAssembly = NULL
+            ICLRPrivBinder      *pBindingContextForLoadedAssembly = NULL,
+            FileLoadLevel       minLoadLevel = (FileLoadLevel)-1
             );
 
 private:
@@ -2928,7 +2930,7 @@ public:
 
     IMDInternalImport *GetNativeFixupImport();
     Module *GetModuleFromIndex(DWORD ix);
-    Module *GetModuleFromIndexIfLoaded(DWORD ix);
+    Module *GetModuleFromIndexIfLoaded(DWORD ix, FileLoadLevel minLoadLevel = (FileLoadLevel)-1);
 
     // This is to rebuild stub dispatch maps to module-local values.
     void UpdateStubDispatchTypeTable(DataImage *image);

@@ -148,7 +148,8 @@ public:
 
     static Module *DecodeModuleFromIndexesIfLoaded(Module *fromModule,
         DWORD assemblyIndex,
-        DWORD moduleIndex);
+        DWORD moduleIndex,
+        FileLoadLevel minLoadLevel = (FileLoadLevel)-1);
 
     // referencingModule is the module that references the type.
     // fromModule is the module in which the type is defined.

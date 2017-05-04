@@ -5273,7 +5273,8 @@ Module::GetAssemblyIfLoaded(
     LPCSTR              szWinRtClassName,   // = NULL
     IMDInternalImport * pMDImportOverride,  // = NULL
     BOOL                fDoNotUtilizeExtraChecks, // = FALSE
-    ICLRPrivBinder      *pBindingContextForLoadedAssembly // = NULL
+    ICLRPrivBinder      *pBindingContextForLoadedAssembly, // = NULL
+    FileLoadLevel       minLoadLevel // = -1
 )    
 {
     CONTRACT(Assembly *)
@@ -5283,6 +5284,10 @@ Module::GetAssemblyIfLoaded(
         GC_NOTRIGGER;
         FORBID_FAULT;
         MODE_ANY;
+        // the current implementation only supports using minLoadLevel to relax the conditions for loaded-ness in a specific
+        // profiling scenario for the inline tracking map. If you want a broader usage you may need to do further code review
+        // to ensure your scenario will work as intended.
+        PRECONDITION(minLoadLevel == -1 || minLoadLevel == FILE_LOAD_LOADLIBRARY);
         POSTCONDITION(CheckPointer(RETVAL, NULL_OK));
         SUPPORTS_DAC;
     }
@@ -5436,11 +5441,12 @@ Module::GetAssemblyIfLoaded(
                     pDomainAssembly = pAppDomainExamine->FindCachedAssembly(&spec, FALSE /*fThrow*/);
                 }
 
-                if (pDomainAssembly && pDomainAssembly->IsLoaded())
+                if (pDomainAssembly && 
+                   (minLoadLevel == (FileLoadLevel)-1 ? pDomainAssembly->IsLoaded() : pDomainAssembly->GetLoadLevel() >= minLoadLevel))
                     pAssembly = pDomainAssembly->GetCurrentAssembly(); // <NOTE> Do not use GetAssembly - that may force the completion of a load
 
                 // Only store in the rid map if working with the current AppDomain.
-                if (fCanUseRidMap && pAssembly && appDomainIter.UsingCurrentAD())
+                if (fCanUseRidMap && pAssembly && appDomainIter.UsingCurrentAD() && pDomainAssembly->IsLoaded())
                     StoreAssemblyRef(kAssemblyRef, pAssembly);
 
                 if (pAssembly != NULL)
@@ -10135,7 +10141,7 @@ Module *Module::GetModuleFromIndex(DWORD ix)
 
 #ifdef FEATURE_PREJIT
 
-Module *Module::GetModuleFromIndexIfLoaded(DWORD ix)
+Module *Module::GetModuleFromIndexIfLoaded(DWORD ix, FileLoadLevel minLoadLevel /* = DomainFile::GetMinumumLoadedLevel() */)
 {
     CONTRACT(Module*)
     {
@@ -10152,7 +10158,7 @@ Module *Module::GetModuleFromIndexIfLoaded(DWORD ix)
 #ifndef DACCESS_COMPILE 
     CORCOMPILE_IMPORT_TABLE_ENTRY *p = GetNativeImage()->GetNativeImportFromIndex(ix);
 
-    RETURN ZapSig::DecodeModuleFromIndexesIfLoaded(this, p->wAssemblyRid, p->wModuleRid);
+    RETURN ZapSig::DecodeModuleFromIndexesIfLoaded(this, p->wAssemblyRid, p->wModuleRid, minLoadLevel);
 #else // DACCESS_COMPILE
     DacNotImpl();
     RETURN NULL;

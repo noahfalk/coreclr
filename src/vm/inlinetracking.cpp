@@ -301,7 +301,7 @@ Module *PersistentInlineTrackingMapNGen::GetModuleByIndex(DWORD index)
     // This is useful when ngen image was compiler against a different assembly version than the one loaded now. 
     ClrFlsThreadTypeSwitch genericInstantionCompareHolder(ThreadType_GenericInstantiationCompare);
 
-    return m_module->GetModuleFromIndexIfLoaded(index);
+    return m_module->GetModuleFromIndexIfLoaded(index, FILE_LOAD_LOADLIBRARY);
 }
 
 
