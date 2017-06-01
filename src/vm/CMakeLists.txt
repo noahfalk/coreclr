@@ -48,6 +48,7 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     classhash.cpp
     clsload.cpp
     codeman.cpp
+    codeversion.cpp
     comdelegate.cpp
     contractimpl.cpp
     coreassemblyspec.cpp

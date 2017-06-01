@@ -89,7 +89,7 @@ else(WIN32)
   add_definitions(-DFEATURE_ARRAYSTUB_AS_IL)
   add_definitions(-DFEATURE_MULTICASTSTUB_AS_IL)
 endif(WIN32)
-
+add_definitions(-DFEATURE_CODE_VERSIONING)
 add_definitions(-DFEATURE_COLLECTIBLE_TYPES)
 
 if(WIN32)

@@ -7,6 +7,7 @@ add_definitions(
     -DSELF_NO_HOST)
 
 remove_definitions(
+    -DFEATURE_CODE_VERSIONING
     -DEnC_SUPPORTED
     -DFEATURE_EVENT_TRACE=1
     -DFEATURE_LOADER_OPTIMIZATION

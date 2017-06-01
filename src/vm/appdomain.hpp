@@ -49,6 +49,10 @@
 #include "callcounter.h"
 #endif
 
+#ifdef FEATURE_CODE_VERSIONING
+#include "codeversion.h"
+#endif
+
 class BaseDomain;
 class SystemDomain;
 class SharedDomain;
@@ -1553,6 +1557,14 @@ private:
 
 public:
     ReJitManager * GetReJitManager() { return &m_reJitMgr; }
+
+#ifdef FEATURE_CODE_VERSIONING
+private:
+    CodeVersionManager m_codeVersionManager;
+
+public:
+    CodeVersionManager* GetCodeVersionManager() { return &m_codeVersionManager; }
+#endif //FEATURE_CODE_VERSIONING
 
 #ifdef DACCESS_COMPILE
 public:
