@@ -36,6 +36,7 @@ set(VM_CROSSGEN_SOURCES
     ../generics.cpp
     ../genmeth.cpp
     ../hash.cpp
+    ../ilinstrumentation.cpp
     ../ilmarshalers.cpp
     ../ilstubcache.cpp
     ../ilstubresolver.cpp

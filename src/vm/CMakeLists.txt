@@ -79,6 +79,7 @@ set(VM_SOURCES_DAC_AND_WKS_COMMON
     generics.cpp
     hash.cpp
     hillclimbing.cpp
+    ilinstrumentation.cpp
     ilstubcache.cpp
     ilstubresolver.cpp
     inlinetracking.cpp
