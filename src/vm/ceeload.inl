@@ -662,4 +662,12 @@ inline ReJitManager * Module::GetReJitManager()
     return GetDomain()->GetReJitManager();
 }
 
+#ifdef FEATURE_CODE_VERSIONING
+inline CodeVersionManager * Module::GetCodeVersionManager()
+{
+    LIMITED_METHOD_CONTRACT;
+    return GetDomain()->GetCodeVersionManager();
+}
+#endif // FEATURE_CODE_VERSIONING
+
 #endif  // CEELOAD_INL_

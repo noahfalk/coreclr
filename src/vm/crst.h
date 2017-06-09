@@ -121,8 +121,7 @@ friend class ListLockEntry;
 friend struct SavedExceptionInfo;
 friend void EEEnterCriticalSection(CRITSEC_COOKIE cookie);
 friend void EELeaveCriticalSection(CRITSEC_COOKIE cookie);
-friend class ReJitPublishMethodHolder;
-friend class ReJitPublishMethodTableHolder;
+friend class CodeVersionManager;
 
 friend class Debugger;
 friend class Crst;

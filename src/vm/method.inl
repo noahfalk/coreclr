@@ -209,5 +209,15 @@ inline ReJitManager * MethodDesc::GetReJitManager()
     return GetModule()->GetReJitManager();
 }
 
+#ifdef FEATURE_CODE_VERSIONING
+
+inline CodeVersionManager * MethodDesc::GetCodeVersionManager()
+{
+    LIMITED_METHOD_CONTRACT;
+    return GetModule()->GetCodeVersionManager();
+}
+
+#endif
+
 #endif  // _METHOD_INL_
 

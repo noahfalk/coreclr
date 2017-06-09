@@ -6962,8 +6962,8 @@ VOID ETW::MethodLog::SendEventsForJitMethods(BaseDomain *pDomainFilter, LoaderAl
         // We only support getting rejit IDs when filtering by domain.
         if (pDomainFilter)
         {
-            ReJitManager::TableLockHolder lkRejitMgrSharedDomain(SharedDomain::GetDomain()->GetReJitManager());
-            ReJitManager::TableLockHolder lkRejitMgrModule(pDomainFilter->GetReJitManager());
+            CodeVersionManager::TableLockHolder lkRejitMgrSharedDomain(SharedDomain::GetDomain()->GetCodeVersionManager());
+            CodeVersionManager::TableLockHolder lkRejitMgrModule(pDomainFilter->GetCodeVersionManager());
             SendEventsForJitMethodsHelper(pDomainFilter,
                 pLoaderAllocatorFilter,
                 dwEventOptions,

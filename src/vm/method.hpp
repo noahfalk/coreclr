@@ -42,6 +42,7 @@ class Dictionary;
 class GCCoverageInfo;
 class DynamicMethodDesc;
 class ReJitManager;
+class CodeVersionManager;
 
 typedef DPTR(FCallMethodDesc)        PTR_FCallMethodDesc;
 typedef DPTR(ArrayMethodDesc)        PTR_ArrayMethodDesc;
@@ -508,6 +509,10 @@ public:
     BaseDomain *GetDomain();
 
     ReJitManager * GetReJitManager();
+
+#ifdef FEATURE_CODE_VERSIONING
+    CodeVersionManager* GetCodeVersionManager();
+#endif
 
     PTR_LoaderAllocator GetLoaderAllocator();
 

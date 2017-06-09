@@ -29,7 +29,7 @@ public:
     InstrumentedILOffsetMapping();
 
     // Check whether there is any mapping information stored in this object.
-    BOOL IsNull();
+    BOOL IsNull() const;
 
 #if !defined(DACCESS_COMPILE)
     // Release the memory used by the array of COR_IL_MAPs.

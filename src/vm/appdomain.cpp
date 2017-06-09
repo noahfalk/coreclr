@@ -758,8 +758,8 @@ BaseDomain::BaseDomain()
     m_ClassInitLock.PreInit();
     m_ILStubGenLock.PreInit();
 
-#ifdef FEATURE_REJIT
-    m_reJitMgr.PreInit(this == (BaseDomain *) g_pSharedDomainMemory);
+#ifdef FEATURE_CODE_VERSIONING
+    m_codeVersionManager.PreInit(this == (BaseDomain *)g_pSharedDomainMemory);
 #endif
 
 } //BaseDomain::BaseDomain
@@ -8145,7 +8145,7 @@ void AppDomain::Exit(BOOL fRunFinalizers, BOOL fAsyncExit)
     LOG((LF_APPDOMAIN | LF_CORDB, LL_INFO10, "AppDomain::Domain [%d] %#08x %ls is exited.\n",
          GetId().m_dwId, this, GetFriendlyNameForLogging()));
 
-    ReJitManager::OnAppDomainExit(this);
+    CodeVersionManager::OnAppDomainExit(this);
 
     // Send ETW events for this domain's unload and potentially iterate through this
     // domain's modules & assemblies to send events for their unloads as well.  This

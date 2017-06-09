@@ -156,10 +156,12 @@
 #include "threadsuspend.h"
 
 #ifdef FEATURE_REJIT
+#ifdef FEATURE_CODE_VERSIONING
 
 #include "../debug/ee/debugger.h"
 #include "../debug/ee/walker.h"
 #include "../debug/ee/controller.h"
+#include "codeversion.h"
 
 // This HRESULT is only used as a private implementation detail. If it escapes functions
 // defined in this file it is a bug. Corerror.xml has a comment in it reserving this
@@ -169,7 +171,7 @@
 // This is just used as a unique id. Overflow is OK. If we happen to have more than 4+Billion rejits
 // and somehow manage to not run out of memory, we'll just have to redefine ReJITID as size_t.
 /* static */
-ReJITID SharedReJitInfo::s_GlobalReJitId = 1;
+static ReJITID s_GlobalReJitId = 1;
 
 /* static */
 CrstStatic ReJitManager::s_csGlobalRequest;
@@ -198,92 +200,7 @@ inline CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags)
     return jitFlags;
 }
 
-//---------------------------------------------------------------------------------------
-// Allocation helpers used by ReJitInfo / SharedReJitInfo to ensure they
-// stick stuff on the appropriate loader heap.
 
-void * LoaderHeapAllocatedRejitStructure::operator new (size_t size, LoaderHeap * pHeap, const NoThrow&)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        INJECT_FAULT(return NULL;);
-        PRECONDITION(CheckPointer(pHeap));
-    }
-    CONTRACTL_END;
-    
-#ifdef DACCESS_COMPILE
-    return ::operator new(size, nothrow);
-#else
-    return pHeap->AllocMem_NoThrow(S_SIZE_T(size));
-#endif
-}
-
-void * LoaderHeapAllocatedRejitStructure::operator new (size_t size, LoaderHeap * pHeap)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        INJECT_FAULT(COMPlusThrowOM());
-        PRECONDITION(CheckPointer(pHeap));
-    }
-    CONTRACTL_END;
-    
-#ifdef DACCESS_COMPILE
-    return ::operator new(size);
-#else
-    return pHeap->AllocMem(S_SIZE_T(size));
-#endif
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Simple, thin abstraction of debugger breakpoint patching. Given an address and a
-// previously procured DebuggerControllerPatch governing the code address, this decides
-// whether the code address is patched. If so, it returns a pointer to the debugger's
-// buffer (of what's "underneath" the int 3 patch); otherwise, it returns the code
-// address itself.
-//
-// Arguments:
-//      * pbCode - Code address to return if unpatched
-//      * dbgpatch - DebuggerControllerPatch to test
-//
-// Return Value:
-//      Either pbCode or the debugger's patch buffer, as per description above.
-//
-// Assumptions:
-//      Caller must manually grab (and hold) the ControllerLockHolder and get the
-//      DebuggerControllerPatch before calling this helper.
-//      
-// Notes:
-//     pbCode need not equal the code address governed by dbgpatch, but is always
-//     "related" (and sometimes really is equal). For example, this helper may be used
-//     when writing a code byte to an internal rejit buffer (e.g., in preparation for an
-//     eventual 64-bit interlocked write into the code stream), and thus pbCode would
-//     point into the internal rejit buffer whereas dbgpatch governs the corresponding
-//     code byte in the live code stream. This function would then be used to determine
-//     whether a byte should be written into the internal rejit buffer OR into the
-//     debugger controller's breakpoint buffer.
-//
-
-LPBYTE FirstCodeByteAddr(LPBYTE pbCode, DebuggerControllerPatch * dbgpatch)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    if (dbgpatch != NULL && dbgpatch->IsActivated())
-    {
-        // Debugger has patched the code, so return the address of the buffer
-        return LPBYTE(&(dbgpatch->opcode));
-    }
-
-    // no active patch, just return the direct code address
-    return pbCode;
-}
 
 
 //---------------------------------------------------------------------------------------
@@ -611,8 +528,8 @@ HRESULT ReJitManager::RequestReJIT(
     // JIT events would do it for the current domain I think. Of course RequestRejit
     // could always be called with ModuleIDs in some other AppDomain.
     //END BUGBUG
-    SHash<ReJitManagerJumpStampBatchTraits> mgrToJumpStampBatch;
-    CDynArray<ReJitReportErrorWorkItem> errorRecords;
+    SHash<CodeVersionManager::JumpStampBatchTraits> mgrToJumpStampBatch;
+    CDynArray<CodeVersionManager::CodePublishError> errorRecords;
     for (ULONG i = 0; i < cFunctions; i++)
     {
         Module * pModule = reinterpret_cast< Module * >(rgModuleIDs[i]);
@@ -660,12 +577,12 @@ HRESULT ReJitManager::RequestReJIT(
             }
         }
 
-        ReJitManager * pReJitMgr = pModule->GetReJitManager();
-        _ASSERTE(pReJitMgr != NULL);
-        ReJitManagerJumpStampBatch * pJumpStampBatch = mgrToJumpStampBatch.Lookup(pReJitMgr);
+        CodeVersionManager * pCodeVersionManager = pModule->GetCodeVersionManager();
+        _ASSERTE(pCodeVersionManager != NULL);
+        CodeVersionManager::JumpStampBatch * pJumpStampBatch = mgrToJumpStampBatch.Lookup(pCodeVersionManager);
         if (pJumpStampBatch == NULL)
         {
-            pJumpStampBatch = new (nothrow)ReJitManagerJumpStampBatch(pReJitMgr);
+            pJumpStampBatch = new (nothrow)CodeVersionManager::JumpStampBatch(pCodeVersionManager);
             if (pJumpStampBatch == NULL)
             {
                 return E_OUTOFMEMORY;
@@ -692,9 +609,9 @@ HRESULT ReJitManager::RequestReJIT(
         // may not be a generic (or a function on a generic class).  The operations
         // below depend on these conditions as follows:
         // 
-        // (1) If pMD == NULL || PMD has no code || pMD is generic
-        // Do a "PRE-REJIT" (add a placeholder ReJitInfo that points to module/token;
-        // there's nothing to jump-stamp)
+        // (1) In all cases, bind to an ILCodeVersion
+        // This serves as a pre-rejit request for any code that has yet to be generated
+        // and will also hold the modified IL + REJITID that tracks the request generally
         // 
         // (2) IF pMD != NULL, but not generic (or function on generic class)
         // Do a REAL REJIT (add a real ReJitInfo that points to pMD and jump-stamp)
@@ -703,24 +620,16 @@ HRESULT ReJitManager::RequestReJIT(
         // Do a real rejit (including jump-stamp) for all already-jitted instantiations.
 
         BaseDomain * pBaseDomainFromModule = pModule->GetDomain();
-        SharedReJitInfo * pSharedInfo = NULL;
+        ILCodeVersion ilCodeVersion;
         {
-            CrstHolder ch(&(pReJitMgr->m_crstTable));
+            CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
 
-            // Do a PRE-rejit
-            if (pMD == NULL || !pMD->HasNativeCode() || pMD->HasClassOrMethodInstantiation())
+            // Bind the il code version
+            hr = ReJitManager::BindILVersion(pCodeVersionManager, pJumpStampBatch, pModule, rgMethodDefs[i], &ilCodeVersion);
+            if (FAILED(hr))
             {
-                hr = pReJitMgr->MarkForReJit(
-                    pModule,
-                    rgMethodDefs[i],
-                    pJumpStampBatch,
-                    &errorRecords,
-                    &pSharedInfo);
-                if (FAILED(hr))
-                {
-                    _ASSERTE(hr == E_OUTOFMEMORY);
-                    return hr;
-                }
+                _ASSERTE(hr == E_OUTOFMEMORY);
+                return hr;
             }
 
             if (pMD == NULL)
@@ -733,12 +642,12 @@ HRESULT ReJitManager::RequestReJIT(
             {
                 // We have a JITted non-generic. Easy case. Just mark the JITted method
                 // desc as needing to be rejitted
-                hr = pReJitMgr->MarkForReJit(
+                hr = ReJitManager::MarkForReJit(
+                    pCodeVersionManager,
                     pMD,
-                    pSharedInfo,
+                    ilCodeVersion,
                     pJumpStampBatch,
-                    &errorRecords,
-                    NULL);      // Don't need the SharedReJitInfo to be returned
+                    &errorRecords);
 
                 if (FAILED(hr))
                 {
@@ -766,8 +675,9 @@ HRESULT ReJitManager::RequestReJIT(
                 // include orphaned code (i.e., shared code used by ADs that have
                 // all unloaded), which is good, because orphaned code could get
                 // re-adopted if a new AD is created that can use that shared code
-                hr = pReJitMgr->MarkAllInstantiationsForReJit(
-                    pSharedInfo,
+                hr = ReJitManager::MarkAllInstantiationsForReJit(
+                    pCodeVersionManager,
+                    ilCodeVersion,
                     NULL,  // NULL means to search SharedDomain instead of an AD
                     pModule,
                     rgMethodDefs[i],
@@ -777,8 +687,9 @@ HRESULT ReJitManager::RequestReJIT(
             else
             {
                 // Module is unshared, so just use the module's domain to find instantiations.
-                hr = pReJitMgr->MarkAllInstantiationsForReJit(
-                    pSharedInfo,
+                hr = ReJitManager::MarkAllInstantiationsForReJit(
+                    pCodeVersionManager,
+                    ilCodeVersion,
                     pBaseDomainFromModule->AsAppDomain(),
                     pModule,
                     rgMethodDefs[i],
@@ -806,9 +717,10 @@ HRESULT ReJitManager::RequestReJIT(
                 {
                     continue;
                 }
-                CrstHolder ch(&(pReJitMgr->m_crstTable));
-                hr = pReJitMgr->MarkAllInstantiationsForReJit(
-                    pSharedInfo,
+                CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+                hr = ReJitManager::MarkAllInstantiationsForReJit(
+                    pCodeVersionManager,
+                    ilCodeVersion,
                     pAppDomain,
                     pModule,
                     rgMethodDefs[i],
@@ -823,15 +735,15 @@ HRESULT ReJitManager::RequestReJIT(
         }
     }   // for (ULONG i = 0; i < cFunctions; i++)
 
-    // For each rejit mgr, if there's work to do, suspend EE if needed,
-    // enter the rejit mgr's crst, and do the batched work.
+    // For each code versioning mgr, if there's work to do, suspend EE if needed,
+    // enter the code versioning mgr's crst, and do the batched work.
     BOOL fEESuspended = FALSE;
-    SHash<ReJitManagerJumpStampBatchTraits>::Iterator beginIter = mgrToJumpStampBatch.Begin();
-    SHash<ReJitManagerJumpStampBatchTraits>::Iterator endIter = mgrToJumpStampBatch.End();
-    for (SHash<ReJitManagerJumpStampBatchTraits>::Iterator iter = beginIter; iter != endIter; iter++)
+    SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator beginIter = mgrToJumpStampBatch.Begin();
+    SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator endIter = mgrToJumpStampBatch.End();
+    for (SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator iter = beginIter; iter != endIter; iter++)
     {
-        ReJitManagerJumpStampBatch * pJumpStampBatch = *iter;
-        ReJitManager * pMgr = pJumpStampBatch->pReJitManager;
+        CodeVersionManager::JumpStampBatch * pJumpStampBatch = *iter;
+        CodeVersionManager * pCodeVersionManager = pJumpStampBatch->pCodeVersionManager;
 
         int cBatchedPreStubMethods = pJumpStampBatch->preStubMethods.Count();
         if (cBatchedPreStubMethods == 0)
@@ -847,9 +759,9 @@ HRESULT ReJitManager::RequestReJIT(
             fEESuspended = TRUE;
         }
 
-        CrstHolder ch(&(pMgr->m_crstTable));
+        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
         _ASSERTE(ThreadStore::HoldingThreadStore());
-        hr = pMgr->BatchUpdateJumpStamps(&(pJumpStampBatch->undoMethods), &(pJumpStampBatch->preStubMethods), &errorRecords);
+        hr = pCodeVersionManager->BatchUpdateJumpStamps(&(pJumpStampBatch->undoMethods), &(pJumpStampBatch->preStubMethods), &errorRecords);
         if (FAILED(hr))
             break;
     }
@@ -870,82 +782,8 @@ HRESULT ReJitManager::RequestReJIT(
         ReportReJITError(&(errorRecords[i]));
     }
 
-    INDEBUG(SharedDomain::GetDomain()->GetReJitManager()->Dump(
-        "Finished RequestReJIT().  Dumping Shared ReJitManager\n"));
-
     // We got through processing everything, but profiler will need to see the individual ReJITError
     // callbacks to know what, if anything, failed.
-    return S_OK;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Helper used by ReJitManager::RequestReJIT to jump stamp all the methods that were
-// specified by the caller. Also used by RejitManager::DoJumpStampForAssemblyIfNecessary
-// when rejitting a batch of generic method instantiations in a newly loaded NGEN assembly.
-// 
-// This method is responsible for calling ReJITError on the profiler if anything goes
-// wrong.
-//
-// Arguments:
-//    * pUndoMethods - array containing the methods that need the jump stamp removed
-//    * pPreStubMethods - array containing the methods that need to be jump stamped to prestub
-//    * pErrors - any errors will be appended to this array
-//
-// Returns:
-//    S_OK - all methods are updated or added an error to the pErrors array
-//    E_OUTOFMEMORY - some methods neither updated nor added an error to pErrors array
-//                    ReJitInfo state remains consistent
-//
-// Assumptions:
-//         1) Caller prevents contention by either:
-//            a) Suspending the runtime
-//            b) Ensuring all methods being updated haven't been published
-//
-HRESULT ReJitManager::BatchUpdateJumpStamps(CDynArray<ReJitInfo *> * pUndoMethods, CDynArray<ReJitInfo *> * pPreStubMethods, CDynArray<ReJitReportErrorWorkItem> * pErrors)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-        PRECONDITION(CheckPointer(pUndoMethods));
-        PRECONDITION(CheckPointer(pPreStubMethods));
-        PRECONDITION(CheckPointer(pErrors));
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-    HRESULT hr = S_OK;
-
-    ReJitInfo ** ppInfoEnd = pUndoMethods->Ptr() + pUndoMethods->Count();
-    for (ReJitInfo ** ppInfoCur = pUndoMethods->Ptr(); ppInfoCur < ppInfoEnd; ppInfoCur++)
-    {
-        // If we are undoing jumpstamps they have been published already
-        // and our caller is holding the EE suspended
-        _ASSERTE(ThreadStore::HoldingThreadStore());
-        if (FAILED(hr = (*ppInfoCur)->UndoJumpStampNativeCode(TRUE)))
-        {
-            if (FAILED(hr = AddReJITError(*ppInfoCur, hr, pErrors)))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-        }
-    }
-
-    ppInfoEnd = pPreStubMethods->Ptr() + pPreStubMethods->Count();
-    for (ReJitInfo ** ppInfoCur = pPreStubMethods->Ptr(); ppInfoCur < ppInfoEnd; ppInfoCur++)
-    {
-        if (FAILED(hr = (*ppInfoCur)->JumpStampNativeCode()))
-        {
-            if (FAILED(hr = AddReJITError(*ppInfoCur, hr, pErrors)))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-        }
-    }
     return S_OK;
 }
 
@@ -996,12 +834,13 @@ HRESULT ReJitManager::BatchUpdateJumpStamps(CDynArray<ReJitInfo *> * pUndoMethod
 //
 
 HRESULT ReJitManager::MarkAllInstantiationsForReJit(
-    SharedReJitInfo * pSharedForAllGenericInstantiations,
+    CodeVersionManager* pCodeVersionManager,
+    ILCodeVersion ilCodeVersion,
     AppDomain * pAppDomainToSearch,
     PTR_Module pModuleContainingMethodDef,
     mdMethodDef methodDef,
-    ReJitManagerJumpStampBatch* pJumpStampBatch,
-    CDynArray<ReJitReportErrorWorkItem> * pRejitErrors)
+    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
+    CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors)
 {
     CONTRACTL
     {
@@ -1009,25 +848,23 @@ HRESULT ReJitManager::MarkAllInstantiationsForReJit(
         GC_NOTRIGGER;
         MODE_PREEMPTIVE;
         CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pSharedForAllGenericInstantiations));
+        PRECONDITION(CheckPointer(pCodeVersionManager));
         PRECONDITION(CheckPointer(pAppDomainToSearch, NULL_OK));
         PRECONDITION(CheckPointer(pModuleContainingMethodDef));
         PRECONDITION(CheckPointer(pJumpStampBatch));
     }
     CONTRACTL_END;
 
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
     _ASSERTE(methodDef != mdTokenNil);
-    _ASSERTE(pJumpStampBatch->pReJitManager == this);
+    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
 
     HRESULT hr;
 
     BaseDomain * pDomainContainingGenericDefinition = pModuleContainingMethodDef->GetDomain();
 
 #ifdef _DEBUG
-    // This function should only be called on the ReJitManager that owns the (generic)
-    // definition of methodDef 
-    _ASSERTE(this == pDomainContainingGenericDefinition->GetReJitManager());
+    _ASSERTE(pCodeVersionManager == pDomainContainingGenericDefinition->GetCodeVersionManager());
 
     // If the generic definition is not loaded domain-neutral, then all its
     // instantiations will also be non-domain-neutral and loaded into the same
@@ -1077,7 +914,7 @@ HRESULT ReJitManager::MarkAllInstantiationsForReJit(
 
         if (FAILED(hr = IsMethodSafeForReJit(pLoadedMD)))
         {
-            if (FAILED(hr = AddReJITError(pModuleContainingMethodDef, methodDef, pLoadedMD, hr, pRejitErrors)))
+            if (FAILED(hr = CodeVersionManager::AddCodePublishError(pModuleContainingMethodDef, methodDef, pLoadedMD, hr, pRejitErrors)))
             {
                 _ASSERTE(hr == E_OUTOFMEMORY);
                 return hr;
@@ -1097,13 +934,12 @@ HRESULT ReJitManager::MarkAllInstantiationsForReJit(
 
         // This will queue up the MethodDesc for rejitting and create all the
         // look-aside tables needed.
-        SharedReJitInfo * pSharedUsed = NULL;
         hr = MarkForReJit(
+            pCodeVersionManager,
             pLoadedMD, 
-            pSharedForAllGenericInstantiations, 
+            ilCodeVersion, 
             pJumpStampBatch,
-            pRejitErrors,
-            &pSharedUsed);
+            pRejitErrors);
         if (FAILED(hr))
         {
             _ASSERTE(hr == E_OUTOFMEMORY);
@@ -1114,52 +950,13 @@ HRESULT ReJitManager::MarkAllInstantiationsForReJit(
     return S_OK;
 }
 
-
-//---------------------------------------------------------------------------------------
-//
-// Helper used by ReJitManager::MarkAllInstantiationsForReJit and
-// ReJitManager::RequestReJIT to do the actual ReJitInfo allocation and
-// placement inside m_table. Note that callers don't use MarkForReJitHelper
-// directly. Instead, callers actually use the inlined overloaded wrappers
-// ReJitManager::MarkForReJit (one for placeholder (i.e., methodDef pre-rejit)
-// ReJitInfos and one for regular (i.e., MethodDesc) ReJitInfos). When the
-// overloaded MarkForReJit wrappers call this, they ensure that either pMD is
-// valid XOR (pModule, methodDef) is valid.
-//
-// Arguments:
-//    * pMD - MethodDesc for which to find / create ReJitInfo. Only used if
-//        we're creating a regular ReJitInfo
-//    * pModule - Module for which to find / create ReJitInfo. Only used if
-//        we're creating a placeholder ReJitInfo
-//    * methodDef - methodDef for which to find / create ReJitInfo. Only used
-//        if we're creating a placeholder ReJitInfo
-//    * pSharedToReuse - SharedReJitInfo to associate any newly created
-//        ReJitInfo with. If NULL, we'll create a new one.
-//    * pJumpStampBatch - a batch of methods that need to have jump stamps added
-//        or removed. This method will add new ReJitInfos to the batch as needed.
-//    * pRejitErrors - An array of rejit errors that this call will append to
-//        if there is an error marking
-//    * ppSharedUsed - [out]: SharedReJitInfo used for this request. If
-//        pSharedToReuse is non-NULL, *ppSharedUsed == pSharedToReuse. Else,
-//        *ppSharedUsed is the SharedReJitInfo newly-created to associate with
-//            the ReJitInfo used for this request.
-//
-// Return Value:
-//    * S_OK: Successfully created a new ReJitInfo to manage this request
-//    * S_FALSE: An existing ReJitInfo was already available to manage this
-//        request, so we didn't need to create a new one.
-//    * E_OUTOFMEMORY
-//    * Else, a failure HRESULT indicating what went wrong.
-//
-
-HRESULT ReJitManager::MarkForReJitHelper(
-    PTR_MethodDesc pMD, 
-    PTR_Module pModule, 
+// static
+HRESULT ReJitManager::BindILVersion(
+    CodeVersionManager* pCodeVersionManager,
+    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
+    PTR_Module pModule,
     mdMethodDef methodDef,
-    SharedReJitInfo * pSharedToReuse, 
-    ReJitManagerJumpStampBatch* pJumpStampBatch,
-    CDynArray<ReJitReportErrorWorkItem> * pRejitErrors,
-    /* out */ SharedReJitInfo ** ppSharedUsed)
+    ILCodeVersion *pILCodeVersion)
 {
     CONTRACTL
     {
@@ -1167,103 +964,61 @@ HRESULT ReJitManager::MarkForReJitHelper(
         GC_NOTRIGGER;
         MODE_PREEMPTIVE;
         CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pMD, NULL_OK));
-        PRECONDITION(CheckPointer(pModule, NULL_OK));
+        PRECONDITION(CheckPointer(pCodeVersionManager));
         PRECONDITION(CheckPointer(pJumpStampBatch));
-        PRECONDITION(CheckPointer(pRejitErrors));
-        PRECONDITION(CheckPointer(ppSharedUsed, NULL_OK));
+        PRECONDITION(CheckPointer(pModule));
+        PRECONDITION(CheckPointer(pILCodeVersion));
     }
     CONTRACTL_END;
 
-    CrstHolder ch(&m_crstTable);
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
+    _ASSERTE((pModule != NULL) && (methodDef != mdTokenNil));
 
-    // Either pMD is valid, xor (pModule,methodDef) is valid
-    _ASSERTE(
-        ((pMD != NULL) && (pModule == NULL) && (methodDef == mdTokenNil)) ||
-        ((pMD == NULL) && (pModule != NULL) && (methodDef != mdTokenNil)));
-    _ASSERTE(pJumpStampBatch->pReJitManager == this);
+    // Check if there was there a previous rejit request for this method that hasn't been exposed back
+    // to the profiler yet
+    ILCodeVersionCollection existingVersions = pCodeVersionManager->GetILCodeVersions(pModule, methodDef);
 
-    if (ppSharedUsed != NULL)
-        *ppSharedUsed = NULL;
-    HRESULT hr = S_OK;
-
-    // Check if there was there a previous rejit request for pMD
-    
-    ReJitInfoHash::KeyIterator beginIter(&m_table, TRUE /* begin */); 
-    ReJitInfoHash::KeyIterator endIter(&m_table, FALSE /* begin */);
-
-    if (pMD != NULL)
-    {
-        beginIter = GetBeginIterator(pMD);
-        endIter = GetEndIterator(pMD);
-    }
-    else
-    {
-        beginIter = GetBeginIterator(pModule, methodDef);
-        endIter = GetEndIterator(pModule, methodDef);
-    }
-
-    for (ReJitInfoHash::KeyIterator iter = beginIter;
-        iter != endIter; 
+    for (ILCodeVersionIterator iter = existingVersions.Begin();
+        iter != existingVersions.End();
         iter++)
     {
-        ReJitInfo * pInfo = *iter;
-        _ASSERTE(pInfo->m_pShared != NULL);
+        ILCodeVersion ilCodeVersion = *iter;
 
-#ifdef _DEBUG
-        if (pMD != NULL)
+        switch (ilCodeVersion.GetRejitState())
         {
-            _ASSERTE(pInfo->GetMethodDesc() == pMD);
-        }
-        else
-        {
-            Module * pModuleTest = NULL;
-            mdMethodDef methodDefTest = mdTokenNil;
-            pInfo->GetModuleAndToken(&pModuleTest, &methodDefTest);
-            _ASSERTE((pModule == pModuleTest) && (methodDef == methodDefTest));
-        }
-#endif //_DEBUG
-
-        SharedReJitInfo * pShared = pInfo->m_pShared;
-
-        switch (pShared->GetState())
-        {
-        case SharedReJitInfo::kStateRequested:
+        case ILCodeVersion::kStateRequested:
             // We can 'reuse' this instance because the profiler doesn't know about
             // it yet. (This likely happened because a profiler called RequestReJIT
             // twice in a row, without us having a chance to jmp-stamp the code yet OR
             // while iterating through instantiations of a generic, the iterator found
             // duplicate entries for the same instantiation.)
-            _ASSERTE(pShared->m_pbIL == NULL);
-            _ASSERTE(pInfo->m_pCode == NULL);
+            _ASSERTE(ilCodeVersion.GetIL() == NULL);
 
-            if (ppSharedUsed != NULL)
-                *ppSharedUsed = pShared;
-            
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, endIter));
+            *pILCodeVersion = ilCodeVersion;
+            INDEBUG(AssertRestOfEntriesAreReverted(iter, existingVersions.End()));
             return S_FALSE;
 
-        case SharedReJitInfo::kStateGettingReJITParameters:
-        case SharedReJitInfo::kStateActive:
+        case ILCodeVersion::kStateGettingReJITParameters:
+        case ILCodeVersion::kStateActive:
         {
             // Profiler has already requested to rejit this guy, AND we've already
             // at least started getting the rejit parameters from the profiler. We need to revert this
             // instance (this will put back the original code)
 
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, endIter));
-            hr = Revert(pShared, pJumpStampBatch);
+            INDEBUG(AssertRestOfEntriesAreReverted(iter, existingVersions.End()));
+            HRESULT hr = Revert(ilCodeVersion, pJumpStampBatch);
             if (FAILED(hr))
             {
                 _ASSERTE(hr == E_OUTOFMEMORY);
                 return hr;
             }
-            _ASSERTE(pShared->GetState() == SharedReJitInfo::kStateReverted);
+            _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted);
 
             // No need to continue looping.  Break out of loop to create a new
-            // ReJitInfo to service the request.
+            // ILCodeVersion to service the request.
             goto EXIT_LOOP;
         }
-        case SharedReJitInfo::kStateReverted:
+        case ILCodeVersion::kStateReverted:
             // just ignore this guy
             continue;
 
@@ -1273,159 +1028,75 @@ HRESULT ReJitManager::MarkForReJitHelper(
     }
 EXIT_LOOP:
 
-    // Either there was no ReJitInfo yet for this MethodDesc OR whatever we've found
-    // couldn't be reused (and needed to be reverted).  Create a new ReJitInfo to return
+    // Either there was no ILCodeVersion yet for this MethodDesc OR whatever we've found
+    // couldn't be reused (and needed to be reverted).  Create a new ILCodeVersion to return
     // to the caller.
-    // 
-    // If the caller gave us a pMD that is a new generic instantiation, then the caller
-    // may also have provided a pSharedToReuse for the generic.  Use that instead of
-    // creating a new one.
-
-    SharedReJitInfo * pShared = NULL;
-
-    if (pSharedToReuse != NULL)
-    {
-        pShared = pSharedToReuse;
-    }
-    else
-    {
-        PTR_LoaderHeap pHeap = NULL;
-        if (pModule != NULL)
-        {
-            pHeap = pModule->GetLoaderAllocator()->GetLowFrequencyHeap();
-        }
-        else
-        {
-            pHeap = pMD->GetLoaderAllocator()->GetLowFrequencyHeap();
-        }
-        pShared = new (pHeap, nothrow) SharedReJitInfo;
-        if (pShared == NULL)
-        {
-            return E_OUTOFMEMORY;
-        }
-    }
-
-    _ASSERTE(pShared != NULL);
-
-    // ReJitInfos with MethodDesc's need to be jump-stamped,
-    // ReJitInfos with Module/MethodDef are placeholders that don't need a stamp
-    ReJitInfo * pInfo = NULL;
-    ReJitInfo ** ppInfo = &pInfo;
-    if (pMD != NULL)
-    {
-        ppInfo = pJumpStampBatch->preStubMethods.Append();
-        if (ppInfo == NULL)
-        {
-            return E_OUTOFMEMORY;
-        }
-    }
-    hr = AddNewReJitInfo(pMD, pModule, methodDef, pShared, ppInfo);
-    if (FAILED(hr))
-    {
-        // NOTE: We could consider using an AllocMemTracker or AllocMemHolder
-        // here to back out the allocation of pShared, but it probably
-        // wouldn't make much of a difference. We'll only get here if we ran
-        // out of memory allocating the pInfo, so our memory has already been
-        // blown. We can't cause much leaking due to this error path.
-        _ASSERTE(hr == E_OUTOFMEMORY);
-        return hr;
-    }
-
-    _ASSERTE(*ppInfo != NULL);
-
-    if (ppSharedUsed != NULL)
-        *ppSharedUsed = pShared;
-
-    return S_OK;
+    return pCodeVersionManager->AddILCodeVersion(pModule, methodDef, InterlockedIncrement(reinterpret_cast<LONG*>(&s_GlobalReJitId)), pILCodeVersion);
 }
 
 //---------------------------------------------------------------------------------------
 //
-// Helper used by the above helpers (and also during jump-stamping) to
-// allocate and store a new ReJitInfo.
+// Helper used by ReJitManager::MarkAllInstantiationsForReJit and
+// ReJitManager::RequestReJIT to do the actual ReJitInfo allocation and
+// placement inside m_table.
 //
 // Arguments:
-//    * pMD - MethodDesc for which to create ReJitInfo. Only used if we're
-//        creating a regular ReJitInfo
-//    * pModule - Module for which create ReJitInfo. Only used if we're
-//        creating a placeholder ReJitInfo
-//    * methodDef - methodDef for which to create ReJitInfo. Only used if
-//        we're creating a placeholder ReJitInfo
-//    * pShared - SharedReJitInfo to associate the newly created ReJitInfo
-//        with.
-//    * ppInfo - [out]: ReJitInfo created
+//    * pMD - MethodDesc for which to find / create ReJitInfo. Only used if
+//        we're creating a regular ReJitInfo
+//    * ilCodeVersion - ILCodeVersion to associate any newly created
+//        ReJitInfo with.
+//    * pJumpStampBatch - a batch of methods that need to have jump stamps added
+//        or removed. This method will add new ReJitInfos to the batch as needed.
+//    * pRejitErrors - An array of rejit errors that this call will append to
+//        if there is an error marking
 //
 // Return Value:
-//    * S_OK: ReJitInfo successfully created & stored.
-//    * Else, failure indicating the problem. Currently only E_OUTOFMEMORY.
-//    
-// Assumptions:
-//   * Caller should be holding this ReJitManager's table crst.
+//    * S_OK: Successfully created a new ReJitInfo to manage this request
+//    * S_FALSE: An existing ReJitInfo was already available to manage this
+//        request, so we didn't need to create a new one.
+//    * E_OUTOFMEMORY
+//    * Else, a failure HRESULT indicating what went wrong.
 //
 
-HRESULT ReJitManager::AddNewReJitInfo(
+HRESULT ReJitManager::MarkForReJit(
+    CodeVersionManager* pCodeVersionManager,
     PTR_MethodDesc pMD, 
-    PTR_Module pModule,
-    mdMethodDef methodDef,
-    SharedReJitInfo * pShared,
-    ReJitInfo ** ppInfo)
+    ILCodeVersion ilCodeVersion, 
+    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
+    CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors)
 {
     CONTRACTL
     {
         NOTHROW;
         GC_NOTRIGGER;
-        MODE_ANY;
+        MODE_PREEMPTIVE;
         CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pMD, NULL_OK));
-        PRECONDITION(CheckPointer(pModule, NULL_OK));
-        PRECONDITION(CheckPointer(pShared));
-        PRECONDITION(CheckPointer(ppInfo));
+        PRECONDITION(CheckPointer(pCodeVersionManager));
+        PRECONDITION(CheckPointer(pMD));
+        PRECONDITION(CheckPointer(pJumpStampBatch));
+        PRECONDITION(CheckPointer(pRejitErrors));
     }
     CONTRACTL_END;
 
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-    _ASSERTE(pShared->GetState() != SharedReJitInfo::kStateReverted);
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
+    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
 
-    // Either pMD is valid, xor (pModule,methodDef) is valid
-    _ASSERTE(
-        ((pMD != NULL) && (pModule == NULL) && (methodDef == mdTokenNil)) ||
-        ((pMD == NULL) && (pModule != NULL) && (methodDef != mdTokenNil)));
+    HRESULT hr = S_OK;
 
-    HRESULT hr;
-    ReJitInfo * pInfo = NULL;
 
-    if (pMD != NULL)
-    {
-        PTR_LoaderHeap pHeap = pMD->GetLoaderAllocator()->GetLowFrequencyHeap();
-        pInfo = new (pHeap, nothrow) ReJitInfo(pMD, pShared);
-    }
-    else
-    {
-        PTR_LoaderHeap pHeap = pModule->GetLoaderAllocator()->GetLowFrequencyHeap();
-        pInfo = new (pHeap, nothrow) ReJitInfo(pModule, methodDef, pShared);
-    }
-    if (pInfo == NULL)
+    // ReJitInfos with MethodDesc's need to be jump-stamped,
+    NativeCodeVersion * pNativeCodeVersion = pJumpStampBatch->preStubMethods.Append();
+    if (pNativeCodeVersion == NULL)
     {
         return E_OUTOFMEMORY;
     }
-
-    hr = S_OK;
-    EX_TRY
-    {
-        // This guy throws when out of memory, but remains internally
-        // consistent (without adding the new element)
-        m_table.Add(pInfo);
-    }
-    EX_CATCH_HRESULT(hr);
-
-    _ASSERT(hr == S_OK || hr == E_OUTOFMEMORY);
+    hr = ilCodeVersion.AddNativeCodeVersion(pMD, pNativeCodeVersion);
     if (FAILED(hr))
     {
-        pInfo = NULL;
+        _ASSERTE(hr == E_OUTOFMEMORY);
         return hr;
     }
 
-    *ppInfo = pInfo;
     return S_OK;
 }
 
@@ -1472,77 +1143,51 @@ HRESULT ReJitManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
 
     HRESULT hr;
 
-    _ASSERTE(IsTableCrstOwnedByCurrentThread());
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
 
-    ReJitInfo * pInfoToJumpStamp = NULL;
+    ILCodeVersionCollection ilCodeVersions = pCodeVersionManager->GetILCodeVersions(pMD->GetModule(), pMD->GetMemberDef());
+    ILCodeVersion ilCodeVersionToJumpStamp = ILCodeVersion();
 
-    // First, try looking up ReJitInfo by MethodDesc. A "regular" MethodDesc-based
-    // ReJitInfo already exists for "case 1" (see comment above
-    // code:ReJitInfo::JumpStampNativeCode), and could even exist for "case 2"
-    // (pre-rejit), if either:
-    //     * The pre-rejit was requested after the MD had already been loaded (though
-    //         before it had been jitted) OR
-    //     * there was a race to JIT the original code for the MD, and another thread got
-    //         here before us and already added the ReJitInfo for that MD.
-
-    ReJitInfoHash::KeyIterator beginIter = GetBeginIterator(pMD);
-    ReJitInfoHash::KeyIterator endIter = GetEndIterator(pMD);
-
-    pInfoToJumpStamp = FindPreReJittedReJitInfo(beginIter, endIter);
-    if (pInfoToJumpStamp != NULL)
+    for (ILCodeVersionIterator iter = ilCodeVersions.Begin();
+        iter != ilCodeVersions.End();
+        iter++)
     {
-        _ASSERTE(pInfoToJumpStamp->GetMethodDesc() == pMD);
-        // does it need to be jump-stamped?
-        if (pInfoToJumpStamp->GetState() != ReJitInfo::kJumpNone)
+        ILCodeVersion curVersion = *iter;
+        switch (curVersion.GetRejitState())
         {
-            return S_OK;
-        }
-        else
-        {
-            return pInfoToJumpStamp->JumpStampNativeCode(pCode);
+        case ILCodeVersion::kStateRequested:
+        case ILCodeVersion::kStateGettingReJITParameters:
+        case ILCodeVersion::kStateActive:
+            INDEBUG(AssertRestOfEntriesAreReverted(iter, ilCodeVersions.End()));
+            ilCodeVersionToJumpStamp = curVersion;
+            break;
+        case ILCodeVersion::kStateReverted:
+            // just ignore this guy
+            continue;
+
+        default:
+            UNREACHABLE();
         }
     }
 
-    // In this case, try looking up by module / metadata token.  This is the case where
-    // the pre-rejit request occurred before the MD was loaded.
-
-    Module * pModule = pMD->GetModule();
-    _ASSERTE(pModule != NULL);
-    mdMethodDef methodDef = pMD->GetMemberDef();
-
-    beginIter = GetBeginIterator(pModule, methodDef);
-    endIter = GetEndIterator(pModule, methodDef);
-    ReJitInfo * pInfoPlaceholder = NULL;
-
-    pInfoPlaceholder = FindPreReJittedReJitInfo(beginIter, endIter);
-    if (pInfoPlaceholder == NULL)
+    if (ilCodeVersionToJumpStamp.IsNull())
     {
-        // No jump stamping to do.
+        //Method not requested to be rejitted, nothing to do
         return S_OK;
     }
 
-    // The placeholder may already have a rejit info for this MD, in which
-    // case we don't need to do any additional work
-    for (ReJitInfo * pInfo = pInfoPlaceholder->m_pShared->GetMethods(); pInfo != NULL; pInfo = pInfo->m_pNext)
+    MethodDescVersioningState* pVersioningState;
+    if (FAILED(hr = pCodeVersionManager->GetOrCreateMethodVersioningState(pMD, &pVersioningState)))
     {
-        if ((pInfo->GetKey().m_keyType == ReJitInfo::Key::kMethodDesc) &&
-            (pInfo->GetMethodDesc() == pMD))
-        {
-            // Any rejit info we find should already be jumpstamped
-            _ASSERTE(pInfo->GetState() != ReJitInfo::kJumpNone);
-            return S_OK;
-        }
+        return hr;
     }
-
-#ifdef _DEBUG
+    if (pVersioningState->GetJumpStampState() != MethodDescVersioningState::JumpStampNone)
     {
-        Module * pModuleTest = NULL;
-        mdMethodDef methodDefTest = mdTokenNil;
-        INDEBUG(pInfoPlaceholder->GetModuleAndToken(&pModuleTest, &methodDefTest));
-        _ASSERTE((pModule == pModuleTest) && (methodDef == methodDefTest));
+        //JumpStamp already in place
+        return S_OK;
     }
-#endif //_DEBUG
-
+    
     // We have finished JITting the original code for a function that had been
     // "pre-rejitted" (i.e., requested to be rejitted before it was first compiled). So
     // now is the first time where we know the MethodDesc of the request.
@@ -1552,17 +1197,7 @@ HRESULT ReJitManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
         return hr;
     }
 
-    // Create the ReJitInfo associated with the MethodDesc now (pInfoToJumpStamp), and
-    // jump-stamp the original code.
-    pInfoToJumpStamp = NULL;
-    hr = AddNewReJitInfo(pMD, NULL /*pModule*/, NULL /*methodDef*/, pInfoPlaceholder->m_pShared, &pInfoToJumpStamp);
-    if (FAILED(hr))
-    {
-        return hr;
-    }
-
-    _ASSERTE(pInfoToJumpStamp != NULL);
-    return pInfoToJumpStamp->JumpStampNativeCode(pCode);
+    return pVersioningState->JumpStampNativeCode(pCode);
 }
 
 //---------------------------------------------------------------------------------------
@@ -1626,7 +1261,7 @@ HRESULT ReJitManager::RequestRevert(
         }
         else
         {
-            hr = pModule->GetReJitManager()->RequestRevertByToken(pModule, rgMethodDefs[i]);
+            hr = ReJitManager::RequestRevertByToken(pModule, rgMethodDefs[i]);
         }
         
         if (rgHrStatuses != NULL)
@@ -1638,44 +1273,6 @@ HRESULT ReJitManager::RequestRevert(
     ThreadSuspend::RestartEE(FALSE /* bFinishedGC */, TRUE /* SuspendSucceded */);
 
     return S_OK;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Called by AppDomain::Exit() to notify the SharedDomain's ReJitManager that this
-// AppDomain is exiting.  The SharedDomain's ReJitManager will then remove any
-// ReJitInfos relating to MDs owned by AppDomain.  This is how we remove
-// non-domain-neutral instantiations of domain-neutral generics from the SharedDomain's
-// ReJitManager.
-//
-// Arguments:
-//      pAppDomain - AppDomain that is exiting.
-//
-
-// static
-void ReJitManager::OnAppDomainExit(AppDomain * pAppDomain)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        CAN_TAKE_LOCK;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    // All ReJitInfos and SharedReJitInfos for this AD's ReJitManager automatically get
-    // cleaned up as they're allocated on the AD's loader heap.
-    
-    // We explicitly clean up the SHash here, as its entries get allocated using regular
-    // "new"
-    pAppDomain->GetReJitManager()->m_table.RemoveAll();
-
-    // We need to ensure that any MethodDescs from pAppDomain that are stored on the
-    // SharedDomain's ReJitManager get removed from the SharedDomain's ReJitManager's
-    // hash table, and from the linked lists tied to their owning SharedReJitInfo. (This
-    // covers the case of non-domain-neutral instantiations of domain-neutral generics.)
-    SharedDomain::GetDomain()->GetReJitManager()->RemoveReJitInfosFromDomain(pAppDomain);
 }
 
 
@@ -1779,6 +1376,8 @@ HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef metho
     CONTRACTL_END;
 
     _ASSERTE(ThreadStore::HoldingThreadStore());
+    return E_NOTIMPL;
+    /*
     CrstHolder ch(&m_crstTable);
 
     _ASSERTE(pModule != NULL);
@@ -1821,7 +1420,7 @@ HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef metho
         _ASSERTE(FAILED(errorRecords[i].hrStatus));
         return errorRecords[i].hrStatus;
     }
-    return S_OK;
+    return S_OK;*/
 }
 #ifdef _MSC_VER
 #pragma warning(pop)
@@ -1878,22 +1477,23 @@ HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef metho
 //          MethodDesc)
 //
 
-PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
+PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
 {
     STANDARD_VM_CONTRACT;
 
-    _ASSERTE(!IsTableCrstOwnedByCurrentThread());
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    _ASSERTE(!pCodeVersionManager->LockOwnedByCurrentThread());
 
     // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
     // of a lock to impact our caller (the prestub worker) as little as possible. If the
     // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    if (m_table.GetCount() == 0)
+    if (pCodeVersionManager->GetNonDefaultILVersionCount() == 0)
     {
         return NULL;
     }
 
     HRESULT hr = S_OK;
-    ReJitInfo * pInfoToRejit = NULL;
+    ILCodeVersion ilCodeVersion;
     Module* pModule = NULL;
     mdMethodDef methodDef = mdTokenNil;
     BOOL fNeedsParameters = FALSE;
@@ -1902,10 +1502,20 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
     {
         // Serialize access to the rejit table.  Though once we find the ReJitInfo we want,
         // exit the Crst so we can ReJIT the method without holding a lock.
-        CrstHolder ch(&m_crstTable);
+        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
 
-        ReJitInfoHash::KeyIterator iter = GetBeginIterator(pMD);
-        ReJitInfoHash::KeyIterator end = GetEndIterator(pMD);
+        MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMD);
+        if (pVersioningState == NULL || pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampNone)
+        {
+            // We haven't yet installed a jumpstamp so we shouldn't be rejiting with the new IL yet
+            return NULL;
+        }
+
+        pModule = pMD->GetModule();
+        methodDef = pMD->GetMemberDef();
+        ILCodeVersionCollection versions = pCodeVersionManager->GetILCodeVersions(pModule, methodDef);
+        ILCodeVersionIterator iter = versions.Begin();
+        ILCodeVersionIterator end = versions.End();
 
         if (iter == end)
         {
@@ -1913,68 +1523,41 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
             return NULL;
         }
 
-
         for (; iter != end; iter++)
         {
-            ReJitInfo * pInfo = *iter;
-            _ASSERTE(pInfo->GetMethodDesc() == pMD);
-            _ASSERTE(pInfo->m_pShared != NULL);
-            SharedReJitInfo * pShared = pInfo->m_pShared;
+            ILCodeVersion curVersion = *iter;
 
-            switch (pShared->GetState())
+            switch (curVersion.GetRejitState())
             {
-            case SharedReJitInfo::kStateRequested:
-                if (pInfo->GetState() == ReJitInfo::kJumpNone)
-                {
-                    // We haven't actually suspended threads and jump-stamped the
-                    // method's prolog so just ignore this guy
-                    INDEBUG(AssertRestOfEntriesAreReverted(iter, end));
-                    return NULL;
-                }
+            case ILCodeVersion::kStateRequested:
                 // When the SharedReJitInfo is still in the requested state, we haven't
                 // gathered IL & codegen flags from the profiler yet.  So, we can't be
                 // pointing to rejitted code already.  So we must be pointing to the prestub
-                _ASSERTE(pInfo->GetState() == ReJitInfo::kJumpToPrestub);
-                
-                pInfo->GetModuleAndTokenRegardlessOfKeyType(&pModule, &methodDef);
-                pShared->m_dwInternalFlags &= ~SharedReJitInfo::kStateMask;
-                pShared->m_dwInternalFlags |= SharedReJitInfo::kStateGettingReJITParameters;
-                pInfoToRejit = pInfo;
+                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
+                curVersion.SetRejitState(ILCodeVersion::kStateGettingReJITParameters);
+                ilCodeVersion = curVersion;
                 fNeedsParameters = TRUE;
                 break;
 
-            case SharedReJitInfo::kStateGettingReJITParameters:
-                if (pInfo->GetState() == ReJitInfo::kJumpNone)
-                {
-                    // We haven't actually suspended threads and jump-stamped the
-                    // method's prolog so just ignore this guy
-                    INDEBUG(AssertRestOfEntriesAreReverted(iter, end));
-                    return NULL;
-                }
-                pInfoToRejit = pInfo;
+            case ILCodeVersion::kStateGettingReJITParameters:
+                ilCodeVersion = curVersion;
                 fWaitForParameters = TRUE;
                 break;
 
-            case SharedReJitInfo::kStateActive:
+            case ILCodeVersion::kStateActive:
                 INDEBUG(AssertRestOfEntriesAreReverted(iter, end));
-                if (pInfo->GetState() == ReJitInfo::kJumpNone)
-                {
-                    // We haven't actually suspended threads and jump-stamped the
-                    // method's prolog so just ignore this guy
-                    return NULL;
-                }
-                if (pInfo->GetState() == ReJitInfo::kJumpToRejittedCode)
+                if (pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToActiveVersion)
                 {
                     // Looks like another thread has beat us in a race to rejit, so ignore.
                     return NULL;
                 }
 
                 // Found a ReJitInfo to actually rejit.
-                _ASSERTE(pInfo->GetState() == ReJitInfo::kJumpToPrestub);
-                pInfoToRejit = pInfo;
+                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
+                ilCodeVersion = curVersion;
                 goto ExitLoop;
 
-            case SharedReJitInfo::kStateReverted:
+            case ILCodeVersion::kStateReverted:
                 // just ignore this guy
                 continue;
 
@@ -1986,7 +1569,7 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
         ;
     }
 
-    if (pInfoToRejit == NULL)
+    if (ilCodeVersion.IsNull())
     {
         // Didn't find the requested MD to rejit.
         return NULL;
@@ -2021,11 +1604,10 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
         if (FAILED(hr))
         {
             {
-                CrstHolder ch(&m_crstTable);
-                if (pInfoToRejit->m_pShared->m_dwInternalFlags == SharedReJitInfo::kStateGettingReJITParameters)
+                CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+                if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters)
                 {
-                    pInfoToRejit->m_pShared->m_dwInternalFlags &= ~SharedReJitInfo::kStateMask;
-                    pInfoToRejit->m_pShared->m_dwInternalFlags |= SharedReJitInfo::kStateRequested;
+                    ilCodeVersion.SetRejitState(ILCodeVersion::kStateRequested);
                 }
             }
             ReportReJITError(pModule, methodDef, pMD, hr);
@@ -2033,21 +1615,22 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
         }
 
         {
-            CrstHolder ch(&m_crstTable);
-            if (pInfoToRejit->m_pShared->m_dwInternalFlags == SharedReJitInfo::kStateGettingReJITParameters)
+            CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+            if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters)
             {
                 // Inside the above call to ICorProfilerCallback4::GetReJITParameters, the profiler
                 // will have used the specified pFuncControl to provide its IL and codegen flags. 
                 // So now we transfer it out to the SharedReJitInfo.
-                pInfoToRejit->m_pShared->m_dwCodegenFlags = pFuncControl->GetCodegenFlags();
-                pInfoToRejit->m_pShared->m_pbIL = pFuncControl->GetIL();
-                // pShared is now the owner of the memory for the IL buffer
-                pInfoToRejit->m_pShared->m_instrumentedILMap.SetMappingInfo(pFuncControl->GetInstrumentedMapEntryCount(),
+                ilCodeVersion.SetJitFlags(pFuncControl->GetCodegenFlags());
+                ilCodeVersion.SetIL((COR_ILMETHOD*)pFuncControl->GetIL());
+                // ilCodeVersion is now the owner of the memory for the IL buffer
+                ilCodeVersion.SetInstrumentedILMap(pFuncControl->GetInstrumentedMapEntryCount(),
                     pFuncControl->GetInstrumentedMapEntries());
-                pInfoToRejit->m_pShared->m_dwInternalFlags &= ~SharedReJitInfo::kStateMask;
-                pInfoToRejit->m_pShared->m_dwInternalFlags |= SharedReJitInfo::kStateActive;
-                _ASSERTE(pInfoToRejit->m_pCode == NULL);
-                _ASSERTE(pInfoToRejit->GetState() == ReJitInfo::kJumpToPrestub);
+                ilCodeVersion.SetRejitState(ILCodeVersion::kStateActive);
+#ifdef DEBUG
+                MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMD);
+                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
+#endif
             }
         }
     }
@@ -2077,17 +1660,17 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
         while (true)
         {
             {
-                CrstHolder ch(&m_crstTable);
-                if (pInfoToRejit->m_pShared->GetState() == SharedReJitInfo::kStateActive)
+                CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+                if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive)
                 {
                     break; // the other thread got the parameters succesfully, go race to rejit
                 }
-                else if (pInfoToRejit->m_pShared->GetState() == SharedReJitInfo::kStateRequested)
+                else if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateRequested)
                 {
                     return NULL; // the other thread had an error getting parameters and went
                                  // back to requested
                 }
-                else if (pInfoToRejit->m_pShared->GetState() == SharedReJitInfo::kStateReverted)
+                else if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted)
                 {
                     break; // we got reverted, enter DoReJit anyways and it will detect this and
                            // bail out.
@@ -2096,14 +1679,14 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
             ClrSleepEx(1, FALSE);
         }
     }
-
+    
     // We've got the info from the profiler, so JIT the method.  This is also
     // responsible for updating the jump target from the prestub to the newly
     // rejitted code AND for publishing the top of the newly rejitted code to
     // pInfoToRejit->m_pCode.  If two threads race to rejit, DoReJit handles the
     // race, and ensures the winner publishes his result to pInfoToRejit->m_pCode.
-    return DoReJit(pInfoToRejit);
-
+    return DoReJit(ilCodeVersion, pMD);
+    
 }
 
 
@@ -2132,24 +1715,29 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(PTR_MethodDesc pMD)
 //          (i.e., pInfo->GetMethodDesc()->GetNativeCode())
 //
 
-PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
+PCODE ReJitManager::DoReJit(ILCodeVersion ilCodeVersion, MethodDesc* pMethod)
 {
     STANDARD_VM_CONTRACT;
 
 #ifdef PROFILING_SUPPORTED
 
-    INDEBUG(Dump("Inside DoRejit().  Dumping this ReJitManager\n"));
-
-    _ASSERTE(!pInfo->GetMethodDesc()->IsNoMetadata());
+    _ASSERTE(!pMethod->IsNoMetadata());
     {
         BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
-        g_profControlBlock.pProfInterface->ReJITCompilationStarted((FunctionID)pInfo->GetMethodDesc(),
-            pInfo->m_pShared->GetId(),
+        g_profControlBlock.pProfInterface->ReJITCompilationStarted((FunctionID)pMethod,
+            ilCodeVersion.GetVersionId(),
             TRUE);
         END_PIN_PROFILER();
     }
 
-    COR_ILMETHOD_DECODER ILHeader(pInfo->GetIL(), pInfo->GetMethodDesc()->GetMDImport(), NULL);
+    COR_ILMETHOD* pIL = ilCodeVersion.GetIL();
+    if (pIL == NULL)
+    {
+        // If the user hasn't overriden us, get whatever the original IL had
+        pIL = pMethod->GetILHeader(TRUE);
+    }
+
+    COR_ILMETHOD_DECODER ILHeader(pIL, pMethod->GetMDImport(), NULL);
     PCODE pCodeOfRejittedCode = NULL;
 
     // Note that we're intentionally not enclosing UnsafeJitFunction in a try block
@@ -2162,9 +1750,9 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
     // encountered on the current thread and not on the competing thread), which is
     // not worth attempting to cover.
     pCodeOfRejittedCode = UnsafeJitFunction(
-        pInfo->GetMethodDesc(),
+        pMethod,
         &ILHeader,
-        JitFlagsFromProfCodegenFlags(pInfo->m_pShared->m_dwCodegenFlags));
+        JitFlagsFromProfCodegenFlags(ilCodeVersion.GetJitFlags()));
 
     _ASSERTE(pCodeOfRejittedCode != NULL);
 
@@ -2181,16 +1769,29 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
         {
             ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
         }
-        CrstHolder ch(&m_crstTable);
+        
+        CodeVersionManager* pCodeVersionManager = ilCodeVersion.GetModule()->GetCodeVersionManager();
+        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+
+
+        NativeCodeVersion activeNativeCodeVersion = ilCodeVersion.GetActiveNativeCodeVersion(pMethod);
+        if (activeNativeCodeVersion.IsNull())
+        {
+            hr = ilCodeVersion.AddNativeCodeVersion(pMethod, &activeNativeCodeVersion);
+            if (FAILED(hr))
+            {
+                break;
+            }
+        }
 
         // Now that we're under the lock, recheck whether pInfo->m_pCode has been filled
         // in...
-        if (pInfo->m_pCode != NULL)
+        if (activeNativeCodeVersion.GetNativeCode() != NULL)
         {
             // Yup, another thread rejitted this request at the same time as us, and beat
             // us to publishing the result. Intentionally skip the rest of this, and do
             // not issue a ReJITCompilationFinished from this thread.
-            ret = pInfo->m_pCode;
+            ret = activeNativeCodeVersion.GetNativeCode();
             break;
         }
         
@@ -2232,13 +1833,13 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
         // meantime (this check would also include an attempt to re-rejit the method
         // (i.e., calling RequestReJIT on the method multiple times), which would revert
         // this pInfo before creating a new one to track the latest rejit request).
-        if (pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted)
+        if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted)
         {
             // Yes, we've been reverted, so the jmp-to-prestub has already been removed,
             // and we should certainly not attempt to redirect that nonexistent jmp to
             // the code we just rejitted
-            _ASSERTE(pInfo->GetMethodDesc()->GetNativeCode() != NULL);
-            ret = pInfo->GetMethodDesc()->GetNativeCode();
+            _ASSERTE(pMethod->GetNativeCode() != NULL);
+            ret = pMethod->GetNativeCode();
             break;
         }
 
@@ -2251,17 +1852,18 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
         // now is a good place to notify the debugger.
         if (g_pDebugInterface != NULL)
         {
-            g_pDebugInterface->JITComplete(pInfo->GetMethodDesc(), pCodeOfRejittedCode);
+            g_pDebugInterface->JITComplete(pMethod, pCodeOfRejittedCode);
         }
 
 #endif // DEBUGGING_SUPPORTED
 
-        _ASSERTE(pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive);
-        _ASSERTE(pInfo->GetState() == ReJitInfo::kJumpToPrestub);
+        _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive);
+        MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMethod);
+        _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
 
         // Atomically publish the PCODE and update the jmp stamp (to go to the rejitted
         // code) under the lock
-        hr = pInfo->UpdateJumpTarget(fEESuspended, pCodeOfRejittedCode);
+        hr = pVersioningState->UpdateJumpTarget(fEESuspended, pCodeOfRejittedCode);
         if (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED)
         {
             _ASSERTE(!fEESuspended);
@@ -2272,35 +1874,32 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
         {
             break;
         }
-        pInfo->m_pCode = pCodeOfRejittedCode;
+        activeNativeCodeVersion.SetNativeCodeInterlocked(pCodeOfRejittedCode);
         fNotify = TRUE;
         ret = pCodeOfRejittedCode;
 
-        _ASSERTE(pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive);
-        _ASSERTE(pInfo->GetState() == ReJitInfo::kJumpToRejittedCode);
+        _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive);
+        _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToActiveVersion);
         break;
     }
 
     if (fEESuspended)
     {
-        ThreadSuspend::RestartEE(FALSE /* bFinishedGC */, TRUE /* SuspendSucceded */);
+        ThreadSuspend::RestartEE(FALSE, TRUE);
         fEESuspended = FALSE;
     }
 
     if (FAILED(hr))
     {
-        Module* pModule = NULL;
-        mdMethodDef methodDef = mdTokenNil;
-        pInfo->GetModuleAndTokenRegardlessOfKeyType(&pModule, &methodDef);
-        ReportReJITError(pModule, methodDef, pInfo->GetMethodDesc(), hr);
+        ReportReJITError(ilCodeVersion.GetModule(), ilCodeVersion.GetMethodDef(), pMethod, hr);
     }
 
     // Notify the profiler that JIT completed.
     if (fNotify)
     {
         BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
-        g_profControlBlock.pProfInterface->ReJITCompilationFinished((FunctionID)pInfo->GetMethodDesc(),
-            pInfo->m_pShared->GetId(),
+        g_profControlBlock.pProfInterface->ReJITCompilationFinished((FunctionID)pMethod,
+            ilCodeVersion.GetVersionId(),
             S_OK,
             TRUE);
         END_PIN_PROFILER();
@@ -2311,12 +1910,12 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
     if (fNotify)
     {
         ETW::MethodLog::MethodJitted(
-            pInfo->GetMethodDesc(),
+            pMethod,
             NULL,               // namespaceOrClassName
             NULL,               // methodName
             NULL,               // methodSignature
             pCodeOfRejittedCode,
-            pInfo->m_pShared->GetId());
+            ilCodeVersion.GetVersionId());
     }
     return ret;
 }
@@ -2340,7 +1939,7 @@ PCODE ReJitManager::DoReJit(ReJitInfo * pInfo)
 //      Caller must be holding this ReJitManager's table crst.
 //
 
-HRESULT ReJitManager::Revert(SharedReJitInfo * pShared, ReJitManagerJumpStampBatch* pJumpStampBatch)
+HRESULT ReJitManager::Revert(ILCodeVersion ilCodeVersion, CodeVersionManager::JumpStampBatch* pJumpStampBatch)
 {
     CONTRACTL
     {
@@ -2350,13 +1949,17 @@ HRESULT ReJitManager::Revert(SharedReJitInfo * pShared, ReJitManagerJumpStampBat
     }
     CONTRACTL_END;
 
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-    _ASSERTE((pShared->GetState() == SharedReJitInfo::kStateRequested) ||
-             (pShared->GetState() == SharedReJitInfo::kStateGettingReJITParameters) ||
-             (pShared->GetState() == SharedReJitInfo::kStateActive));
-    _ASSERTE(pShared->GetMethods() != NULL);
-    _ASSERTE(pJumpStampBatch->pReJitManager == this);
+    CodeVersionManager* pCodeVersionManager = ilCodeVersion.GetModule()->GetCodeVersionManager();
 
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
+    _ASSERTE((ilCodeVersion.GetRejitState() == ILCodeVersion::kStateRequested) ||
+             (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters) ||
+             (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive));
+    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
+
+    //TODO
+    return E_NOTIMPL;
+    /*
     HRESULT hrReturn = S_OK;
     for (ReJitInfo * pInfo = pShared->GetMethods(); pInfo != NULL; pInfo = pInfo->m_pNext)
     {
@@ -2377,148 +1980,12 @@ HRESULT ReJitManager::Revert(SharedReJitInfo * pShared, ReJitManagerJumpStampBat
     pShared->m_dwInternalFlags &= ~SharedReJitInfo::kStateMask;
     pShared->m_dwInternalFlags |= SharedReJitInfo::kStateReverted;
     return S_OK;
+    */
 }
 
-
-//---------------------------------------------------------------------------------------
-//
-// Removes any ReJitInfos relating to MDs for the specified AppDomain from this
-// ReJitManager. This is used to remove non-domain-neutral instantiations of
-// domain-neutral generics from the SharedDomain's ReJitManager, when the AppDomain
-// containing those non-domain-neutral instantiations is unloaded.
-//
-// Arguments:
-//      * pAppDomain - AppDomain that is exiting, and is thus the one for which we should
-//          find ReJitInfos to remove
-//
-//
-
-void ReJitManager::RemoveReJitInfosFromDomain(AppDomain * pAppDomain)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        CAN_TAKE_LOCK;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    CrstHolder ch(&m_crstTable);
-
-    INDEBUG(Dump("Dumping SharedDomain rejit manager BEFORE AD Unload"));
-
-    for (ReJitInfoHash::Iterator iterCur = m_table.Begin(), iterEnd = m_table.End();
-        iterCur != iterEnd; 
-        iterCur++)
-    {
-        ReJitInfo * pInfo = *iterCur;
-
-        if (pInfo->m_key.m_keyType != ReJitInfo::Key::kMethodDesc)
-        {
-            // Skip all "placeholder" ReJitInfos--they'll always be allocated on a
-            // loader heap for the shared domain.
-            _ASSERTE(pInfo->m_key.m_keyType == ReJitInfo::Key::kMetadataToken);
-            _ASSERTE(PTR_Module(pInfo->m_key.m_pModule)->GetDomain()->IsSharedDomain());
-            continue;
-        }
-
-        if (pInfo->GetMethodDesc()->GetDomain() != pAppDomain)
-        {
-            // We only care about non-domain-neutral instantiations that live in
-            // pAppDomain.
-            continue;
-        }
-
-        // Remove this ReJitInfo from the linked-list of ReJitInfos associated with its
-        // SharedReJitInfo.
-        pInfo->m_pShared->RemoveMethod(pInfo);
-
-        // Remove this ReJitInfo from the ReJitManager's hash table.
-        m_table.Remove(iterCur);
-
-        // pInfo is not deallocated yet.  That will happen when pAppDomain finishes
-        // unloading and its loader heaps get freed.
-    }
-    INDEBUG(Dump("Dumping SharedDomain rejit manager AFTER AD Unload"));
-}
 
 #endif // DACCESS_COMPILE
 // The rest of the ReJitManager methods are safe to compile for DAC
-
-
-//---------------------------------------------------------------------------------------
-//
-// Helper to iterate through m_table, finding the single matching non-reverted ReJitInfo.
-// The caller may search either by MethodDesc * XOR by (Module *, methodDef) pair.
-//
-// Arguments:
-//      * pMD - MethodDesc * to search for. (NULL if caller is searching by (Module *,
-//          methodDef)
-//      * pModule - Module * to search for. (NULL if caller is searching by MethodDesc *)
-//      * methodDef - methodDef to search for. (NULL if caller is searching by MethodDesc
-//          *)
-//
-// Return Value:
-//      ReJitInfo * requested, or NULL if none is found
-//
-// Assumptions:
-//      Caller should be holding this ReJitManager's table crst.
-//
-
-PTR_ReJitInfo ReJitManager::FindNonRevertedReJitInfoHelper(
-    PTR_MethodDesc pMD, 
-    PTR_Module pModule, 
-    mdMethodDef methodDef)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        INSTANCE_CHECK;
-    }
-    CONTRACTL_END;
-
-    // Either pMD is valid, xor (pModule,methodDef) is valid
-    _ASSERTE(
-        ((pMD != NULL) && (pModule == NULL) && (methodDef == mdTokenNil)) ||
-        ((pMD == NULL) && (pModule != NULL) && (methodDef != mdTokenNil)));
-
-    // Caller should hold the Crst around calling this function and using the ReJitInfo.
-#ifndef DACCESS_COMPILE
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-#endif
-
-    ReJitInfoHash::KeyIterator beginIter(&m_table, TRUE /* begin */); 
-    ReJitInfoHash::KeyIterator endIter(&m_table, FALSE /* begin */);
-
-    if (pMD != NULL)
-    {
-        beginIter = GetBeginIterator(pMD);
-        endIter = GetEndIterator(pMD);
-    }
-    else
-    {
-        beginIter = GetBeginIterator(pModule, methodDef);
-        endIter = GetEndIterator(pModule, methodDef);
-    }
-
-    for (ReJitInfoHash::KeyIterator iter = beginIter;
-        iter != endIter; 
-        iter++)
-    {
-        PTR_ReJitInfo pInfo = *iter;
-        _ASSERTE(pInfo->m_pShared != NULL);
-
-        if (pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted)
-            continue;
-
-        INDEBUG(AssertRestOfEntriesAreReverted(iter, endIter));
-        return pInfo;
-    }
-
-    return NULL;
-}
 
 
 //---------------------------------------------------------------------------------------
@@ -2529,114 +1996,6 @@ PTR_ReJitInfo ReJitManager::FindNonRevertedReJitInfoHelper(
 ReJitManager::ReJitManager()
 {
     LIMITED_METHOD_DAC_CONTRACT;
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Called from BaseDomain::BaseDomain to do any constructor-time initialization.
-// Presently, this takes care of initializing the Crst, choosing the type based on
-// whether this ReJitManager belongs to the SharedDomain.
-//
-// Arguments:
-//    * fSharedDomain - nonzero iff this ReJitManager belongs to the SharedDomain.
-//    
-
-void ReJitManager::PreInit(BOOL fSharedDomain)
-{
-    CONTRACTL
-    {
-        THROWS;
-        GC_TRIGGERS;
-        CAN_TAKE_LOCK;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-#ifndef DACCESS_COMPILE
-    m_crstTable.Init(
-        fSharedDomain ? CrstReJITSharedDomainTable : CrstReJITDomainTable,
-        CrstFlags(CRST_UNSAFE_ANYMODE | CRST_DEBUGGER_THREAD | CRST_REENTRANCY | CRST_TAKEN_DURING_SHUTDOWN));
-#endif // DACCESS_COMPILE
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Finds the ReJitInfo tracking a pre-rejit request.
-//
-// Arguments:
-//    * beginIter - Iterator to start search
-//    * endIter - Iterator to end search
-//
-// Return Value:
-//      NULL if no such ReJitInfo exists.  This can occur if two thread race
-//      to JIT the original code and we're the loser.  Else, the ReJitInfo * found.
-//
-// Assumptions:
-//      Caller must be holding this ReJitManager's table lock.
-//
-
-ReJitInfo * ReJitManager::FindPreReJittedReJitInfo(
-    ReJitInfoHash::KeyIterator beginIter,
-    ReJitInfoHash::KeyIterator endIter)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    // Caller shouldn't be handing out iterators unless he's already locking the table.
-#ifndef DACCESS_COMPILE
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-#endif
-
-    for (ReJitInfoHash::KeyIterator iter = beginIter;
-        iter != endIter; 
-        iter++)
-    {
-        ReJitInfo * pInfo = *iter;
-        SharedReJitInfo * pShared = pInfo->m_pShared;
-        _ASSERTE(pShared != NULL);
-
-        switch (pShared->GetState())
-        {
-        case SharedReJitInfo::kStateRequested:
-        case SharedReJitInfo::kStateGettingReJITParameters:
-        case SharedReJitInfo::kStateActive:
-            if (pInfo->GetState() == ReJitInfo::kJumpToRejittedCode)
-            {
-                // There was a race for the original JIT, and we're the loser.  (The winner
-                // has already published the original JIT's pcode, jump-stamped, and begun
-                // the rejit!)
-                return NULL;
-            }
-
-            // Otherwise, either we have a rejit request that has not yet been
-            // jump-stamped, or there was a race for the original JIT, and another
-            // thread jump-stamped its copy of the originally JITted code already.  In
-            // that case, we still don't know who the winner or loser will be (PCODE may
-            // not yet be published), so we'll have to jump-stamp our copy just in case
-            // we win.
-            _ASSERTE((pInfo->GetState() == ReJitInfo::kJumpNone) ||
-                     (pInfo->GetState() == ReJitInfo::kJumpToPrestub));
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, endIter));
-            return pInfo;
-
-
-        case SharedReJitInfo::kStateReverted:
-            // just ignore this guy
-            continue;
-
-        default:
-            UNREACHABLE();
-        }
-    }
-
-    return NULL;
 }
 
 //---------------------------------------------------------------------------------------
@@ -2654,7 +2013,7 @@ ReJitInfo * ReJitManager::FindPreReJittedReJitInfo(
 //      0 if no such ReJITID found (e.g., PCODE is from a JIT and not a rejit), else the
 //      ReJITID requested.
 //
-
+// static
 ReJITID ReJitManager::GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart)
 {
     CONTRACTL
@@ -2662,7 +2021,6 @@ ReJITID ReJitManager::GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart)
         NOTHROW;
         CAN_TAKE_LOCK;
         GC_TRIGGERS;
-        INSTANCE_CHECK;
         PRECONDITION(CheckPointer(pMD));
         PRECONDITION(pCodeStart != NULL);
     }
@@ -2671,14 +2029,14 @@ ReJITID ReJitManager::GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart)
     // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
     // of a lock to impact our caller (the prestub worker) as little as possible. If the
     // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    if (m_table.GetCount() == 0)
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    if (pCodeVersionManager->GetNonDefaultILVersionCount() == 0)
     {
         return 0;
     }
 
-    CrstHolder ch(&m_crstTable);
-
-    return GetReJitIdNoLock(pMD, pCodeStart);
+    CodeVersionManager::TableLockHolder ch(pCodeVersionManager);
+    return ReJitManager::GetReJitIdNoLock(pMD, pCodeStart);
 }
 
 //---------------------------------------------------------------------------------------
@@ -2699,15 +2057,16 @@ ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
         NOTHROW;
         CANNOT_TAKE_LOCK;
         GC_NOTRIGGER;
-        INSTANCE_CHECK;
         PRECONDITION(CheckPointer(pMD));
         PRECONDITION(pCodeStart != NULL);
     }
     CONTRACTL_END;
 
     // Caller must ensure this lock is taken!
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
 
+    /* TODO
     ReJitInfo * pInfo = FindReJitInfo(pMD, pCodeStart, 0);
     if (pInfo == NULL)
     {
@@ -2717,59 +2076,9 @@ ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
     _ASSERTE(pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive ||
         pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted);
     return pInfo->m_pShared->GetId();
+    */
+    return 0;
 }
-
-
-//---------------------------------------------------------------------------------------
-//
-// Used by profilers to map a (MethodDesc *, ReJITID) pair to the corresponding PCODE for
-// that rejit attempt. This can also be used for reverted methods, as the PCODE may still
-// be available and in use even after a rejitted function has been reverted.
-//
-// Arguments:
-//      * pMD - MethodDesc * of interest
-//      * reJitId - ReJITID of interest
-//
-// Return Value:
-//      Corresponding PCODE of the rejit attempt, or NULL if no such rejit attempt can be
-//      found.
-//
-
-PCODE ReJitManager::GetCodeStart(PTR_MethodDesc pMD, ReJITID reJitId)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        CAN_TAKE_LOCK;
-        GC_NOTRIGGER;
-        INSTANCE_CHECK;
-        PRECONDITION(CheckPointer(pMD));
-        PRECONDITION(reJitId != 0);
-    }
-    CONTRACTL_END;
-
-    // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
-    // of a lock to impact our caller (the prestub worker) as little as possible. If the
-    // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    if (m_table.GetCount() == 0)
-    {
-        return NULL;
-    }
-
-    CrstHolder ch(&m_crstTable);
-
-    ReJitInfo * pInfo = FindReJitInfo(pMD, NULL, reJitId);
-    if (pInfo == NULL)
-    {
-        return NULL;
-    }
-
-    _ASSERTE(pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive ||
-             pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted);
-    
-    return pInfo->m_pCode;
-}
-
 
 //---------------------------------------------------------------------------------------
 //
@@ -2787,7 +2096,6 @@ PCODE ReJitManager::GetCodeStart(PTR_MethodDesc pMD, ReJITID reJitId)
 //     Returns the requested codegen flags, or 0 (i.e., no flags set) if no rejit attempt
 //     can be found for the MD.
 //
-
 DWORD ReJitManager::GetCurrentReJitFlagsWorker(PTR_MethodDesc pMD)
 {
     CONTRACTL 
@@ -2802,24 +2110,22 @@ DWORD ReJitManager::GetCurrentReJitFlagsWorker(PTR_MethodDesc pMD)
     // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
     // of a lock to impact our caller (e.g., the JIT asking if it can inline) as little as possible. If the
     // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    if (m_table.GetCount() == 0)
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    if (pCodeVersionManager->GetNonDefaultILVersionCount() == 0)
     {
         return 0;
     }
 
-    CrstHolder ch(&m_crstTable);
+    CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
 
-    for (ReJitInfoHash::KeyIterator iter = GetBeginIterator(pMD), end = GetEndIterator(pMD);
+    ILCodeVersionCollection ilCodeVersions = pCodeVersionManager->GetILCodeVersions(pMD);
+    for (ILCodeVersionIterator iter = ilCodeVersions.Begin(), end = ilCodeVersions.End();
         iter != end; 
         iter++)
     {
-        ReJitInfo * pInfo = *iter;
-        _ASSERTE(pInfo->GetMethodDesc() == pMD);
-        _ASSERTE(pInfo->m_pShared != NULL);
+        ILCodeVersion curVersion = *iter;
 
-        DWORD dwState = pInfo->m_pShared->GetState();
-
-        if (dwState != SharedReJitInfo::kStateActive)
+        if (curVersion.GetRejitState() != ILCodeVersion::kStateActive)
         {
             // Not active means we never asked profiler for the codegen flags OR the
             // rejit request has been reverted. So this one is useless.
@@ -2827,93 +2133,10 @@ DWORD ReJitManager::GetCurrentReJitFlagsWorker(PTR_MethodDesc pMD)
         }
 
         // Found it!
-#ifdef _DEBUG
-        // This must be the only such ReJitInfo for this MethodDesc.  Check the rest and
-        // assert otherwise.
-        {
-            ReJitInfoHash::KeyIterator iterTest = iter;
-            iterTest++;
-
-            while(iterTest != end)
-            {
-                ReJitInfo * pInfoTest = *iterTest;
-                _ASSERTE(pInfoTest->GetMethodDesc() == pMD);
-                _ASSERTE(pInfoTest->m_pShared != NULL);
-
-                DWORD dwStateTest = pInfoTest->m_pShared->GetState();
-
-                if (dwStateTest == SharedReJitInfo::kStateActive)
-                {
-                    _ASSERTE(!"Multiple active ReJitInfos for same MethodDesc");
-                    break;
-                }
-                iterTest++;
-            }
-        }
-#endif //_DEBUG
-        return pInfo->m_pShared->m_dwCodegenFlags;
+        return curVersion.GetJitFlags();
     }
 
     return 0;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Helper to find the matching ReJitInfo by methoddesc paired with either pCodeStart or
-// reJitId (exactly one should be non-zero, and will be used as the key for the lookup)
-//
-// Arguments:
-//      * pMD - MethodDesc * to look up
-//      * pCodeStart - PCODE of the particular rejit attempt to look up. NULL if looking
-//          up by ReJITID.
-//      * reJitId - ReJITID of the particular rejit attempt to look up. NULL if looking
-//          up by PCODE.
-//
-// Return Value:
-//      ReJitInfo * matching input parameters, or NULL if no such ReJitInfo could be
-//      found.
-//
-// Assumptions:
-//      Caller must be holding this ReJitManager's table lock.
-//
-
-PTR_ReJitInfo ReJitManager::FindReJitInfo(PTR_MethodDesc pMD, PCODE pCodeStart, ReJITID reJitId)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        INSTANCE_CHECK;
-        PRECONDITION(CheckPointer(pMD));
-    }
-    CONTRACTL_END;
-
-    // Caller should hold the Crst around calling this function and using the ReJitInfo.
-#ifndef DACCESS_COMPILE
-    _ASSERTE(m_crstTable.OwnedByCurrentThread());
-#endif
-
-    // One of these two keys should be used, but not both!
-    _ASSERTE(
-        ((pCodeStart != NULL) || (reJitId != 0)) &&
-        !((pCodeStart != NULL) && (reJitId != 0)));
-
-    for (ReJitInfoHash::KeyIterator iter = GetBeginIterator(pMD), end = GetEndIterator(pMD);
-        iter != end; 
-        iter++)
-    {
-        PTR_ReJitInfo pInfo = *iter;
-        _ASSERTE(pInfo->GetMethodDesc() == pMD);
-        _ASSERTE(pInfo->m_pShared != NULL);
-
-        if ((pCodeStart != NULL && pInfo->m_pCode == pCodeStart) ||      // pCodeStart is key
-            (reJitId != 0 && pInfo->m_pShared->GetId() == reJitId))      // reJitId is key
-        {
-            return pInfo;
-        }
-    }
-
-    return NULL;
 }
 
 //---------------------------------------------------------------------------------------
@@ -2934,7 +2157,7 @@ PTR_ReJitInfo ReJitManager::FindReJitInfo(PTR_MethodDesc pMD, PCODE pCodeStart, 
 //          cReJitIds were returned and cReJitIds < *pcReJitId (latter being the total
 //          number of ReJITIDs available).
 //
-
+// static
 HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * pcReJitIds, ReJITID reJitIds[])
 {
     CONTRACTL
@@ -2942,31 +2165,30 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
         NOTHROW;
         CAN_TAKE_LOCK;
         GC_NOTRIGGER;
-        INSTANCE_CHECK;
         PRECONDITION(CheckPointer(pMD));
         PRECONDITION(pcReJitIds != NULL);
         PRECONDITION(reJitIds != NULL);
     }
     CONTRACTL_END;
 
-    CrstHolder ch(&m_crstTable);
+    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
 
     ULONG cnt = 0;
 
-    for (ReJitInfoHash::KeyIterator iter = GetBeginIterator(pMD), end = GetEndIterator(pMD);
+    ILCodeVersionCollection ilCodeVersions = pCodeVersionManager->GetILCodeVersions(pMD);
+    for (ILCodeVersionIterator iter = ilCodeVersions.Begin(), end = ilCodeVersions.End();
         iter != end; 
         iter++)
     {
-        ReJitInfo * pInfo = *iter;
-        _ASSERTE(pInfo->GetMethodDesc() == pMD);
-        _ASSERTE(pInfo->m_pShared != NULL);
+        ILCodeVersion curILVersion = *iter;
 
-        if (pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive ||
-            pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted)
+        if (curILVersion.GetRejitState() == ILCodeVersion::kStateActive ||
+            curILVersion.GetRejitState() == ILCodeVersion::kStateReverted)
         {
             if (cnt < cReJitIds)
             {
-                reJitIds[cnt] = pInfo->m_pShared->GetId();
+                reJitIds[cnt] = curILVersion.GetVersionId();
             }
             ++cnt;
 
@@ -2977,78 +2199,6 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
     *pcReJitIds = cnt;
 
     return (cnt > cReJitIds) ? S_FALSE : S_OK;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Helper that inits a new ReJitReportErrorWorkItem and adds it to the pErrors array
-//
-// Arguments:
-//      * pModule - The module in the module/MethodDef identifier pair for the method which
-//                  had an error during rejit
-//      * methodDef - The MethodDef in the module/MethodDef identifier pair for the method which
-//                  had an error during rejit
-//      * pMD - If available, the specific method instance which had an error during rejit
-//      * hrStatus - HRESULT for the rejit error that occurred
-//      * pErrors - the list of error records that this method will append to
-//
-// Return Value:
-//      * S_OK: error was appended
-//      * E_OUTOFMEMORY: Not enough memory to create the new error item. The array is unchanged.
-//
-
-//static
-HRESULT ReJitManager::AddReJITError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus, CDynArray<ReJitReportErrorWorkItem> * pErrors)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    ReJitReportErrorWorkItem* pError = pErrors->Append();
-    if (pError == NULL)
-    {
-        return E_OUTOFMEMORY;
-    }
-    pError->pModule = pModule;
-    pError->methodDef = methodDef;
-    pError->pMethodDesc = pMD;
-    pError->hrStatus = hrStatus;
-    return S_OK;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Helper that inits a new ReJitReportErrorWorkItem and adds it to the pErrors array
-//
-// Arguments:
-//      * pReJitInfo - The method which had an error during rejit
-//      * hrStatus - HRESULT for the rejit error that occurred
-//      * pErrors - the list of error records that this method will append to
-//
-// Return Value:
-//      * S_OK: error was appended
-//      * E_OUTOFMEMORY: Not enough memory to create the new error item. The array is unchanged.
-//
-
-//static
-HRESULT ReJitManager::AddReJITError(ReJitInfo* pReJitInfo, HRESULT hrStatus, CDynArray<ReJitReportErrorWorkItem> * pErrors)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    Module * pModule = NULL;
-    mdMethodDef methodDef = mdTokenNil;
-    pReJitInfo->GetModuleAndTokenRegardlessOfKeyType(&pModule, &methodDef);
-    return AddReJITError(pModule, methodDef, pReJitInfo->GetMethodDesc(), hrStatus, pErrors);
 }
 
 #ifdef _DEBUG
@@ -3065,720 +2215,20 @@ HRESULT ReJitManager::AddReJITError(ReJitInfo* pReJitInfo, HRESULT hrStatus, CDy
 //
 
 void ReJitManager::AssertRestOfEntriesAreReverted(
-    ReJitInfoHash::KeyIterator iter, 
-    ReJitInfoHash::KeyIterator end)
+    ILCodeVersionIterator iter, 
+    ILCodeVersionIterator end)
 {
     LIMITED_METHOD_CONTRACT;
 
     // All other rejits should be in the reverted state
     while (++iter != end)
     {
-        _ASSERTE((*iter)->m_pShared->GetState() == SharedReJitInfo::kStateReverted);
+        _ASSERTE(iter->GetRejitState() == ILCodeVersion::kStateReverted);
     }
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Debug-only helper to dump ReJitManager contents to stdout. Only used if
-// COMPlus_ProfAPI_EnableRejitDiagnostics is set.
-//
-// Arguments:
-//      * szIntroText - Intro text passed by caller to be output before this ReJitManager
-//          is dumped.
-//
-//
-
-void ReJitManager::Dump(LPCSTR szIntroText)
-{
-    if (CLRConfig::GetConfigValue(CLRConfig::INTERNAL_ProfAPI_EnableRejitDiagnostics) == 0)
-        return;
-
-    printf(szIntroText);
-    fflush(stdout);
-
-    CrstHolder ch(&m_crstTable);
-
-    printf("BEGIN ReJitManager::Dump: 0x%p\n", this);
-
-    for (ReJitInfoHash::Iterator iterCur = m_table.Begin(), iterEnd = m_table.End();
-        iterCur != iterEnd; 
-        iterCur++)
-    {
-        ReJitInfo * pInfo = *iterCur;
-        printf(
-            "\tInfo 0x%p: State=0x%x, Next=0x%p, Shared=%p, SharedState=0x%x\n",
-            pInfo,
-            pInfo->GetState(),
-            (void*)pInfo->m_pNext,
-            (void*)pInfo->m_pShared,
-            pInfo->m_pShared->GetState());
-
-        switch(pInfo->m_key.m_keyType)
-        {
-        case ReJitInfo::Key::kMethodDesc:
-            printf(
-                "\t\tMD=0x%p, %s.%s (%s)\n",
-                (void*)pInfo->GetMethodDesc(),
-                pInfo->GetMethodDesc()->m_pszDebugClassName,
-                pInfo->GetMethodDesc()->m_pszDebugMethodName,
-                pInfo->GetMethodDesc()->m_pszDebugMethodSignature);
-            break;
-
-        case ReJitInfo::Key::kMetadataToken:
-            Module * pModule;
-            mdMethodDef methodDef;
-            pInfo->GetModuleAndToken(&pModule, &methodDef);
-            printf(
-                "\t\tModule=0x%p, Token=0x%x\n",
-                pModule,
-                methodDef);
-            break;
-
-        case ReJitInfo::Key::kUninitialized:
-            printf("\t\tUNINITIALIZED\n");
-            break;
-
-        default:
-            _ASSERTE(!"Unrecognized pInfo key type");
-        }
-        fflush(stdout);
-    }
-    printf("END   ReJitManager::Dump: 0x%p\n", this);
-    fflush(stdout);
 }
 
 #endif // _DEBUG
 
-//---------------------------------------------------------------------------------------
-// ReJitInfo implementation
-
-// All the state-changey stuff is kept up here in the !DACCESS_COMPILE block.
-// The more read-only inspection-y stuff follows the block.
-
-
-#ifndef DACCESS_COMPILE
-
-//---------------------------------------------------------------------------------------
-//
-// Do the actual work of stamping the top of originally-jitted-code with a jmp that goes
-// to the prestub. This can be called in one of three ways:
-//     * Case 1: By RequestReJIT against an already-jitted function, in which case the
-//         PCODE may be inferred by the MethodDesc, and our caller will have suspended
-//         the EE for us, OR
-//     * Case 2: By the prestub worker after jitting the original code of a function
-//         (i.e., the "pre-rejit" scenario). In this case, the EE is not suspended. But
-//         that's ok, because the PCODE has not yet been published to the MethodDesc, and
-//         no thread can be executing inside the originally JITted function yet.
-//     * Case 3: At type/method restore time for an NGEN'ed assembly. This is also the pre-rejit
-//         scenario because we are guaranteed to do this before the code in the module
-//         is executable. EE suspend is not required.
-//
-// Arguments:
-//    * pCode - Case 1 (above): will be NULL, and we can infer the PCODE from the
-//        MethodDesc; Case 2+3 (above, pre-rejit): will be non-NULL, and we'll need to use
-//        this to find the code to stamp on top of.
-//
-// Return Value:
-//    * S_OK: Either we successfully did the jmp-stamp, or a racing thread took care of
-//        it for us.
-//    * Else, HRESULT indicating failure.
-//
-// Assumptions:
-//     The caller will have suspended the EE if necessary (case 1), before this is
-//     called.
-//
-HRESULT ReJitInfo::JumpStampNativeCode(PCODE pCode /* = NULL */)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-
-        // It may seem dangerous to be stamping jumps over code while a GC is going on,
-        // but we're actually safe. As we assert below, either we're holding the thread
-        // store lock (and thus preventing a GC) OR we're stamping code that has not yet
-        // been published (and will thus not be executed by managed therads or examined
-        // by the GC).
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    PCODE pCodePublished = GetMethodDesc()->GetNativeCode();
-
-    _ASSERTE((pCode != NULL) || (pCodePublished != NULL));
-    _ASSERTE(GetMethodDesc()->GetReJitManager()->IsTableCrstOwnedByCurrentThread());
-
-    HRESULT hr = S_OK;
-
-    // We'll jump-stamp over pCode, or if pCode is NULL, jump-stamp over the published
-    // code for this's MethodDesc.
-    LPBYTE pbCode = (LPBYTE) pCode;
-    if (pbCode == NULL)
-    {
-        // If caller didn't specify a pCode, just use the one that was published after
-        // the original JIT.  (A specific pCode would be passed in the pre-rejit case,
-        // to jump-stamp the original code BEFORE the PCODE gets published.)
-        pbCode = (LPBYTE) pCodePublished;
-    }
-    _ASSERTE (pbCode != NULL);
-
-    // The debugging API may also try to write to the very top of this function (though
-    // with an int 3 for breakpoint purposes). Coordinate with the debugger so we know
-    // whether we can safely patch the actual code, or instead write to the debugger's
-    // buffer.
-    DebuggerController::ControllerLockHolder lockController;
-
-    // We could be in a race. Either two threads simultaneously JITting the same
-    // method for the first time or two threads restoring NGEN'ed code.
-    // Another thread may (or may not) have jump-stamped its copy of the code already
-    _ASSERTE((GetState() == kJumpNone) || (GetState() == kJumpToPrestub));
-
-    if (GetState() == kJumpToPrestub)
-    {
-        // The method has already been jump stamped so nothing left to do
-        _ASSERTE(CodeIsSaved());
-        return S_OK;
-    }
-
-    // Remember what we're stamping our jump on top of, so we can replace it during a
-    // revert.
-    for (int i = 0; i < sizeof(m_rgSavedCode); i++)
-    {
-        m_rgSavedCode[i] = *FirstCodeByteAddr(pbCode+i, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)(pbCode+i)));
-    }
-
-    EX_TRY
-    {
-        AllocMemTracker amt;
-
-        // This guy might throw on out-of-memory, so rely on the tracker to clean-up
-        Precode * pPrecode = Precode::Allocate(PRECODE_STUB, GetMethodDesc(), GetMethodDesc()->GetLoaderAllocator(), &amt);
-        PCODE target = pPrecode->GetEntryPoint();
-
-#if defined(_X86_) || defined(_AMD64_)
-
-        // Normal unpatched code never starts with a jump
-        // so make sure this code isn't already patched
-        _ASSERTE(*FirstCodeByteAddr(pbCode, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)pbCode)) != X86_INSTR_JMP_REL32);
-
-        INT64 i64OldCode = *(INT64*)pbCode;
-        INT64 i64NewCode = i64OldCode;
-        LPBYTE pbNewValue = (LPBYTE)&i64NewCode;
-        *pbNewValue = X86_INSTR_JMP_REL32;
-        INT32 UNALIGNED * pOffset = reinterpret_cast<INT32 UNALIGNED *>(&pbNewValue[1]);
-        // This will throw for out-of-memory, so don't write anything until
-        // after he succeeds
-        // This guy will leak/cache/reuse the jumpstub
-        *pOffset = rel32UsingJumpStub(reinterpret_cast<INT32 UNALIGNED *>(pbCode + 1), target, GetMethodDesc(), GetMethodDesc()->GetLoaderAllocator());
-
-        // If we have the EE suspended or the code is unpublished there won't be contention on this code
-        hr = UpdateJumpStampHelper(pbCode, i64OldCode, i64NewCode, FALSE);
-        if (FAILED(hr))
-        {
-            ThrowHR(hr);
-        }
-            
-        //
-        // No failure point after this!
-        //
-        amt.SuppressRelease();
-
-#else // _X86_ || _AMD64_
-#error "Need to define a way to jump-stamp the prolog in a safe way for this platform"
-
-#endif // _X86_ || _AMD64_
-
-        m_dwInternalFlags &= ~kStateMask;
-        m_dwInternalFlags |= kJumpToPrestub;
-    }
-    EX_CATCH_HRESULT(hr);
-    _ASSERT(hr == S_OK || hr == E_OUTOFMEMORY);
-
-    if (SUCCEEDED(hr))
-    {
-        _ASSERTE(GetState() == kJumpToPrestub);
-        _ASSERTE(m_rgSavedCode[0] != 0); // saved code should not start with 0
-    }
-
-    return hr;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// Poke the JITted code to satsify a revert request (or to perform an implicit revert as
-// part of a second, third, etc. rejit request). Reinstates the originally JITted code
-// that had been jump-stamped over to perform a prior rejit.
-//
-// Arguments
-//     fEESuspended - TRUE if the caller keeps the EE suspended during this call
-//
-//
-// Return Value:
-//     S_OK to indicate the revert succeeded,
-//     CORPROF_E_RUNTIME_SUSPEND_REQUIRED to indicate the jumpstamp hasn't been reverted
-//       and EE suspension will be needed for success
-//     other failure HRESULT indicating what went wrong.
-//
-// Assumptions:
-//     Caller must be holding the owning ReJitManager's table crst.
-//
-
-HRESULT ReJitInfo::UndoJumpStampNativeCode(BOOL fEESuspended)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(GetMethodDesc()->GetReJitManager()->IsTableCrstOwnedByCurrentThread());
-    _ASSERTE((m_pShared->GetState() == SharedReJitInfo::kStateReverted));
-    _ASSERTE((GetState() == kJumpToPrestub) || (GetState() == kJumpToRejittedCode));
-    _ASSERTE(m_rgSavedCode[0] != 0); // saved code should not start with 0 (see above test)
-
-    BYTE * pbCode = (BYTE*)GetMethodDesc()->GetNativeCode();
-    DebuggerController::ControllerLockHolder lockController;
-
-#if defined(_X86_) || defined(_AMD64_)
-    _ASSERTE(m_rgSavedCode[0] != X86_INSTR_JMP_REL32);
-    _ASSERTE(*FirstCodeByteAddr(pbCode, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)pbCode)) == X86_INSTR_JMP_REL32);
-#else
-#error "Need to define a way to jump-stamp the prolog in a safe way for this platform"
-#endif // _X86_ || _AMD64_
-
-    // For the interlocked compare, remember what pbCode is right now
-    INT64 i64OldValue = *(INT64 *)pbCode;
-    // Assemble the INT64 of the new code bytes to write.  Start with what's there now
-    INT64 i64NewValue = i64OldValue;
-    memcpy(LPBYTE(&i64NewValue), m_rgSavedCode, sizeof(m_rgSavedCode));
-    HRESULT hr = UpdateJumpStampHelper(pbCode, i64OldValue, i64NewValue, !fEESuspended);
-    _ASSERTE(hr == S_OK || (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED && !fEESuspended));
-    if (hr != S_OK)
-        return hr;
-
-    // Transition state of this ReJitInfo to indicate the MD no longer has any jump stamp
-    m_dwInternalFlags &= ~kStateMask;
-    m_dwInternalFlags |= kJumpNone;
-    return S_OK;
-}
-
-//---------------------------------------------------------------------------------------
-//
-// After code has been rejitted, this is called to update the jump-stamp to go from
-// pointing to the prestub, to pointing to the newly rejitted code.
-//
-// Arguments:
-//     fEESuspended - TRUE if the caller keeps the EE suspended during this call
-//     pRejittedCode - jitted code for the updated IL this method should execute
-//
-// Assumptions:
-//      This rejit manager's table crst should be held by the caller
-//
-// Returns - S_OK if the jump target is updated
-//           CORPROF_E_RUNTIME_SUSPEND_REQUIRED if the ee isn't suspended and it
-//             will need to be in order to do the update safely
-HRESULT ReJitInfo::UpdateJumpTarget(BOOL fEESuspended, PCODE pRejittedCode)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-    }
-    CONTRACTL_END;
-
-    MethodDesc * pMD = GetMethodDesc();
-    _ASSERTE(pMD->GetReJitManager()->IsTableCrstOwnedByCurrentThread());
-    _ASSERTE(m_pShared->GetState() == SharedReJitInfo::kStateActive);
-    _ASSERTE(GetState() == kJumpToPrestub);
-    _ASSERTE(m_pCode == NULL);
-
-    // Beginning of originally JITted code containing the jmp that we will redirect.
-    BYTE * pbCode = (BYTE*)pMD->GetNativeCode();
-
-#if defined(_X86_) || defined(_AMD64_)
-
-    HRESULT hr = S_OK;
-    {
-        DebuggerController::ControllerLockHolder lockController;
-
-        // This will throw for out-of-memory, so don't write anything until
-        // after he succeeds
-        // This guy will leak/cache/reuse the jumpstub
-        INT32 offset = 0;
-        EX_TRY
-        {
-            offset = rel32UsingJumpStub(
-                reinterpret_cast<INT32 UNALIGNED *>(&pbCode[1]),    // base of offset
-                pRejittedCode,                                      // target of jump
-                pMD,
-                pMD->GetLoaderAllocator());
-        }
-        EX_CATCH_HRESULT(hr);
-        _ASSERT(hr == S_OK || hr == E_OUTOFMEMORY);
-        if (FAILED(hr))
-        {
-            return hr;
-        }
-        // For validation later, remember what pbCode is right now
-        INT64 i64OldValue = *(INT64 *)pbCode;
-
-        // Assemble the INT64 of the new code bytes to write.  Start with what's there now
-        INT64 i64NewValue = i64OldValue;
-        LPBYTE pbNewValue = (LPBYTE)&i64NewValue;
-
-        // First byte becomes a rel32 jmp instruction (should be a no-op as asserted
-        // above, but can't hurt)
-        *pbNewValue = X86_INSTR_JMP_REL32;
-        // Next 4 bytes are the jmp target (offset to jmp stub)
-        INT32 UNALIGNED * pnOffset = reinterpret_cast<INT32 UNALIGNED *>(&pbNewValue[1]);
-        *pnOffset = offset;
-
-        hr = UpdateJumpStampHelper(pbCode, i64OldValue, i64NewValue, !fEESuspended);
-        _ASSERTE(hr == S_OK || (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED && !fEESuspended));
-    }
-    if (FAILED(hr))
-    {
-        return hr;
-    }
-
-#else // _X86_ || _AMD64_
-#error "Need to define a way to jump-stamp the prolog in a safe way for this platform"
-#endif // _X86_ || _AMD64_
-
-    // State transition
-    m_dwInternalFlags &= ~kStateMask;
-    m_dwInternalFlags |= kJumpToRejittedCode;
-    return S_OK;
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// This is called to modify the jump-stamp area, the first ReJitInfo::JumpStubSize bytes
-// in the method's code. 
-//
-// Notes:
-//      Callers use this method in a variety of circumstances:
-//      a) when the code is unpublished (fContentionPossible == FALSE)
-//      b) when the caller has taken the ThreadStoreLock and suspended the EE 
-//         (fContentionPossible == FALSE)
-//      c) when the code is published, the EE isn't suspended, and the jumpstamp
-//         area consists of a single 5 byte long jump instruction
-//         (fContentionPossible == TRUE)
-//      This method will attempt to alter the jump-stamp even if the caller has not prevented
-//      contention, but there is no guarantee it will be succesful. When the caller has prevented
-//      contention, then success is assured. Callers may oportunistically try without
-//      EE suspension, and then upgrade to EE suspension if the first attempt fails. 
-//
-// Assumptions:
-//      This rejit manager's table crst should be held by the caller or fContentionPossible==FALSE
-//      The debugger patch table lock should be held by the caller
-//
-// Arguments:
-//      pbCode - pointer to the code where the jump stamp is placed
-//      i64OldValue - the bytes which should currently be at the start of the method code
-//      i64NewValue - the new bytes which should be written at the start of the method code
-//      fContentionPossible - See the Notes section above.
-//
-// Returns:
-//      S_OK => the jumpstamp has been succesfully updated.
-//      CORPROF_E_RUNTIME_SUSPEND_REQUIRED => the jumpstamp remains unchanged (preventing contention will be necessary)
-//      other failing HR => VirtualProtect failed, the jumpstamp remains unchanged
-//
-HRESULT ReJitInfo::UpdateJumpStampHelper(BYTE* pbCode, INT64 i64OldValue, INT64 i64NewValue, BOOL fContentionPossible)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    MethodDesc * pMD = GetMethodDesc();
-    _ASSERTE(pMD->GetReJitManager()->IsTableCrstOwnedByCurrentThread() || !fContentionPossible);
-
-    // When ReJIT is enabled, method entrypoints are always at least 8-byte aligned (see
-    // code:EEJitManager::allocCode), so we can do a single 64-bit interlocked operation
-    // to update the jump target.  However, some code may have gotten compiled before
-    // the profiler had a chance to enable ReJIT (e.g., NGENd code, or code JITted
-    // before a profiler attaches).  In such cases, we cannot rely on a simple
-    // interlocked operation, and instead must suspend the runtime to ensure we can
-    // safely update the jmp instruction.
-    //
-    // This method doesn't verify that the method is actually safe to rejit, we expect
-    // callers to do that. At the moment NGEN'ed code is safe to rejit even if
-    // it is unaligned, but code generated before the profiler attaches is not.
-    if (fContentionPossible && !(IS_ALIGNED(pbCode, sizeof(INT64))))
-    {
-        return CORPROF_E_RUNTIME_SUSPEND_REQUIRED;
-    }
-
-    // The debugging API may also try to write to this function (though
-    // with an int 3 for breakpoint purposes). Coordinate with the debugger so we know
-    // whether we can safely patch the actual code, or instead write to the debugger's
-    // buffer.
-    if (fContentionPossible)
-    {
-        for (CORDB_ADDRESS_TYPE* pbProbeAddr = pbCode; pbProbeAddr < pbCode + ReJitInfo::JumpStubSize; pbProbeAddr++)
-        {
-            if (NULL != DebuggerController::GetPatchTable()->GetPatch(pbProbeAddr))
-            {
-                return CORPROF_E_RUNTIME_SUSPEND_REQUIRED;
-            }
-        }
-    }
-
-#if defined(_X86_) || defined(_AMD64_)
-
-    DWORD oldProt;
-    if (!ClrVirtualProtect((LPVOID)pbCode, 8, PAGE_EXECUTE_READWRITE, &oldProt))
-    {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-
-    if (fContentionPossible)
-    {
-        INT64 i64InterlockReportedOldValue = FastInterlockCompareExchangeLong((INT64 *)pbCode, i64NewValue, i64OldValue);
-        // Since changes to these bytes are protected by this rejitmgr's m_crstTable, we
-        // shouldn't have two writers conflicting.
-        _ASSERTE(i64InterlockReportedOldValue == i64OldValue);
-    }
-    else
-    {
-        // In this path the caller ensures:
-        //   a) no thread will execute through the prologue area we are modifying
-        //   b) no thread is stopped in a prologue such that it resumes in the middle of code we are modifying
-        //   c) no thread is doing a debugger patch skip operation in which an unmodified copy of the method's 
-        //      code could be executed from a patch skip buffer.
-
-        // PERF: we might still want a faster path through here if we aren't debugging that doesn't do
-        // all the patch checks
-        for (int i = 0; i < ReJitInfo::JumpStubSize; i++)
-        {
-            *FirstCodeByteAddr(pbCode+i, DebuggerController::GetPatchTable()->GetPatch(pbCode+i)) = ((BYTE*)&i64NewValue)[i];
-        }
-    }
-    
-    if (oldProt != PAGE_EXECUTE_READWRITE)
-    {
-        // The CLR codebase in many locations simply ignores failures to restore the page protections
-        // Its true that it isn't a problem functionally, but it seems a bit sketchy?
-        // I am following the convention for now.
-        ClrVirtualProtect((LPVOID)pbCode, 8, oldProt, &oldProt);
-    }
-
-    FlushInstructionCache(GetCurrentProcess(), pbCode, ReJitInfo::JumpStubSize);
-    return S_OK;
-
-#else // _X86_ || _AMD64_
-#error "Need to define a way to jump-stamp the prolog in a safe way for this platform"
-#endif // _X86_ || _AMD64_
-}
-
-
-#endif // DACCESS_COMPILE
-// The rest of the ReJitInfo methods are safe to compile for DAC
-
-
-
-//---------------------------------------------------------------------------------------
-//
-// ReJitInfos can be constructed in two ways:  As a "regular" ReJitInfo indexed by
-// MethodDesc *, or as a "placeholder" ReJitInfo (to satisfy pre-rejit requests) indexed
-// by (Module *, methodDef).  Both constructors call this helper to do all the common
-// code for initializing the ReJitInfo.
-//
-
-void ReJitInfo::CommonInit()
-{
-    LIMITED_METHOD_CONTRACT;
-
-    m_pCode = NULL;
-    m_pNext = NULL;
-    m_dwInternalFlags = kJumpNone;
-    m_pShared->AddMethod(this);
-    ZeroMemory(m_rgSavedCode, sizeof(m_rgSavedCode));
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Regardless of which kind of ReJitInfo this is, this will always return its
-// corresponding Module * & methodDef
-//
-// Arguments:
-//      * ppModule - [out] Module * related to this ReJitInfo (which contains the
-//          returned methodDef)
-//      * pMethodDef - [out] methodDef related to this ReJitInfo
-//
-
-void ReJitInfo::GetModuleAndTokenRegardlessOfKeyType(Module ** ppModule, mdMethodDef * pMethodDef)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        SO_NOT_MAINLINE;
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(ppModule != NULL);
-    _ASSERTE(pMethodDef != NULL);
-
-    if (m_key.m_keyType == Key::kMetadataToken)
-    {
-        GetModuleAndToken(ppModule, pMethodDef);
-    }
-    else
-    {
-        MethodDesc * pMD = GetMethodDesc();
-        _ASSERTE(pMD != NULL);
-        _ASSERTE(pMD->IsRestored());
-
-        *ppModule = pMD->GetModule();
-        *pMethodDef = pMD->GetMemberDef();
-    }
-
-    _ASSERTE(*ppModule != NULL);
-    _ASSERTE(*pMethodDef != mdTokenNil);
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Used as part of the hash table implementation in the containing ReJitManager, this
-// hashes a ReJitInfo by MethodDesc * when available, else by (Module *, methodDef)
-// 
-// Arguments:
-//     key - Key representing the ReJitInfo to hash
-//
-// Return Value:
-//     Hash value of the ReJitInfo represented by the specified key
-//
-
-// static
-COUNT_T ReJitInfo::Hash(Key key)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    if (key.m_keyType == Key::kMethodDesc)
-    {
-        return HashPtr(0, PTR_MethodDesc(key.m_pMD));
-    }
-
-    _ASSERTE (key.m_keyType == Key::kMetadataToken);
-
-    return HashPtr(key.m_methodDef, PTR_Module(key.m_pModule));
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Return the IL to compile for a given ReJitInfo
-//
-// Return Value:
-//      Pointer to IL buffer to compile.  If the profiler has specified IL to rejit,
-//      this will be our copy of the IL buffer specified by the profiler.  Else, this
-//      points to the original IL for the method from its module's metadata.
-//
-// Notes:
-//     IL memory is managed by us, not the caller.  Caller must not free the buffer.
-//
-
-COR_ILMETHOD * ReJitInfo::GetIL()
-{
-    CONTRACTL
-    {
-        THROWS;             // Getting original IL via PEFile::GetIL can throw
-        CAN_TAKE_LOCK;      // Looking up dynamically overridden IL takes a lock
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    if (m_pShared->m_pbIL != NULL)
-    {
-        return reinterpret_cast<COR_ILMETHOD *>(m_pShared->m_pbIL);
-    }
-
-    // If the user hasn't overriden us, get whatever the original IL had
-    return GetMethodDesc()->GetILHeader(TRUE);
-}
-
-
-//---------------------------------------------------------------------------------------
-// SharedReJitInfo implementation
-
-
-SharedReJitInfo::SharedReJitInfo()
-    : m_dwInternalFlags(kStateRequested),
-    m_pbIL(NULL),
-    m_dwCodegenFlags(0),
-    m_reJitId(InterlockedIncrement(reinterpret_cast<LONG*>(&s_GlobalReJitId))),
-    m_pInfoList(NULL)
-{
-    LIMITED_METHOD_CONTRACT;
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Link in the specified ReJitInfo to the list maintained by this SharedReJitInfo
-//
-// Arguments:
-//      pInfo - ReJitInfo being added
-//
-
-void SharedReJitInfo::AddMethod(ReJitInfo * pInfo)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    _ASSERTE(pInfo->m_pShared == this);
-
-    // Push it on the head of our list
-    _ASSERTE(pInfo->m_pNext == NULL);
-    pInfo->m_pNext = PTR_ReJitInfo(m_pInfoList);
-    m_pInfoList = pInfo;
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Unlink the specified ReJitInfo from the list maintained by this SharedReJitInfo. 
-// Currently this is only used on AD unload to remove ReJitInfos of non-domain-neutral instantiations
-// of domain-neutral generics (which are tracked in the SharedDomain's ReJitManager). 
-// This may be used in the future once we implement memory reclamation on revert().
-//
-// Arguments:
-//      pInfo - ReJitInfo being removed
-//
-
-void SharedReJitInfo::RemoveMethod(ReJitInfo * pInfo)
-{
-    LIMITED_METHOD_CONTRACT;
-
-#ifndef DACCESS_COMPILE
-
-    // Find it
-    ReJitInfo ** ppEntry = &m_pInfoList;
-    while (*ppEntry != pInfo)
-    {
-        ppEntry = &(*ppEntry)->m_pNext;
-        _ASSERTE(*ppEntry != NULL);
-    }
-
-    // Remove it
-    _ASSERTE((*ppEntry)->m_pShared == this);
-    *ppEntry = (*ppEntry)->m_pNext;
-
-#endif // DACCESS_COMPILE
-}
 
 //---------------------------------------------------------------------------------------
 //
@@ -3849,9 +2299,9 @@ m_pMD(NULL), m_hr(S_OK)
     if (ReJitManager::IsReJITEnabled() && (pCode != NULL))
     {
         m_pMD = pMethodDesc;
-        ReJitManager* pReJitManager = pMethodDesc->GetReJitManager();
-        pReJitManager->m_crstTable.Enter();
-        m_hr = pReJitManager->DoJumpStampIfNecessary(pMethodDesc, pCode);
+        CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
+        pCodeVersionManager->EnterLock();
+        m_hr = ReJitManager::DoJumpStampIfNecessary(pMethodDesc, pCode);
     }
 }
 
@@ -3869,8 +2319,8 @@ ReJitPublishMethodHolder::~ReJitPublishMethodHolder()
 
     if (m_pMD)
     {
-        ReJitManager* pReJitManager = m_pMD->GetReJitManager();
-        pReJitManager->m_crstTable.Leave();
+        CodeVersionManager* pCodeVersionManager = m_pMD->GetCodeVersionManager();
+        pCodeVersionManager->LeaveLock();
         if (FAILED(m_hr))
         {
             ReJitManager::ReportReJITError(m_pMD->GetModule(), m_pMD->GetMemberDef(), m_pMD, m_hr);
@@ -3897,8 +2347,8 @@ m_pMethodTable(NULL)
     if (ReJitManager::IsReJITEnabled())
     {
         m_pMethodTable = pMethodTable;
-        ReJitManager* pReJitManager = pMethodTable->GetModule()->GetReJitManager();
-        pReJitManager->m_crstTable.Enter();
+        CodeVersionManager* pCodeVersionManager = pMethodTable->GetModule()->GetCodeVersionManager();
+        pCodeVersionManager->EnterLock();
         MethodTable::IntroducedMethodIterator itMethods(pMethodTable, FALSE);
         for (; itMethods.IsValid(); itMethods.Next())
         {
@@ -3914,10 +2364,10 @@ m_pMethodTable(NULL)
             PCODE pCode = pMD->GetNativeCode();
             if (pCode != NULL)
             {
-                HRESULT hr = pReJitManager->DoJumpStampIfNecessary(pMD, pCode);
+                HRESULT hr = ReJitManager::DoJumpStampIfNecessary(pMD, pCode);
                 if (FAILED(hr))
                 {
-                    ReJitManager::AddReJITError(pMD->GetModule(), pMD->GetMemberDef(), pMD, hr, &m_errors);
+                    CodeVersionManager::AddCodePublishError(pMD->GetModule(), pMD->GetMemberDef(), pMD, hr, &m_errors);
                 }
             }
         }
@@ -3938,8 +2388,8 @@ ReJitPublishMethodTableHolder::~ReJitPublishMethodTableHolder()
 
     if (m_pMethodTable)
     {
-        ReJitManager* pReJitManager = m_pMethodTable->GetModule()->GetReJitManager();
-        pReJitManager->m_crstTable.Leave();
+        CodeVersionManager* pCodeVersionManager = m_pMethodTable->GetModule()->GetCodeVersionManager();
+        pCodeVersionManager->LeaveLock();
         for (int i = 0; i < m_errors.Count(); i++)
         {
             ReJitManager::ReportReJITError(&(m_errors[i]));
@@ -3948,6 +2398,7 @@ ReJitPublishMethodTableHolder::~ReJitPublishMethodTableHolder()
 }
 #endif // !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 
+#endif // FEATURE_CODE_VERSIONING
 #else // FEATURE_REJIT
 
 // On architectures that don't support rejit, just keep around some do-nothing
@@ -3972,11 +2423,6 @@ HRESULT ReJitManager::RequestRevert(
     return E_NOTIMPL;
 }
 
-// static
-void ReJitManager::OnAppDomainExit(AppDomain * pAppDomain)
-{
-}
-
 ReJitManager::ReJitManager()
 {
 }
@@ -3993,11 +2439,6 @@ ReJITID ReJitManager::GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart)
 ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
 {
     return 0;
-}
-
-PCODE ReJitManager::GetCodeStart(PTR_MethodDesc pMD, ReJITID reJitId)
-{
-    return NULL;
 }
 
 HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * pcReJitIds, ReJITID reJitIds[])

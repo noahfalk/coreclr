@@ -30,7 +30,7 @@ InstrumentedILOffsetMapping::InstrumentedILOffsetMapping()
 //    the Module containing the instrumented method is destructed.
 //
 
-BOOL InstrumentedILOffsetMapping::IsNull()
+BOOL InstrumentedILOffsetMapping::IsNull() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
 
