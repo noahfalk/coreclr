@@ -58,7 +58,6 @@
 #include "typeequivalencehash.hpp"
 #endif
 
-#include "listlock.inl"
 #include "appdomain.inl"
 #include "typeparse.h"
 #include "mdaassistants.h"
@@ -5040,7 +5039,7 @@ FileLoadLock::~FileLoadLock()
         MODE_ANY;
     }
     CONTRACTL_END;
-    ((PEFile *) m_pData)->Release();
+    ((PEFile *) m_data)->Release();
 }
 
 DomainFile *FileLoadLock::GetDomainFile()

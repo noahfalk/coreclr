@@ -17,7 +17,8 @@
 #include "threads.h"
 #include "crst.h"
 
-class ListLock;
+template < typename ELEMENT >
+class ListLockBase;
 // This structure is used for running class init methods or JITing methods
 // (m_pData points to a FunctionDesc). This class cannot have a destructor since it is used
 // in function that also have EX_TRY's and the VC compiler doesn't allow classes with destructors
@@ -25,9 +26,10 @@ class ListLock;
 // <TODO>@FUTURE Keep a pool of these (e.g. an array), so we don't have to allocate on the fly</TODO>
 // m_hInitException contains a handle to the exception thrown by the class init. This
 // allows us to throw this information to the caller on subsequent class init attempts.
-class ListLockEntry
+template < typename ELEMENT >
+class ListLockEntryBase
 {
-    friend class ListLock;
+    friend class ListLockBase<ELEMENT>;
 
 public:
 #ifdef _DEBUG
@@ -40,11 +42,11 @@ public:
 #endif // DEBUG
 
     DeadlockAwareLock       m_deadlock;
-    ListLock *              m_pList;
-    void *                  m_pData;
+    ListLockBase<ELEMENT> * m_pList;
+    ELEMENT                 m_data;
     Crst                    m_Crst;
     const char *            m_pszDescription;
-    ListLockEntry *         m_pNext;
+    ListLockEntryBase<ELEMENT> * m_pNext;
     DWORD                   m_dwRefCount;
     HRESULT                 m_hrResultCode;
     LOADERHANDLE            m_hInitException;
@@ -54,9 +56,27 @@ public:
     CorruptionSeverity      m_CorruptionSeverity;
 #endif // FEATURE_CORRUPTING_EXCEPTIONS
 
-    ListLockEntry(ListLock *pList, void *pData, const char *description = NULL);
+    ListLockEntryBase(ListLockBase<ELEMENT> *pList, ELEMENT data, const char *description = NULL)
+    : m_deadlock(description),
+        m_pList(pList),
+        m_data(data),
+        m_Crst(CrstListLock,
+        (CrstFlags)(CRST_REENTRANCY | (pList->IsHostBreakable() ? CRST_HOST_BREAKABLE : 0))),
+        m_pszDescription(description),
+        m_pNext(NULL),
+        m_dwRefCount(1),
+        m_hrResultCode(S_FALSE),
+        m_hInitException(NULL),
+        m_pLoaderAllocator(NULL)
+#ifdef FEATURE_CORRUPTING_EXCEPTIONS
+        ,
+        m_CorruptionSeverity(NotCorrupting)
+#endif // FEATURE_CORRUPTING_EXCEPTIONS
+    {
+        WRAPPER_NO_CONTRACT;
+    }
 
-    virtual ~ListLockEntry()
+    virtual ~ListLockEntryBase()
     {
     }
 
@@ -102,10 +122,65 @@ public:
         m_Crst.Leave();
     }
 
-    static ListLockEntry *Find(ListLock* pLock, LPVOID pPointer, const char *description = NULL) DAC_EMPTY_RET(NULL);
+    static ListLockEntry *Find(ListLockBase<ELEMENT>* pLock, ELEMENT data, const char *description = NULL)
+    {
+        CONTRACTL
+        {
+            THROWS;
+            GC_NOTRIGGER;
+            MODE_ANY;
+        }
+        CONTRACTL_END;
 
-    void AddRef() DAC_EMPTY_ERR();
-    void Release() DAC_EMPTY_ERR();
+        _ASSERTE(pLock->HasLock());
+
+        ListLockEntryBase<ELEMENT> *pEntry = pLock->Find(data);
+        if (pEntry == NULL)
+        {
+            pEntry = new ListLockEntryBase<ELEMENT>(pLock, data, description);
+            pLock->AddElement(pEntry);
+        }
+        else
+            pEntry->AddRef();
+
+        return pEntry;
+    };
+
+
+    void AddRef()
+    {
+        CONTRACTL
+        {
+            NOTHROW;
+            GC_NOTRIGGER;
+            MODE_ANY;
+            PRECONDITION(CheckPointer(this));
+        }
+        CONTRACTL_END;
+
+        FastInterlockIncrement((LONG*)&m_dwRefCount);
+    }
+
+    void Release()
+    {
+        CONTRACTL
+        {
+            NOTHROW;
+            GC_TRIGGERS;
+            MODE_ANY;
+            PRECONDITION(CheckPointer(this));
+        }
+        CONTRACTL_END;
+
+        ListLockBase<ELEMENT>::LockHolder lock(m_pList);
+
+        if (FastInterlockDecrement((LONG*)&m_dwRefCount) == 0)
+        {
+            // Remove from list
+            m_pList->Unlink(this);
+            delete this;
+        }
+    };
 
 #ifdef _DEBUG
     BOOL HasLock()
@@ -117,14 +192,14 @@ public:
 
     // LockHolder holds the lock of the element, not the element itself
 
-    DEBUG_NOINLINE static void LockHolderEnter(ListLockEntry *pThis) PUB
+    DEBUG_NOINLINE static void LockHolderEnter(ListLockEntryBase<ELEMENT> *pThis) PUB
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Enter();
     }
 
-    DEBUG_NOINLINE static void LockHolderLeave(ListLockEntry *pThis) PUB
+    DEBUG_NOINLINE static void LockHolderLeave(ListLockEntryBase<ELEMENT> *pThis) PUB
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
@@ -139,7 +214,7 @@ public:
         m_deadlock.EndEnterLock();
     }
 
-    typedef Wrapper<ListLockEntry *, ListLockEntry::LockHolderEnter, ListLockEntry::LockHolderLeave> LockHolderBase;
+    typedef Wrapper<ListLockEntryBase<ELEMENT> *, ListLockEntryBase<ELEMENT>::LockHolderEnter, ListLockEntryBase<ELEMENT>::LockHolderLeave> LockHolderBase;
 
     class LockHolder : public LockHolderBase
     {
@@ -150,7 +225,7 @@ public:
         {
         }
 
-        LockHolder(ListLockEntry *value, BOOL take = TRUE) 
+        LockHolder(ListLockEntryBase<ELEMENT> *value, BOOL take = TRUE) 
           : LockHolderBase(value, take)
         {
         }
@@ -169,13 +244,14 @@ public:
     };
 };
 
-class ListLock
+template < typename ELEMENT >
+class ListLockBase
 {
  protected:
     CrstStatic          m_Crst;
     BOOL                m_fInited;
     BOOL                m_fHostBreakable;        // Lock can be broken by a host for deadlock detection
-    ListLockEntry * m_pHead;
+    ListLockEntryBase<ELEMENT> * m_pHead;
 
  public:
 
@@ -219,7 +295,7 @@ class ListLock
         return m_fHostBreakable;
     }
 
-    void AddElement(ListLockEntry* pElement)
+    void AddElement(ListLockEntryBase<ELEMENT>* pElement)
     {
         WRAPPER_NO_CONTRACT;
         pElement->m_pNext = m_pHead;
@@ -257,10 +333,36 @@ class ListLock
 
     // Must own the lock before calling this or is ok if the debugger has
     // all threads stopped
-    ListLockEntry *Find(void *pData);
+    inline ListLockEntryBase<ELEMENT> *Find(ELEMENT data)
+    {
+        CONTRACTL
+        {
+            NOTHROW;
+        GC_NOTRIGGER;
+        PRECONDITION(CheckPointer(this));
+#ifdef DEBUGGING_SUPPORTED
+        PRECONDITION(m_Crst.OwnedByCurrentThread() ||
+            CORDebuggerAttached() && g_pDebugInterface->IsStopped());
+#else
+        PRECONDITION(m_Crst.OwnedByCurrentThread());
+#endif // DEBUGGING_SUPPORTED
+
+        }
+        CONTRACTL_END;
+
+        ListLockEntryBase<ELEMENT> *pSearch;
+
+        for (pSearch = m_pHead; pSearch != NULL; pSearch = pSearch->m_pNext)
+        {
+            if (pSearch->m_data == data)
+                return pSearch;
+        }
+
+        return NULL;
+    }
 
     // Must own the lock before calling this!
-    ListLockEntry* Pop(BOOL unloading = FALSE) 
+    ListLockEntryBase<ELEMENT>* Pop(BOOL unloading = FALSE) 
     {
         LIMITED_METHOD_CONTRACT;
 #ifdef _DEBUG
@@ -269,13 +371,13 @@ class ListLock
 #endif
 
         if(m_pHead == NULL) return NULL;
-        ListLockEntry* pEntry = m_pHead;
+        ListLockEntryBase<ELEMENT>* pEntry = m_pHead;
         m_pHead = m_pHead->m_pNext;
         return pEntry;
     }
 
     // Must own the lock before calling this!
-    ListLockEntry* Peek() 
+    ListLockEntryBase<ELEMENT>* Peek() 
     {
 		LIMITED_METHOD_CONTRACT;
         _ASSERTE(m_Crst.OwnedByCurrentThread());
@@ -283,12 +385,12 @@ class ListLock
     }
 
     // Must own the lock before calling this!
-    BOOL Unlink(ListLockEntry *pItem)
+    BOOL Unlink(ListLockEntryBase<ELEMENT> *pItem)
     {
 		LIMITED_METHOD_CONTRACT;
         _ASSERTE(m_Crst.OwnedByCurrentThread());
-        ListLockEntry *pSearch;
-        ListLockEntry *pPrev;
+        ListLockEntryBase<ELEMENT> *pSearch;
+        ListLockEntryBase<ELEMENT> *pPrev;
 
         pPrev = NULL;
 
@@ -320,21 +422,21 @@ class ListLock
     }
 #endif
 
-    DEBUG_NOINLINE static void HolderEnter(ListLock *pThis)
+    DEBUG_NOINLINE static void HolderEnter(ListLockBase<ELEMENT> *pThis)
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Enter();
     }
 
-    DEBUG_NOINLINE static void HolderLeave(ListLock *pThis)
+    DEBUG_NOINLINE static void HolderLeave(ListLockBase<ELEMENT> *pThis)
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Leave();
     }
 
-    typedef Wrapper<ListLock*, ListLock::HolderEnter, ListLock::HolderLeave> LockHolder;
+    typedef Wrapper<ListLockBase<ELEMENT>*, ListLockBase<ELEMENT>::HolderEnter, ListLockBase<ELEMENT>::HolderLeave> LockHolder;
 };
 
 class WaitingThreadListElement
@@ -343,6 +445,9 @@ public:
     Thread *                   m_pThread;
     WaitingThreadListElement * m_pNext;
 };
+
+typedef class ListLockBase<void*> ListLock;
+typedef class ListLockEntryBase<void*> ListLockEntry;
 
 // Holds the lock of the ListLock
 typedef ListLock::LockHolder ListLockHolder;

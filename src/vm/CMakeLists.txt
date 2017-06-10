@@ -219,7 +219,6 @@ set(VM_SOURCES_WKS
     interpreter.cpp
     invokeutil.cpp
     jithelpers.cpp
-    listlock.cpp
     managedmdimport.cpp
     marshalnative.cpp
     marvin32.cpp

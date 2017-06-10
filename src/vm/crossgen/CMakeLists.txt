@@ -47,7 +47,6 @@ set(VM_CROSSGEN_SOURCES
     ../contractimpl.cpp
     ../jitinterface.cpp
     ../loaderallocator.cpp
-    ../listlock.cpp
     ../memberload.cpp
     ../method.cpp
     ../methodimpl.cpp

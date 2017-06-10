@@ -843,7 +843,7 @@ public:
              pEntry != NULL;
              pEntry = pEntry->m_pNext)
         {
-            if (((PEFile *)pEntry->m_pData)->Equals(pFile))
+            if (((PEFile *)pEntry->m_data)->Equals(pFile))
             {
                 return pEntry;
             }

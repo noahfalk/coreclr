@@ -67,7 +67,6 @@
 #include "typeequivalencehash.hpp"
 #endif
 
-#include "listlock.inl"
 #include "generics.h"
 #include "genericdict.h"
 #include "typestring.h"

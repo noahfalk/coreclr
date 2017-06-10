@@ -17,7 +17,6 @@
 #include "dllimport.h"
 #include "comdelegate.h"
 #include "dbginterface.h"
-#include "listlock.inl"
 #include "stubgen.h"
 #include "eventtrace.h"
 #include "array.h"
