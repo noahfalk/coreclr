@@ -17,9 +17,6 @@
 #include "../debug/ee/controller.h"
 #endif // FEATURE_CODE_VERSIONING
 
-// This HRESULT is only used as a private implementation detail. If it escapes functions
-// defined in this file it is a bug. Corerror.xml has a comment in it reserving this
-// value for our use but it doesn't appear in the public headers.
 #ifndef FEATURE_CODE_VERSIONING
 
 //
@@ -55,6 +52,12 @@ bool ILCodeVersion::operator!=(const ILCodeVersion & rhs) const { return m_pMeth
 
 
 #else // FEATURE_CODE_VERSIONING
+
+
+// This HRESULT is only used as a private implementation detail. If it escapes through public APIS
+// it is a bug. Corerror.xml has a comment in it reserving this value for our use but it doesn't
+// appear in the public headers.
+
 #define CORPROF_E_RUNTIME_SUSPEND_REQUIRED 0x80131381
 
 #ifndef DACCESS_COMPILE
@@ -62,39 +65,89 @@ NativeCodeVersionNode::NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc*
     m_id(id),
     m_pMethodDesc(pMethodDesc),
     m_parentId(parentId),
-    m_pNextILVersionSibling(NULL),
-    m_pNativeCode(NULL)
+    m_pNextMethodDescSibling(NULL),
+    m_pNativeCode(NULL),
+    m_optTier(NativeCodeVersion::OptimizationTier0),
+    m_flags(0)
 {}
 #endif
 
 PTR_MethodDesc NativeCodeVersionNode::GetMethodDesc() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pMethodDesc;
 }
 
 PCODE NativeCodeVersionNode::GetNativeCode() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pNativeCode;
 }
 
 ReJITID NativeCodeVersionNode::GetILVersionId() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_parentId;
 }
 
 ILCodeVersion NativeCodeVersionNode::GetILCodeVersion() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     PTR_MethodDesc pMD = GetMethodDesc();
     return pMD->GetCodeVersionManager()->GetILCodeVersion(pMD, GetILVersionId());
+}
+
+NativeCodeVersionId NativeCodeVersionNode::GetVersionId() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_id;
 }
 
 #ifndef DACCESS_COMPILE
 BOOL NativeCodeVersionNode::SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected)
 {
+    LIMITED_METHOD_CONTRACT;
     return FastInterlockCompareExchangePointer(&m_pNativeCode,
         (TADDR&)pCode, (TADDR&)pExpected) == (TADDR&)pExpected;
 }
 #endif
+
+BOOL NativeCodeVersionNode::IsActiveChildVersion() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (m_flags & IsActiveChildFlag) != 0;
+}
+
+#ifndef DACCESS_COMPILE
+void NativeCodeVersionNode::SetActiveChildFlag(BOOL isActive)
+{
+    LIMITED_METHOD_CONTRACT;
+    if (isActive)
+    {
+        m_flags |= IsActiveChildFlag;
+    }
+    else
+    {
+        m_flags &= ~IsActiveChildFlag;
+    }
+}
+#endif
+
+
+#ifdef FEATURE_TIERED_COMPILATION
+NativeCodeVersion::OptimizationTier NativeCodeVersionNode::GetOptimizationTier() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_optTier;
+}
+#ifndef DACCESS_COMPILE
+void NativeCodeVersionNode::SetOptimizationTier(NativeCodeVersion::OptimizationTier tier)
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    m_optTier = tier;
+}
+#endif
+#endif // FEATURE_TIERED_COMPILATION
 
 NativeCodeVersion::NativeCodeVersion() :
     m_storageKind(StorageKind::Unknown)
@@ -102,7 +155,8 @@ NativeCodeVersion::NativeCodeVersion() :
 
 NativeCodeVersion::NativeCodeVersion(const NativeCodeVersion & rhs) :
     m_storageKind(rhs.m_storageKind),
-    m_pVersionNode(rhs.m_pVersionNode)
+    m_pVersionNode(rhs.m_pVersionNode),
+    m_synthetic(rhs.m_synthetic)
 {}
 
 NativeCodeVersion::NativeCodeVersion(PTR_NativeCodeVersionNode pVersionNode) :
@@ -110,51 +164,213 @@ NativeCodeVersion::NativeCodeVersion(PTR_NativeCodeVersionNode pVersionNode) :
     m_pVersionNode(pVersionNode)
 {}
 
+NativeCodeVersion::NativeCodeVersion(PTR_MethodDesc pMethod) :
+    m_storageKind(pMethod != NULL ? StorageKind::Synthetic : StorageKind::Unknown)
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    m_synthetic.m_pMethodDesc = pMethod;
+}
+
 BOOL NativeCodeVersion::IsNull() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_storageKind == StorageKind::Unknown;
+}
+
+BOOL NativeCodeVersion::IsDefaultVersion() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_storageKind == StorageKind::Synthetic;
 }
 
 PTR_MethodDesc NativeCodeVersion::GetMethodDesc() const
 {
-    return AsNode()->GetMethodDesc();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetMethodDesc();
+    }
+    else
+    {
+        return m_synthetic.m_pMethodDesc;
+    }
 }
 
 PCODE NativeCodeVersion::GetNativeCode() const
 {
-    return AsNode()->GetNativeCode();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetNativeCode();
+    }
+    else
+    {
+        return GetMethodDesc()->GetNativeCode();
+    }
 }
 
 ILCodeVersion NativeCodeVersion::GetILCodeVersion() const
 {
-    return AsNode()->GetILCodeVersion();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetILCodeVersion();
+    }
+    else
+    {
+        PTR_MethodDesc pMethod = GetMethodDesc();
+        return ILCodeVersion(dac_cast<PTR_Module>(pMethod->GetModule()), pMethod->GetMemberDef());
+    }
+}
+
+NativeCodeVersionId NativeCodeVersion::GetVersionId() const 
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetVersionId();
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 #ifndef DACCESS_COMPILE
 BOOL NativeCodeVersion::SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected)
 {
-    return AsNode()->SetNativeCodeInterlocked(pCode, pExpected);
+    LIMITED_METHOD_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->SetNativeCodeInterlocked(pCode, pExpected);
+    }
+    else
+    {
+        return GetMethodDesc()->SetNativeCodeInterlocked(pCode, pExpected);
+    }
 }
+#endif
+
+BOOL NativeCodeVersion::IsActiveChildVersion() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->IsActiveChildVersion();
+    }
+    else
+    {
+        MethodDescVersioningState* pMethodVersioningState = GetMethodDescVersioningState();
+        if (pMethodVersioningState == NULL)
+        {
+            return TRUE;
+        }
+        return pMethodVersioningState->IsDefaultVersionActiveChild();
+    }
+}
+
+PTR_MethodDescVersioningState NativeCodeVersion::GetMethodDescVersioningState() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    PTR_MethodDesc pMethodDesc = GetMethodDesc();
+    CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
+    return pCodeVersionManager->GetMethodDescVersioningState(pMethodDesc);
+}
+
+#ifndef DACCESS_COMPILE
+void NativeCodeVersion::SetActiveChildFlag(BOOL isActive)
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        AsNode()->SetActiveChildFlag(isActive);
+    }
+    else
+    {
+        MethodDescVersioningState* pMethodVersioningState = GetMethodDescVersioningState();
+        pMethodVersioningState->SetDefaultVersionActiveChildFlag(isActive);
+    }
+}
+
+MethodDescVersioningState* NativeCodeVersion::GetMethodDescVersioningState()
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    MethodDesc* pMethodDesc = GetMethodDesc();
+    CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
+    return pCodeVersionManager->GetMethodDescVersioningState(pMethodDesc);
+}
+#endif
+
+#ifdef FEATURE_TIERED_COMPILATION
+NativeCodeVersion::OptimizationTier NativeCodeVersion::GetOptimizationTier() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetOptimizationTier();
+    }
+    else
+    {
+        return NativeCodeVersion::OptimizationTier0;
+    }
+}
+
+#ifndef DACCESS_COMPILE
+void NativeCodeVersion::SetOptimizationTier(NativeCodeVersion::OptimizationTier tier)
+{
+    LIMITED_METHOD_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        AsNode()->SetOptimizationTier(tier);
+    }
+    else
+    {
+        _ASSERTE(!"Do not call SetOptimizationTier on default code versions - these versions are immutable");
+    }
+}
+#endif
 #endif
 
 PTR_NativeCodeVersionNode NativeCodeVersion::AsNode() const
 {
-    return m_pVersionNode;
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return m_pVersionNode;
+    }
+    else
+    {
+        return NULL;
+    }
 }
 
 #ifndef DACCESS_COMPILE
 PTR_NativeCodeVersionNode NativeCodeVersion::AsNode()
 {
-    return m_pVersionNode;
+    LIMITED_METHOD_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return m_pVersionNode;
+    }
+    else
+    {
+        return NULL;
+    }
 }
 #endif
 
 bool NativeCodeVersion::operator==(const NativeCodeVersion & rhs) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     if (m_storageKind == StorageKind::Explicit)
     {
         return (rhs.m_storageKind == StorageKind::Explicit) &&
             (rhs.AsNode() == AsNode());
+    }
+    else if (m_storageKind == StorageKind::Synthetic)
+    {
+        return (rhs.m_storageKind == StorageKind::Synthetic) &&
+            (m_synthetic.m_pMethodDesc == rhs.m_synthetic.m_pMethodDesc);
     }
     else
     {
@@ -163,41 +379,111 @@ bool NativeCodeVersion::operator==(const NativeCodeVersion & rhs) const
 }
 bool NativeCodeVersion::operator!=(const NativeCodeVersion & rhs) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return !operator==(rhs);
 }
 
-NativeCodeVersionCollection::NativeCodeVersionCollection()
+NativeCodeVersionCollection::NativeCodeVersionCollection(PTR_MethodDesc pMethodDescFilter, ILCodeVersion ilCodeFilter) :
+    m_pMethodDescFilter(pMethodDescFilter),
+    m_ilCodeFilter(ilCodeFilter)
 {
-    //TODO
 }
 
 NativeCodeVersionIterator NativeCodeVersionCollection::Begin()
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return NativeCodeVersionIterator(this);
 }
 NativeCodeVersionIterator NativeCodeVersionCollection::End()
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return NativeCodeVersionIterator(NULL);
 }
 
-NativeCodeVersionIterator::NativeCodeVersionIterator(NativeCodeVersionCollection* pNativeCodeVersionCollection)
+NativeCodeVersionIterator::NativeCodeVersionIterator(NativeCodeVersionCollection* pNativeCodeVersionCollection) :
+    m_stage(IterationStage::Initial),
+    m_pCollection(pNativeCodeVersionCollection),
+    m_pLinkedListCur(dac_cast<PTR_NativeCodeVersionNode>(NULL))
 {
-    //TODO
+    LIMITED_METHOD_DAC_CONTRACT;
+    First();
 }
 void NativeCodeVersionIterator::First()
 {
-    //TODO
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_pCollection == NULL)
+    {
+        m_stage = IterationStage::End;
+    }
+    Next();
 }
 void NativeCodeVersionIterator::Next()
 {
-    //TODO
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_stage == IterationStage::Initial)
+    {
+        ILCodeVersion ilCodeFilter = m_pCollection->m_ilCodeFilter;
+        m_stage = IterationStage::ImplicitCodeVersion;
+        if (ilCodeFilter.IsNull() || ilCodeFilter.IsDefaultVersion())
+        {
+            m_cur = NativeCodeVersion(m_pCollection->m_pMethodDescFilter);
+            return;
+        }
+    }
+    if (m_stage == IterationStage::ImplicitCodeVersion)
+    {
+        m_stage = IterationStage::LinkedList;
+        CodeVersionManager* pCodeVersionManager = m_pCollection->m_pMethodDescFilter->GetCodeVersionManager();
+        MethodDescVersioningState* pMethodDescVersioningState = pCodeVersionManager->GetMethodDescVersioningState(m_pCollection->m_pMethodDescFilter);
+        if (pMethodDescVersioningState == NULL)
+        {
+            m_pLinkedListCur = NULL;
+        }
+        else
+        {
+            ILCodeVersion ilCodeFilter = m_pCollection->m_ilCodeFilter;
+            m_pLinkedListCur = pMethodDescVersioningState->GetFirstVersionNode();
+            while (m_pLinkedListCur != NULL && !ilCodeFilter.IsNull() && ilCodeFilter.GetVersionId() != m_pLinkedListCur->GetILVersionId())
+            {
+                m_pLinkedListCur = m_pLinkedListCur->m_pNextMethodDescSibling;
+            }
+        }
+        if (m_pLinkedListCur != NULL)
+        {
+            m_cur = NativeCodeVersion(m_pLinkedListCur);
+            return;
+        }
+    }
+    if (m_stage == IterationStage::LinkedList)
+    {
+        if (m_pLinkedListCur != NULL)
+        {
+            ILCodeVersion ilCodeFilter = m_pCollection->m_ilCodeFilter;
+            do
+            {
+                m_pLinkedListCur = m_pLinkedListCur->m_pNextMethodDescSibling;
+            } while (m_pLinkedListCur != NULL && !ilCodeFilter.IsNull() && ilCodeFilter.GetVersionId() != m_pLinkedListCur->GetILVersionId());
+        }
+        if (m_pLinkedListCur != NULL)
+        {
+            m_cur = NativeCodeVersion(m_pLinkedListCur);
+            return;
+        }
+        else
+        {
+            m_stage = IterationStage::End;
+            m_cur = NativeCodeVersion();
+        }
+    }
 }
 const NativeCodeVersion & NativeCodeVersionIterator::Get() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_cur;
 }
 bool NativeCodeVersionIterator::Equal(const NativeCodeVersionIterator &i) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_cur == i.m_cur;
 }
 
@@ -205,7 +491,7 @@ ILCodeVersionNode::ILCodeVersionNode() :
     m_pModule((TADDR)NULL),
     m_methodDef(0),
     m_rejitId(0),
-    m_pFirstChild((TADDR)NULL),
+    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL)),
     m_rejitState(ILCodeVersion::kStateRequested),
     m_pIL((TADDR)NULL),
     m_jitFlags(0)
@@ -216,117 +502,90 @@ ILCodeVersionNode::ILCodeVersionNode(Module* pModule, mdMethodDef methodDef, ReJ
     m_pModule(pModule),
     m_methodDef(methodDef),
     m_rejitId(id),
-    m_pFirstChild(NULL),
+    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL)),
     m_rejitState(ILCodeVersion::kStateRequested),
     m_pIL(NULL),
     m_jitFlags(0)
 {}
 #endif
 
-PTR_Module ILCodeVersionNode::GetModule()
+PTR_Module ILCodeVersionNode::GetModule() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pModule;
 }
 
-mdMethodDef ILCodeVersionNode::GetMethodDef()
+mdMethodDef ILCodeVersionNode::GetMethodDef() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_methodDef;
 }
 
-ReJITID ILCodeVersionNode::GetVersionId()
+ReJITID ILCodeVersionNode::GetVersionId() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_rejitId;
-}
-
-PTR_NativeCodeVersionNode ILCodeVersionNode::GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc)
-{
-    //TODO: this doesn't handle generics or tiered compilation multiple child versions yet
-    return m_pFirstChild;
 }
 
 ILCodeVersion::RejitFlags ILCodeVersionNode::GetRejitState() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_rejitState;
 }
 
 PTR_COR_ILMETHOD ILCodeVersionNode::GetIL() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pIL;
 }
 
 DWORD ILCodeVersionNode::GetJitFlags() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_jitFlags;
 }
 
 const InstrumentedILOffsetMapping* ILCodeVersionNode::GetInstrumentedILMap() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return &m_instrumentedILMap;
+}
+
+PTR_ILCodeVersionNode ILCodeVersionNode::GetNextILVersionNode() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_pNextILVersionNode;
 }
 
 #ifndef DACCESS_COMPILE
 void ILCodeVersionNode::SetRejitState(ILCodeVersion::RejitFlags newState)
 {
+    LIMITED_METHOD_CONTRACT;
     m_rejitState = newState;
 }
 
 void ILCodeVersionNode::SetIL(COR_ILMETHOD* pIL)
 {
+    LIMITED_METHOD_CONTRACT;
     m_pIL = pIL;
 }
 
 void ILCodeVersionNode::SetJitFlags(DWORD flags)
 {
+    LIMITED_METHOD_CONTRACT;
     m_jitFlags = flags;
 }
 
 void ILCodeVersionNode::SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap)
 {
+    LIMITED_METHOD_CONTRACT;
     m_instrumentedILMap.SetMappingInfo(cMap, rgMap);
 }
-#endif
 
-ILCodeVersionNode::Key::Key() :
-    m_pModule(dac_cast<PTR_Module>(NULL)),
-    m_methodDef(0)
-{}
-
-ILCodeVersionNode::Key::Key(PTR_Module pModule, mdMethodDef methodDef) :
-    m_pModule(pModule),
-    m_methodDef(methodDef)
-{}
-
-
-
-size_t ILCodeVersionNode::Key::Hash() const
+void ILCodeVersionNode::SetNextILVersionNode(ILCodeVersionNode* pNextILVersionNode)
 {
-    return (size_t)(dac_cast<TADDR>(m_pModule) ^ m_methodDef);
-}
-
-bool ILCodeVersionNode::Key::operator==(const Key & rhs) const
-{
-    return (m_pModule == rhs.m_pModule) && (m_methodDef == rhs.m_methodDef);
-}
-
-ILCodeVersionNode::Key ILCodeVersionNode::GetKey() const
-{
-    return Key(m_pModule, m_methodDef);
-}
-
-#ifndef DACCESS_COMPILE
-void ILCodeVersionNode::LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode)
-{
-    if (m_pFirstChild == NULL)
-    {
-        m_pFirstChild = pNativeCodeVersionNode;
-        return;
-    }
-    NativeCodeVersionNode* pCur = m_pFirstChild;
-    while (pCur->m_pNextILVersionSibling != NULL)
-    {
-        pCur = pCur->m_pNextILVersionSibling;
-    }
-    pCur->m_pNextILVersionSibling = pNativeCodeVersionNode;
+    LIMITED_METHOD_CONTRACT;
+    m_pNextILVersionNode = pNextILVersionNode;
 }
 #endif
 
@@ -336,7 +595,8 @@ ILCodeVersion::ILCodeVersion() :
 
 ILCodeVersion::ILCodeVersion(const ILCodeVersion & ilCodeVersion) :
     m_storageKind(ilCodeVersion.m_storageKind),
-    m_pVersionNode(ilCodeVersion.m_pVersionNode)
+    m_pVersionNode(ilCodeVersion.m_pVersionNode),
+    m_synthetic(ilCodeVersion.m_synthetic)
 {}
 
 ILCodeVersion::ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode) :
@@ -344,12 +604,27 @@ ILCodeVersion::ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode) :
     m_pVersionNode(pILCodeVersionNode)
 {}
 
+ILCodeVersion::ILCodeVersion(PTR_Module pModule, mdMethodDef methodDef) :
+    m_storageKind(pModule != NULL ? StorageKind::Synthetic : StorageKind::Unknown)
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    m_synthetic.m_pModule = pModule;
+    m_synthetic.m_methodDef = methodDef;
+}
+
 bool ILCodeVersion::operator==(const ILCodeVersion & rhs) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     if (m_storageKind == StorageKind::Explicit)
     {
-        return rhs.m_storageKind == StorageKind::Explicit &&
-            AsNode() == rhs.AsNode();
+        return (rhs.m_storageKind == StorageKind::Explicit) &&
+            (AsNode() == rhs.AsNode());
+    }
+    else if (m_storageKind == StorageKind::Synthetic)
+    {
+        return (rhs.m_storageKind == StorageKind::Synthetic) &&
+            (m_synthetic.m_pModule == rhs.m_synthetic.m_pModule) &&
+            (m_synthetic.m_methodDef == rhs.m_synthetic.m_methodDef);
     }
     else
     {
@@ -359,99 +634,235 @@ bool ILCodeVersion::operator==(const ILCodeVersion & rhs) const
 
 BOOL ILCodeVersion::IsNull() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_storageKind == StorageKind::Unknown;
 }
 
-PTR_Module ILCodeVersion::GetModule()
+BOOL ILCodeVersion::IsDefaultVersion() const
 {
-    return AsNode()->GetModule();
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_storageKind == StorageKind::Synthetic;
 }
 
-mdMethodDef ILCodeVersion::GetMethodDef()
+PTR_Module ILCodeVersion::GetModule() const
 {
-    return AsNode()->GetMethodDef();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetModule();
+    }
+    else
+    {
+        return m_synthetic.m_pModule;
+    }
 }
 
-ReJITID ILCodeVersion::GetVersionId() 
+mdMethodDef ILCodeVersion::GetMethodDef() const
 {
-    return AsNode()->GetVersionId();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetMethodDef();
+    }
+    else
+    {
+        return m_synthetic.m_methodDef;
+    }
 }
 
-NativeCodeVersionCollection ILCodeVersion::GetNativeCodeVersions(PTR_MethodDesc pClosedMethodDesc)
+ReJITID ILCodeVersion::GetVersionId() const
 {
-    //TODO
-    return NativeCodeVersionCollection();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetVersionId();
+    }
+    else
+    {
+        return 0;
+    }
 }
 
-NativeCodeVersion ILCodeVersion::GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc)
+NativeCodeVersionCollection ILCodeVersion::GetNativeCodeVersions(PTR_MethodDesc pClosedMethodDesc) const
 {
-    return NativeCodeVersion(AsNode()->GetActiveNativeCodeVersion(pClosedMethodDesc));
+    LIMITED_METHOD_DAC_CONTRACT;
+    return NativeCodeVersionCollection(pClosedMethodDesc, *this);
+}
+
+NativeCodeVersion ILCodeVersion::GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc) const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    NativeCodeVersionCollection versions = GetNativeCodeVersions(pClosedMethodDesc);
+    for (NativeCodeVersionIterator cur = versions.Begin(), end = versions.End(); cur != end; cur++)
+    {
+        if (cur->IsActiveChildVersion())
+        {
+            return *cur;
+        }
+    }
+    return NativeCodeVersion();
 }
 
 ILCodeVersion::RejitFlags ILCodeVersion::GetRejitState() const
 {
-    return AsNode()->GetRejitState();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetRejitState();
+    }
+    else
+    {
+        return ILCodeVersion::kStateActive;
+    }
 }
 
 PTR_COR_ILMETHOD ILCodeVersion::GetIL() const
 {
-    return AsNode()->GetIL();
+    CONTRACTL
+    {
+        THROWS; //GetILHeader throws
+        GC_NOTRIGGER;
+        FORBID_FAULT;
+        MODE_ANY;
+    }
+    CONTRACTL_END
+
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetIL();
+    }
+    else
+    {
+        PTR_Module pModule = GetModule();
+        PTR_MethodDesc pMethodDesc = dac_cast<PTR_MethodDesc>(pModule->LookupMethodDef(GetMethodDef()));
+        if (pMethodDesc == NULL)
+        {
+            return NULL;
+        }
+        else
+        {
+            return dac_cast<PTR_COR_ILMETHOD>(pMethodDesc->GetILHeader(TRUE));
+        }
+    }
 }
 
 DWORD ILCodeVersion::GetJitFlags() const
 {
-    return AsNode()->GetJitFlags();
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetJitFlags();
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 const InstrumentedILOffsetMapping* ILCodeVersion::GetInstrumentedILMap() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return AsNode()->GetInstrumentedILMap();
 }
 
 #ifndef DACCESS_COMPILE
 void ILCodeVersion::SetRejitState(RejitFlags newState)
 {
+    LIMITED_METHOD_CONTRACT;
     AsNode()->SetRejitState(newState);
 }
 
 void ILCodeVersion::SetIL(COR_ILMETHOD* pIL)
 {
+    LIMITED_METHOD_CONTRACT;
     AsNode()->SetIL(pIL);
 }
 
 void ILCodeVersion::SetJitFlags(DWORD flags)
 {
+    LIMITED_METHOD_CONTRACT;
     AsNode()->SetJitFlags(flags);
 }
 
 void ILCodeVersion::SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap)
 {
+    LIMITED_METHOD_CONTRACT;
     AsNode()->SetInstrumentedILMap(cMap, rgMap);
 }
 
 HRESULT ILCodeVersion::AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion)
 {
+    LIMITED_METHOD_CONTRACT;
     CodeVersionManager* pManager = GetModule()->GetCodeVersionManager();
-    return pManager->AddNativeCodeVersion(*this, pClosedMethodDesc, pNativeCodeVersion);
+    HRESULT hr = pManager->AddNativeCodeVersion(*this, pClosedMethodDesc, pNativeCodeVersion);
+    if (FAILED(hr))
+    {
+        _ASSERTE(hr == E_OUTOFMEMORY);
+        return hr;
+    }
+    return S_OK;
 }
-#endif
 
-#ifndef DACCESS_COMPILE
-void ILCodeVersion::LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode)
+HRESULT ILCodeVersion::GetOrCreateActiveNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pActiveNativeCodeVersion)
 {
-    return AsNode()->LinkNativeCodeNode(pNativeCodeVersionNode);
+    LIMITED_METHOD_CONTRACT;
+    HRESULT hr = S_OK;
+    NativeCodeVersion activeNativeChild = GetActiveNativeCodeVersion(pClosedMethodDesc);
+    if (activeNativeChild.IsNull())
+    {
+        if (FAILED(hr = AddNativeCodeVersion(pClosedMethodDesc, &activeNativeChild)))
+        {
+            _ASSERTE(hr == E_OUTOFMEMORY);
+            return hr;
+        }
+    }
+    // The first added child should automatically become active
+    _ASSERTE(GetActiveNativeCodeVersion(pClosedMethodDesc) == activeNativeChild);
+    *pActiveNativeCodeVersion = activeNativeChild;
+    return S_OK;
 }
-#endif
 
-#ifndef DACCESS_COMPILE
+HRESULT ILCodeVersion::SetActiveNativeCodeVersion(NativeCodeVersion activeNativeCodeVersion, BOOL fEESuspended)
+{
+    LIMITED_METHOD_CONTRACT;
+    HRESULT hr = S_OK;
+    MethodDesc* pMethodDesc = activeNativeCodeVersion.GetMethodDesc();
+    NativeCodeVersion prevActiveVersion = GetActiveNativeCodeVersion(pMethodDesc);
+    if (prevActiveVersion == activeNativeCodeVersion)
+    {
+        //nothing to do, this version is already active
+        return S_OK;
+    }
+
+    if (!prevActiveVersion.IsNull())
+    {
+        prevActiveVersion.SetActiveChildFlag(FALSE);
+    }
+    activeNativeCodeVersion.SetActiveChildFlag(TRUE);
+
+    // If needed update the published code body for this method
+    CodeVersionManager* pCodeVersionManager = GetModule()->GetCodeVersionManager();
+    if (pCodeVersionManager->GetActiveILCodeVersion(GetModule(), GetMethodDef()) == *this)
+    {
+        if (FAILED(hr = pCodeVersionManager->PublishNativeCodeVersion(pMethodDesc, activeNativeCodeVersion, fEESuspended)))
+        {
+            return hr;
+        }
+    }
+
+    return S_OK;
+}
+
 ILCodeVersionNode* ILCodeVersion::AsNode()
 {
+    LIMITED_METHOD_CONTRACT;
     return m_pVersionNode;
 }
-#endif
+#endif //DACCESS_COMPILE
 
 PTR_ILCodeVersionNode ILCodeVersion::AsNode() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pVersionNode;
 }
 
@@ -462,94 +873,138 @@ ILCodeVersionCollection::ILCodeVersionCollection(PTR_Module pModule, mdMethodDef
 
 ILCodeVersionIterator ILCodeVersionCollection::Begin()
 {
-    return m_pModule->GetCodeVersionManager()->GetILCodeVersionIterator(m_pModule, m_methodDef);
+    LIMITED_METHOD_DAC_CONTRACT;
+    return ILCodeVersionIterator(this);
 }
 
 ILCodeVersionIterator ILCodeVersionCollection::End()
 {
-    return ILCodeVersionIterator();
-}
-
-ILCodeVersionIterator::ILCodeVersionIterator()
-{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return ILCodeVersionIterator(NULL);
 }
 
 ILCodeVersionIterator::ILCodeVersionIterator(const ILCodeVersionIterator & iter) :
-    m_tableCurIter(iter.m_tableCurIter),
-    m_tableEndIter(iter.m_tableEndIter),
+    m_stage(iter.m_stage),
+    m_pCollection(iter.m_pCollection),
+    m_pLinkedListCur(iter.m_pLinkedListCur),
     m_cur(iter.m_cur)
-{
-}
+{}
 
-ILCodeVersionIterator::ILCodeVersionIterator(ILCodeVersionNodeHash::KeyIterator tableStartIter, ILCodeVersionNodeHash::KeyIterator tableEndIter) :
-    m_tableCurIter(tableStartIter),
-    m_tableEndIter(tableEndIter)
+ILCodeVersionIterator::ILCodeVersionIterator(ILCodeVersionCollection* pCollection) :
+    m_stage(pCollection != NULL ? IterationStage::Initial : IterationStage::End),
+    m_pCollection(pCollection),
+    m_pLinkedListCur(dac_cast<PTR_ILCodeVersionNode>(NULL))
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     First();
 }
 
 const ILCodeVersion & ILCodeVersionIterator::Get() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_cur;
 }
 
 void ILCodeVersionIterator::First()
 {
-    if (m_tableCurIter != m_tableEndIter)
-    {
-        m_cur = ILCodeVersion(*m_tableCurIter);
-    }
-    else
-    {
-        m_cur = ILCodeVersion();
-    }
+    LIMITED_METHOD_DAC_CONTRACT;
+    Next();
 }
 
 void ILCodeVersionIterator::Next()
 {
-    m_tableCurIter++;
-    if (m_tableCurIter != m_tableEndIter)
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_stage == IterationStage::Initial)
     {
-        m_cur = ILCodeVersion(*m_tableCurIter);
+        m_stage = IterationStage::ImplicitCodeVersion;
+        m_cur = ILCodeVersion(m_pCollection->m_pModule, m_pCollection->m_methodDef);
+        return;
     }
-    else
+    if (m_stage == IterationStage::ImplicitCodeVersion)
     {
-        m_cur = ILCodeVersion();
+        CodeVersionManager* pCodeVersionManager = m_pCollection->m_pModule->GetCodeVersionManager();
+        _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
+        PTR_ILCodeVersioningState pILCodeVersioningState = pCodeVersionManager->GetILCodeVersioningState(m_pCollection->m_pModule, m_pCollection->m_methodDef);
+        if (pILCodeVersioningState != NULL)
+        {
+            m_pLinkedListCur = pILCodeVersioningState->GetFirstVersionNode();
+        }
+        m_stage = IterationStage::LinkedList;
+        if (m_pLinkedListCur != NULL)
+        {
+            m_cur = ILCodeVersion(m_pLinkedListCur);
+            return;
+        }
+    }
+    if (m_stage == IterationStage::LinkedList)
+    {
+        if (m_pLinkedListCur != NULL)
+        {
+            m_pLinkedListCur = m_pLinkedListCur->GetNextILVersionNode();
+        }
+        if (m_pLinkedListCur != NULL)
+        {
+            m_cur = ILCodeVersion(m_pLinkedListCur);
+            return;
+        }
+        else
+        {
+            m_stage = IterationStage::End;
+            m_cur = ILCodeVersion();
+            return;
+        }
     }
 }
 
 bool ILCodeVersionIterator::Equal(const ILCodeVersionIterator &i) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_cur == i.m_cur;
 }
 
 MethodDescVersioningState::MethodDescVersioningState(PTR_MethodDesc pMethodDesc) :
     m_pMethodDesc(pMethodDesc),
     m_nextId(1),
-    m_flags(0)
+    m_flags(IsDefaultVersionActiveChildFlag),
+    m_pFirstVersionNode()
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     ZeroMemory(m_rgSavedCode, JumpStubSize);
 }
 
 PTR_MethodDesc MethodDescVersioningState::GetMethodDesc() const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_pMethodDesc;
 }
 
+#ifndef DACCESS_COMPILE
 NativeCodeVersionId MethodDescVersioningState::AllocateVersionId()
 {
+    LIMITED_METHOD_CONTRACT;
     return m_nextId++;
+}
+#endif
+
+PTR_NativeCodeVersionNode MethodDescVersioningState::GetFirstVersionNode() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_pFirstVersionNode;
 }
 
 MethodDescVersioningState::JumpStampFlags MethodDescVersioningState::GetJumpStampState()
 {
-    return (JumpStampFlags)m_flags;
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (JumpStampFlags)(m_flags & JumpStampMask);
 }
 
+#ifndef DACCESS_COMPILE
 void MethodDescVersioningState::SetJumpStampState(JumpStampFlags newState)
 {
-    m_flags = (BYTE)newState;
+    LIMITED_METHOD_CONTRACT;
+    m_flags = (m_flags & ~JumpStampMask) | (BYTE)newState;
 }
+#endif
 
 
 //---------------------------------------------------------------------------------------
@@ -1028,10 +1483,98 @@ HRESULT MethodDescVersioningState::UpdateJumpStampHelper(BYTE* pbCode, INT64 i64
 }
 #endif
 
-CodeVersionManager::CodeVersionManager()
+BOOL MethodDescVersioningState::IsDefaultVersionActiveChild() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (m_flags & IsDefaultVersionActiveChildFlag) != 0;
+}
+#ifndef DACCESS_COMPILE
+void MethodDescVersioningState::SetDefaultVersionActiveChildFlag(BOOL isActive)
 {
     LIMITED_METHOD_CONTRACT;
+    if (isActive)
+    {
+        m_flags |= IsDefaultVersionActiveChildFlag;
+    }
+    else
+    {
+        m_flags &= ~IsDefaultVersionActiveChildFlag;
+    }
 }
+
+void MethodDescVersioningState::LinkNativeCodeVersionNode(NativeCodeVersionNode* pNativeCodeVersionNode)
+{
+    LIMITED_METHOD_CONTRACT;
+    pNativeCodeVersionNode->m_pNextMethodDescSibling = m_pFirstVersionNode;
+    m_pFirstVersionNode = pNativeCodeVersionNode;
+}
+#endif
+
+ILCodeVersioningState::ILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef) :
+    m_pModule(pModule),
+    m_methodDef(methodDef),
+    m_activeVersion(ILCodeVersion(pModule,methodDef)),
+    m_pFirstVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL))
+{}
+
+
+ILCodeVersioningState::Key::Key() :
+    m_pModule(dac_cast<PTR_Module>(NULL)),
+    m_methodDef(0)
+{}
+
+ILCodeVersioningState::Key::Key(PTR_Module pModule, mdMethodDef methodDef) :
+    m_pModule(pModule),
+    m_methodDef(methodDef)
+{}
+
+size_t ILCodeVersioningState::Key::Hash() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (size_t)(dac_cast<TADDR>(m_pModule) ^ m_methodDef);
+}
+
+bool ILCodeVersioningState::Key::operator==(const Key & rhs) const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (m_pModule == rhs.m_pModule) && (m_methodDef == rhs.m_methodDef);
+}
+
+ILCodeVersioningState::Key ILCodeVersioningState::GetKey() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return Key(m_pModule, m_methodDef);
+}
+
+ILCodeVersion ILCodeVersioningState::GetActiveVersion() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_activeVersion;
+}
+
+PTR_ILCodeVersionNode ILCodeVersioningState::GetFirstVersionNode() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_pFirstVersionNode;
+}
+
+#ifndef DACCESS_COMPILE
+void ILCodeVersioningState::SetActiveVersion(ILCodeVersion ilActiveCodeVersion)
+{
+    LIMITED_METHOD_CONTRACT;
+    m_activeVersion = ilActiveCodeVersion;
+}
+
+void ILCodeVersioningState::LinkILCodeVersionNode(ILCodeVersionNode* pILCodeVersionNode)
+{
+    LIMITED_METHOD_CONTRACT;
+    pILCodeVersionNode->SetNextILVersionNode(m_pFirstVersionNode);
+    m_pFirstVersionNode = pILCodeVersionNode;
+}
+#endif
+
+CodeVersionManager::CodeVersionManager()
+{}
 
 //---------------------------------------------------------------------------------------
 //
@@ -1048,9 +1591,9 @@ void CodeVersionManager::PreInit(BOOL fSharedDomain)
     CONTRACTL
     {
         THROWS;
-    GC_TRIGGERS;
-    CAN_TAKE_LOCK;
-    MODE_ANY;
+        GC_TRIGGERS;
+        CAN_TAKE_LOCK;
+        MODE_ANY;
     }
     CONTRACTL_END;
 
@@ -1075,19 +1618,61 @@ void CodeVersionManager::LeaveLock()
     m_crstTable.Leave();
 }
 #endif
-BOOL CodeVersionManager::LockOwnedByCurrentThread()
+
+#ifdef DEBUG
+BOOL CodeVersionManager::LockOwnedByCurrentThread() const
 {
-    return m_crstTable.OwnedByCurrentThread();
+    LIMITED_METHOD_DAC_CONTRACT;
+    return const_cast<CrstExplicitInit &>(m_crstTable).OwnedByCurrentThread();
+}
+#endif
+
+PTR_ILCodeVersioningState CodeVersionManager::GetILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef) const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    ILCodeVersioningState::Key key = ILCodeVersioningState::Key(pModule, methodDef);
+    return m_ilCodeVersioningStateMap.Lookup(key);
 }
 
-PTR_MethodDescVersioningState CodeVersionManager::GetMethodVersioningState(PTR_MethodDesc pClosedMethodDesc)
+PTR_MethodDescVersioningState CodeVersionManager::GetMethodDescVersioningState(PTR_MethodDesc pClosedMethodDesc) const
 {
+    LIMITED_METHOD_DAC_CONTRACT;
     return m_methodDescVersioningStateMap.Lookup(pClosedMethodDesc);
 }
 
 #ifndef DACCESS_COMPILE
-HRESULT CodeVersionManager::GetOrCreateMethodVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodVersioningState)
+HRESULT CodeVersionManager::GetOrCreateILCodeVersioningState(Module* pModule, mdMethodDef methodDef, ILCodeVersioningState** ppILCodeVersioningState)
 {
+    LIMITED_METHOD_CONTRACT;
+    HRESULT hr = S_OK;
+    ILCodeVersioningState* pILCodeVersioningState = GetILCodeVersioningState(pModule, methodDef);
+    if (pILCodeVersioningState == NULL)
+    {
+        pILCodeVersioningState = new (nothrow) ILCodeVersioningState(pModule, methodDef);
+        if (pILCodeVersioningState == NULL)
+        {
+            return E_OUTOFMEMORY;
+        }
+        EX_TRY
+        {
+            // This throws when out of memory, but remains internally
+            // consistent (without adding the new element)
+            m_ilCodeVersioningStateMap.Add(pILCodeVersioningState);
+        }
+        EX_CATCH_HRESULT(hr);
+        if (FAILED(hr))
+        {
+            delete pILCodeVersioningState;
+            return hr;
+        }
+    }
+    *ppILCodeVersioningState = pILCodeVersioningState;
+    return S_OK;
+}
+
+HRESULT CodeVersionManager::GetOrCreateMethodDescVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodVersioningState)
+{
+    LIMITED_METHOD_CONTRACT;
     HRESULT hr = S_OK;
     MethodDescVersioningState* pMethodVersioningState = m_methodDescVersioningStateMap.Lookup(pMethod);
     if (pMethodVersioningState == NULL)
@@ -1113,95 +1698,138 @@ HRESULT CodeVersionManager::GetOrCreateMethodVersioningState(MethodDesc* pMethod
     *ppMethodVersioningState = pMethodVersioningState;
     return S_OK;
 }
-#endif
+#endif // DACCESS_COMPILE
 
 DWORD CodeVersionManager::GetNonDefaultILVersionCount()
 {
+    LIMITED_METHOD_DAC_CONTRACT;
+
     //This function is legal to call WITHOUT taking the lock
     //It is used to do a quick check if work might be needed without paying the overhead
     //of acquiring the lock and doing dictionary lookups
-    return m_ilCodeVersionNodeMap.GetCount();
+    return m_ilCodeVersioningStateMap.GetCount();
 }
 
 ILCodeVersionCollection CodeVersionManager::GetILCodeVersions(PTR_MethodDesc pMethod)
 {
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     return GetILCodeVersions(dac_cast<PTR_Module>(pMethod->GetModule()), pMethod->GetMemberDef());
 }
 
 ILCodeVersionCollection CodeVersionManager::GetILCodeVersions(PTR_Module pModule, mdMethodDef methodDef)
 {
-    return ILCodeVersionCollection(pModule, methodDef);
-}
-
-ILCodeVersionIterator CodeVersionManager::GetILCodeVersionIterator(PTR_Module pModule, mdMethodDef methodDef)
-{
+    LIMITED_METHOD_DAC_CONTRACT;
     _ASSERTE(LockOwnedByCurrentThread());
-
-    ILCodeVersionNode::Key key(pModule, methodDef);
-    ILCodeVersionNodeHash::KeyIterator nodeIter = m_ilCodeVersionNodeMap.Begin(key);
-    ILCodeVersionNodeHash::KeyIterator nodeEndIter = m_ilCodeVersionNodeMap.End(key);
-    return ILCodeVersionIterator(nodeIter, nodeEndIter);
+    return ILCodeVersionCollection(pModule, methodDef);
 }
 
 ILCodeVersion CodeVersionManager::GetActiveILCodeVersion(PTR_MethodDesc pMethod)
 {
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     return GetActiveILCodeVersion(dac_cast<PTR_Module>(pMethod->GetModule()), pMethod->GetMemberDef());
 }
+
 ILCodeVersion CodeVersionManager::GetActiveILCodeVersion(PTR_Module pModule, mdMethodDef methodDef)
 {
-    //TODO
-    return ILCodeVersion();
-}
-ILCodeVersion CodeVersionManager::GetILCodeVersion(PTR_MethodDesc pMethod, ReJITID rejitId)
-{
-    //TODO
-    return ILCodeVersion();
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+    ILCodeVersioningState* pILCodeVersioningState = GetILCodeVersioningState(pModule, methodDef);
+    if (pILCodeVersioningState == NULL)
+    {
+        return ILCodeVersion(pModule, methodDef);
+    }
+    else
+    {
+        return pILCodeVersioningState->GetActiveVersion();
+    }
 }
 
-NativeCodeVersion CodeVersionManager::GetNativeCodeVersion(PTR_MethodDesc pMethod, PCODE codeStartAddress)
+ILCodeVersion CodeVersionManager::GetILCodeVersion(PTR_MethodDesc pMethod, ReJITID rejitId)
 {
-    //TODO
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+
+#ifdef FEATURE_REJIT
+    ILCodeVersionCollection collection = GetILCodeVersions(pMethod);
+    for (ILCodeVersionIterator cur = collection.Begin(), end = collection.End(); cur != end; cur++)
+    {
+        if (cur->GetVersionId() == rejitId)
+        {
+            return *cur;
+        }
+    }
+    return ILCodeVersion();
+#else // FEATURE_REJIT
+    _ASSERTE(rejitId == 0);
+    return ILCodeVersion(pModule, methodDef);
+#endif // FEATURE_REJIT
+}
+
+NativeCodeVersionCollection CodeVersionManager::GetNativeCodeVersions(PTR_MethodDesc pMethod) const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+    return NativeCodeVersionCollection(pMethod, ILCodeVersion());
+}
+
+NativeCodeVersion CodeVersionManager::GetNativeCodeVersion(PTR_MethodDesc pMethod, PCODE codeStartAddress) const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+
+    NativeCodeVersionCollection nativeCodeVersions = GetNativeCodeVersions(pMethod);
+    for (NativeCodeVersionIterator cur = nativeCodeVersions.Begin(), end = nativeCodeVersions.End(); cur != end; cur++)
+    {
+        if (cur->GetNativeCode() == codeStartAddress)
+        {
+            return *cur;
+        }
+    }
     return NativeCodeVersion();
 }
 
 #ifndef DACCESS_COMPILE
 HRESULT CodeVersionManager::AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion)
 {
+    LIMITED_METHOD_CONTRACT;
     _ASSERTE(LockOwnedByCurrentThread());
 
-    HRESULT hr = S_OK;
+    ILCodeVersioningState* pILCodeVersioningState;
+    HRESULT hr = GetOrCreateILCodeVersioningState(pModule, methodDef, &pILCodeVersioningState);
+    if (FAILED(hr))
+    {
+        _ASSERTE(hr == E_OUTOFMEMORY);
+        return hr;
+    }
+
     ILCodeVersionNode* pILCodeVersionNode = new (nothrow) ILCodeVersionNode(pModule, methodDef, rejitId);
-    if (pILCodeVersion == NULL)
+    if (pILCodeVersionNode == NULL)
     {
         return E_OUTOFMEMORY;
     }
-    EX_TRY
-    {
-        // This throws when out of memory, but remains internally
-        // consistent (without adding the new element)
-        m_ilCodeVersionNodeMap.Add(pILCodeVersionNode);
-    }
-    EX_CATCH_HRESULT(hr);
-    if(FAILED(hr))
-    {
-        delete pILCodeVersionNode;
-        return hr;
-    }
-    
+    pILCodeVersioningState->LinkILCodeVersionNode(pILCodeVersionNode);
     *pILCodeVersion = ILCodeVersion(pILCodeVersionNode);
     return S_OK;
 }
-#endif
+    {
+    }
+    {
+    }
+    return S_OK;
+}
 
-#ifndef DACCESS_COMPILE
 HRESULT CodeVersionManager::AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion)
 {
+    LIMITED_METHOD_CONTRACT;
     _ASSERTE(LockOwnedByCurrentThread());
 
     MethodDescVersioningState* pMethodVersioningState;
-    HRESULT hr = GetOrCreateMethodVersioningState(pClosedMethodDesc, &pMethodVersioningState);
+    HRESULT hr = GetOrCreateMethodDescVersioningState(pClosedMethodDesc, &pMethodVersioningState);
     if (FAILED(hr))
     {
+        _ASSERTE(hr == E_OUTOFMEMORY);
         return hr;
     }
 
@@ -1211,24 +1839,31 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(ILCodeVersion ilCodeVersion, Me
     {
         return E_OUTOFMEMORY;
     }
-    EX_TRY
-    {
-        // This throws when out of memory, but remains internally
-        // consistent (without adding the new element)
-        m_nativeCodeVersionNodeMap.Add(pNativeCodeVersionNode);
-    }
-    EX_CATCH_HRESULT(hr);
-    if(FAILED(hr))
-    {
-        delete pNativeCodeVersionNode;
-        return hr;
-    }
 
-    ilCodeVersion.LinkNativeCodeNode(pNativeCodeVersionNode);
+    pMethodVersioningState->LinkNativeCodeVersionNode(pNativeCodeVersionNode);
+
+    // the first child added is automatically considered the active one.
+    if (ilCodeVersion.GetActiveNativeCodeVersion(pClosedMethodDesc).IsNull())
+    {
+        pNativeCodeVersionNode->SetActiveChildFlag(TRUE);
+        _ASSERTE(!ilCodeVersion.GetActiveNativeCodeVersion(pClosedMethodDesc).IsNull());
+
+        // the new child shouldn't have any native code. If it did we might need to
+        // publish that code as part of adding the node which would require callers
+        // to pay attention to GC suspension and we'd need to report publishing errors
+        // back to them.
+        _ASSERTE(pNativeCodeVersionNode->GetNativeCode() == NULL);
+    }
     *pNativeCodeVersion = NativeCodeVersion(pNativeCodeVersionNode);
     return S_OK;
 }
-#endif
+    {
+        return hr;
+    }
+
+    return S_OK;
+}
+#endif // DACCESS_COMPILE
 
 //---------------------------------------------------------------------------------------
 //

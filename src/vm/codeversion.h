@@ -152,7 +152,8 @@ public:
     void SetJitFlags(DWORD flags);
     void SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap);
     HRESULT AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
-    void LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode);
+    HRESULT GetOrCreateActiveNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
+    HRESULT SetActiveNativeCodeVersion(NativeCodeVersion activeNativeCodeVersion, BOOL fEESuspended);
 #endif //DACCESS_COMPILE
 
     enum RejitFlags
@@ -271,35 +272,6 @@ private:
     DWORD m_flags;
 };
 
-class NativeCodeVersionNodeHashTraits : public DefaultSHashTraits<PTR_NativeCodeVersionNode>
-{
-public:
-    typedef typename DefaultSHashTraits<PTR_NativeCodeVersionNode>::element_t element_t;
-    typedef typename DefaultSHashTraits<PTR_NativeCodeVersionNode>::count_t count_t;
-
-    typedef const PTR_MethodDesc key_t;
-
-    static key_t GetKey(element_t e)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return e->GetMethodDesc();
-    }
-    static BOOL Equals(key_t k1, key_t k2)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return k1 == k2;
-    }
-    static count_t Hash(key_t k)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return (count_t)(size_t)dac_cast<TADDR>(k);
-    }
-    static const element_t Null() { LIMITED_METHOD_CONTRACT; return element_t(); }
-    static bool IsNull(const element_t &e) { LIMITED_METHOD_CONTRACT; return e == NULL; }
-};
-
-typedef SHash<NativeCodeVersionNodeHashTraits> NativeCodeVersionNodeHash;
-
 class NativeCodeVersionCollection
 {
     friend class NativeCodeVersionIterator;
@@ -350,75 +322,32 @@ public:
 #ifndef DACCESS_COMPILE
     ILCodeVersionNode(Module* pModule, mdMethodDef methodDef, ReJITID id);
 #endif
-    PTR_Module GetModule();
-    mdMethodDef GetMethodDef();
-    ReJITID GetVersionId();
-    PTR_NativeCodeVersionNode GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc);
+    PTR_Module GetModule() const;
+    mdMethodDef GetMethodDef() const;
+    ReJITID GetVersionId() const;
     PTR_COR_ILMETHOD GetIL() const;
     DWORD GetJitFlags() const;
     const InstrumentedILOffsetMapping* GetInstrumentedILMap() const;
     ILCodeVersion::RejitFlags GetRejitState() const;
+    PTR_ILCodeVersionNode GetNextILVersionNode() const;
 #ifndef DACCESS_COMPILE
     void SetIL(COR_ILMETHOD* pIL);
     void SetJitFlags(DWORD flags);
     void SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap);
     void SetRejitState(ILCodeVersion::RejitFlags newState);
-    void LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode);
+    void SetNextILVersionNode(ILCodeVersionNode* pNextVersionNode);
 #endif
-
-    struct Key
-    {
-    public:
-        Key();
-        Key(PTR_Module pModule, mdMethodDef methodDef);
-        size_t Hash() const;
-        bool operator==(const Key & rhs) const;
-    private:
-        PTR_Module m_pModule;
-        mdMethodDef m_methodDef;
-    };
-
-    Key GetKey() const;
 
 private:
     PTR_Module m_pModule;
     mdMethodDef m_methodDef;
     ReJITID m_rejitId;
-    PTR_NativeCodeVersionNode m_pFirstChild;
+    PTR_ILCodeVersionNode m_pNextILVersionNode;
     ILCodeVersion::RejitFlags m_rejitState;
     PTR_COR_ILMETHOD m_pIL;
     DWORD m_jitFlags;
     InstrumentedILOffsetMapping m_instrumentedILMap;
 };
-
-class ILCodeVersionNodeHashTraits : public DefaultSHashTraits<PTR_ILCodeVersionNode>
-{
-public:
-    typedef typename DefaultSHashTraits<PTR_ILCodeVersionNode>::element_t element_t;
-    typedef typename DefaultSHashTraits<PTR_ILCodeVersionNode>::count_t count_t;
-
-    typedef ILCodeVersionNode::Key key_t;
-
-    static key_t GetKey(element_t e)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return e->GetKey();
-    }
-    static BOOL Equals(key_t k1, key_t k2)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return k1 == k2;
-    }
-    static count_t Hash(key_t k)
-    {
-        LIMITED_METHOD_CONTRACT;
-        return (count_t)k.Hash();
-    }
-    static const element_t Null() { LIMITED_METHOD_CONTRACT; return element_t(); }
-    static bool IsNull(const element_t &e) { LIMITED_METHOD_CONTRACT; return e == NULL; }
-};
-
-typedef SHash<ILCodeVersionNodeHashTraits> ILCodeVersionNodeHash;
 
 class ILCodeVersionCollection
 {
@@ -441,7 +370,7 @@ class ILCodeVersionIterator : public Enumerator<const ILCodeVersion, ILCodeVersi
 public:
     ILCodeVersionIterator();
     ILCodeVersionIterator(const ILCodeVersionIterator & iter);
-    ILCodeVersionIterator(ILCodeVersionNodeHash::KeyIterator tableStartIter, ILCodeVersionNodeHash::KeyIterator tableEndIter);
+    ILCodeVersionIterator(ILCodeVersionCollection* pCollection);
     CHECK Check() const { CHECK_OK; }
 
 protected:
@@ -453,14 +382,17 @@ protected:
     CHECK DoCheck() const { CHECK_OK; }
 
 private:
+    enum IterationStage
+    {
+        Initial,
+        ImplicitCodeVersion,
+        LinkedList,
+        End
+    };
+    IterationStage m_stage;
     ILCodeVersion m_cur;
-
-    //TODO: storing all the versions in a table doesn't seem that efficient
-    //We've got a density factor of 0.75 so we only get 3 versions for every 4
-    //pointers
-    //What about one ILVersioningState in a table then a linked list from there?
-    ILCodeVersionNodeHash::KeyIterator m_tableCurIter;
-    ILCodeVersionNodeHash::KeyIterator m_tableEndIter;
+    PTR_ILCodeVersionNode m_pLinkedListCur;
+    ILCodeVersionCollection* m_pCollection;
 };
 
 class MethodDescVersioningState
@@ -478,11 +410,13 @@ public:
     MethodDescVersioningState(PTR_MethodDesc pMethodDesc);
     PTR_MethodDesc GetMethodDesc() const;
     NativeCodeVersionId AllocateVersionId();
+    PTR_NativeCodeVersionNode GetFirstVersionNode() const;
 
 #ifndef DACCESS_COMPILE
     HRESULT UpdateJumpTarget(BOOL fEESuspended, PCODE pRejittedCode);
     HRESULT UndoJumpStampNativeCode(BOOL fEESuspended);
     HRESULT JumpStampNativeCode(PCODE pCode = NULL);
+    void LinkNativeCodeVersionNode(NativeCodeVersionNode* pNativeCodeVersionNode);
 #endif
 
     enum JumpStampFlags
@@ -503,14 +437,27 @@ public:
     JumpStampFlags GetJumpStampState();
     void SetJumpStampState(JumpStampFlags newState);
 
+    //read-write data for the default native code version
+    BOOL IsDefaultVersionActiveChild() const;
+#ifndef DACCESS_COMPILE
+    void SetDefaultVersionActiveChildFlag(BOOL isActive);
+#endif
+
 private:
     INDEBUG(BOOL CodeIsSaved();)
 #ifndef DACCESS_COMPILE
     HRESULT UpdateJumpStampHelper(BYTE* pbCode, INT64 i64OldValue, INT64 i64NewValue, BOOL fContentionPossible);
 #endif
     PTR_MethodDesc m_pMethodDesc;
+    
+    enum MethodDescVersioningStateFlags
+    {
+        JumpStampMask = 0x3,
+        IsDefaultVersionActiveChildFlag = 0x4
+    };
     BYTE m_flags;
     NativeCodeVersionId m_nextId;
+    PTR_NativeCodeVersionNode m_pFirstVersionNode;
 
     // The originally JITted code that was overwritten with the jmp stamp.
     BYTE m_rgSavedCode[JumpStubSize];
@@ -546,6 +493,68 @@ public:
 
 typedef SHash<MethodDescVersioningStateHashTraits> MethodDescVersioningStateHash;
 
+class ILCodeVersioningState
+{
+public:
+    ILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef);
+    ILCodeVersion GetActiveVersion() const;
+    PTR_ILCodeVersionNode GetFirstVersionNode() const;
+#ifndef DACCESS_COMPILE
+    void SetActiveVersion(ILCodeVersion ilActiveCodeVersion);
+    void LinkILCodeVersionNode(ILCodeVersionNode* pILCodeVersionNode);
+#endif
+
+    struct Key
+    {
+    public:
+        Key();
+        Key(PTR_Module pModule, mdMethodDef methodDef);
+        size_t Hash() const;
+        bool operator==(const Key & rhs) const;
+    private:
+        PTR_Module m_pModule;
+        mdMethodDef m_methodDef;
+    };
+
+    Key GetKey() const;
+
+private:
+    ILCodeVersion m_activeVersion;
+    PTR_ILCodeVersionNode m_pFirstVersionNode;
+    PTR_Module m_pModule;
+    mdMethodDef m_methodDef;
+};
+
+class ILCodeVersioningStateHashTraits : public NoRemoveSHashTraits<DefaultSHashTraits<PTR_ILCodeVersioningState>>
+{
+public:
+    typedef typename DefaultSHashTraits<PTR_ILCodeVersioningState>::element_t element_t;
+    typedef typename DefaultSHashTraits<PTR_ILCodeVersioningState>::count_t count_t;
+
+    typedef const ILCodeVersioningState::Key key_t;
+
+    static key_t GetKey(element_t e)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return e->GetKey();
+    }
+    static BOOL Equals(key_t k1, key_t k2)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return k1 == k2;
+    }
+    static count_t Hash(key_t k)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (count_t)k.Hash();
+    }
+
+    static const element_t Null() { LIMITED_METHOD_CONTRACT; return element_t(); }
+    static bool IsNull(const element_t &e) { LIMITED_METHOD_CONTRACT; return e == NULL; }
+};
+
+typedef SHash<ILCodeVersioningStateHashTraits> ILCodeVersioningStateHash;
+
 
 class CodeVersionManager
 {
@@ -566,23 +575,22 @@ public:
     void EnterLock();
     void LeaveLock();
 #endif
-    //only intended for debug assertions
-    BOOL LockOwnedByCurrentThread();
-
-#ifndef DACCESS_COMPILE
-    HRESULT AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion);
-    HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
+    
+#ifdef DEBUG
+    BOOL LockOwnedByCurrentThread() const;
 #endif
 
     DWORD GetNonDefaultILVersionCount();
     ILCodeVersionCollection GetILCodeVersions(PTR_MethodDesc pMethod);
     ILCodeVersionCollection GetILCodeVersions(PTR_Module pModule, mdMethodDef methodDef);
-    ILCodeVersionIterator GetILCodeVersionIterator(PTR_Module pModule, mdMethodDef methodDef);
     ILCodeVersion GetActiveILCodeVersion(PTR_MethodDesc pMethod);
     ILCodeVersion GetActiveILCodeVersion(PTR_Module pModule, mdMethodDef methodDef);
     ILCodeVersion GetILCodeVersion(PTR_MethodDesc pMethod, ReJITID rejitId);
+    NativeCodeVersionCollection GetNativeCodeVersions(PTR_MethodDesc pMethod) const;
+    NativeCodeVersion GetNativeCodeVersion(PTR_MethodDesc pMethod, PCODE codeStartAddress) const;
+    PTR_ILCodeVersioningState GetILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef) const;
+    PTR_MethodDescVersioningState GetMethodDescVersioningState(PTR_MethodDesc pMethod) const;
 
-    NativeCodeVersion GetNativeCodeVersion(PTR_MethodDesc pMethod, PCODE codeStartAddress);
 
     struct JumpStampBatch
     {
@@ -630,6 +638,7 @@ public:
         }
     };
 
+#ifndef DACCESS_COMPILE
     struct CodePublishError
     {
         Module* pModule;
@@ -645,39 +654,34 @@ public:
 #endif
 
 #ifndef DACCESS_COMPILE
+    HRESULT AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion);
+    HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
+    HRESULT PublishNativeCodeVersion(MethodDesc* pMethodDesc, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
+    HRESULT GetOrCreateMethodDescVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodDescVersioningState);
+    HRESULT GetOrCreateILCodeVersioningState(Module* pModule, mdMethodDef methodDef, ILCodeVersioningState** ppILCodeVersioningState);
     static HRESULT AddCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
     static HRESULT AddCodePublishError(NativeCodeVersion nativeCodeVersion, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
 #endif
 
-    PTR_MethodDescVersioningState GetMethodVersioningState(PTR_MethodDesc pMethod);
-#ifndef DACCESS_COMPILE
-    HRESULT GetOrCreateMethodVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodDescVersioningState);
-#endif
+private:
 
 #ifndef DACCESS_COMPILE
     static void OnAppDomainExit(AppDomain* pAppDomain);
 #endif
 
-private:
+    //Module,MethodDef -> ILCodeVersioningState
+    ILCodeVersioningStateHash m_ilCodeVersioningStateMap;
 
-    BOOL PublishMethodCodeIfNeeded(NativeCodeVersionNode* pNativeCodeVersion);
-
-    //Module,MethodDef -> ILCodeVersions
-    ILCodeVersionNodeHash m_ilCodeVersionNodeMap;
-    //closed MethodDesc -> NativeCodeVersions
-    NativeCodeVersionNodeHash m_nativeCodeVersionNodeMap;
     //closed MethodDesc -> MethodDescVersioningState
     MethodDescVersioningStateHash m_methodDescVersioningStateMap;
-
+    
     CrstExplicitInit m_crstTable;
 };
 
-class CodeVersionManagerLockHolder
+#endif // FEATURE_CODE_VERSIONING
 {
 public:
-    CodeVersionManagerLockHolder(CodeVersionManager* pCodeVersionManager) {}
 };
 
-#endif // FEATURE_CODE_VERSIONING
 
 #endif // CODE_VERSION_H
