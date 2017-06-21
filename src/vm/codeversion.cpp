@@ -1867,81 +1867,69 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(ILCodeVersion ilCodeVersion, Me
 
 //---------------------------------------------------------------------------------------
 //
-// Helper used by ReJitManager::RequestReJIT to jump stamp all the methods that were
-// specified by the caller. Also used by RejitManager::DoJumpStampForAssemblyIfNecessary
-// when rejitting a batch of generic method instantiations in a newly loaded NGEN assembly.
-// 
-// This method is responsible for calling ReJITError on the profiler if anything goes
-// wrong.
+// Given the default version code for a MethodDesc that is about to published, add 
+// a jumpstamp pointing back to the prestub if the currently active version isn't
+// the default one. This called from the PublishMethodHolder.
 //
 // Arguments:
-//    * pUndoMethods - array containing the methods that need the jump stamp removed
-//    * pPreStubMethods - array containing the methods that need to be jump stamped to prestub
-//    * pErrors - any errors will be appended to this array
+//    * pMD - MethodDesc to jmp-stamp
+//    * pCode - Top of the code that was just jitted (using original IL).
 //
-// Returns:
-//    S_OK - all methods are updated or added an error to the pErrors array
-//    E_OUTOFMEMORY - some methods neither updated nor added an error to pErrors array
-//                    ReJitInfo state remains consistent
 //
+// Return value:
+//    * S_OK: Either we successfully did the jmp-stamp, or we didn't have to
+//    * Else, HRESULT indicating failure.
+
 // Assumptions:
-//         1) Caller prevents contention by either:
-//            a) Suspending the runtime
-//            b) Ensuring all methods being updated haven't been published
+//     The caller has not yet published pCode to the MethodDesc, so no threads can be
+//     executing inside pMD's code yet. Thus, we don't need to suspend the runtime while
+//     applying the jump-stamp like we usually do for rejit requests that are made after
+//     a function has been JITted.
 //
 #ifndef DACCESS_COMPILE
-HRESULT CodeVersionManager::BatchUpdateJumpStamps(CDynArray<NativeCodeVersion> * pUndoMethods, CDynArray<NativeCodeVersion> * pPreStubMethods, CDynArray<CodePublishError> * pErrors)
+HRESULT CodeVersionManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
 {
     CONTRACTL
     {
         NOTHROW;
-    GC_NOTRIGGER;
-    MODE_PREEMPTIVE;
-    PRECONDITION(CheckPointer(pUndoMethods));
-    PRECONDITION(CheckPointer(pPreStubMethods));
-    PRECONDITION(CheckPointer(pErrors));
+        GC_NOTRIGGER;
+        MODE_ANY;
+        CAN_TAKE_LOCK;
+        PRECONDITION(CheckPointer(pMD));
+        PRECONDITION(pCode != NULL);
     }
     CONTRACTL_END;
 
+    HRESULT hr;
+
     _ASSERTE(LockOwnedByCurrentThread());
-    HRESULT hr = S_OK;
 
-    
-    NativeCodeVersion * pInfoEnd = pUndoMethods->Ptr() + pUndoMethods->Count();
-    for (NativeCodeVersion * pInfoCur = pUndoMethods->Ptr(); pInfoCur < pInfoEnd; pInfoCur++)
+    NativeCodeVersion activeCodeVersion = GetActiveILCodeVersion(pMD).GetActiveNativeCodeVersion(pMD);
+    if (activeCodeVersion.IsDefaultVersion())
     {
-        // If we are undoing jumpstamps they have been published already
-        // and our caller is holding the EE suspended
-        _ASSERTE(ThreadStore::HoldingThreadStore());
-        MethodDescVersioningState* pMethodVersioningState = m_methodDescVersioningStateMap.Lookup(pInfoCur->GetMethodDesc());
-        _ASSERTE(pMethodVersioningState != NULL);
-        if (FAILED(hr = pMethodVersioningState->UndoJumpStampNativeCode(TRUE)))
-        {
-            if (FAILED(hr = AddCodePublishError(*pInfoCur, hr, pErrors)))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-        }
+        //Method not requested to be rejitted, nothing to do
+        return S_OK;
     }
 
-    pInfoEnd = pPreStubMethods->Ptr() + pPreStubMethods->Count();
-    for (NativeCodeVersion * pInfoCur = pPreStubMethods->Ptr(); pInfoCur < pInfoEnd; pInfoCur++)
+    if (!(pMD->IsVersionable() && pMD->IsVersionableWithJumpStamp()))
     {
-        MethodDescVersioningState* pMethodVersioningState = m_methodDescVersioningStateMap.Lookup(pInfoCur->GetMethodDesc());
-        _ASSERTE(pMethodVersioningState != NULL);
-        if (FAILED(hr = pMethodVersioningState->JumpStampNativeCode()))
-        {
-            if (FAILED(hr = AddCodePublishError(*pInfoCur, hr, pErrors)))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-        }
+        return GetNonVersionableError(pMD);
     }
-    return S_OK;
+
+    MethodDescVersioningState* pVersioningState;
+    if (FAILED(hr = GetOrCreateMethodDescVersioningState(pMD, &pVersioningState)))
+    {
+        _ASSERTE(hr == E_OUTOFMEMORY);
+        return hr;
+    }
+    if (pVersioningState->GetJumpStampState() != MethodDescVersioningState::JumpStampNone)
+    {
+        //JumpStamp already in place
+        return S_OK;
+    }
+    return pVersioningState->JumpStampNativeCode(pCode);
 }
-#endif
+#endif // DACCESS_COMPILE
 
 #ifndef DACCESS_COMPILE
 //static
@@ -1955,7 +1943,53 @@ void CodeVersionManager::OnAppDomainExit(AppDomain * pAppDomain)
 
 //---------------------------------------------------------------------------------------
 //
-// Helper that inits a new ReJitReportErrorWorkItem and adds it to the pErrors array
+// Small helper to determine whether a given (possibly instantiated generic) MethodDesc
+// is safe to rejit.
+//
+// Arguments:
+//      pMD - MethodDesc to test
+// Return Value:
+//      S_OK iff pMD is safe to rejit
+//      CORPROF_E_FUNCTION_IS_COLLECTIBLE - function can't be rejitted because it is collectible
+//      
+
+// static
+#ifndef DACCESS_COMPILE
+HRESULT CodeVersionManager::GetNonVersionableError(MethodDesc* pMD)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        CAN_TAKE_LOCK;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    _ASSERTE(pMD != NULL);
+
+    // Weird, non-user functions were already weeded out in RequestReJIT(), and will
+    // also never be passed to us by the prestub worker (for the pre-rejit case).
+    _ASSERTE(pMD->IsIL());
+
+    // Any MethodDescs that could be collected are not currently supported.  Although we
+    // rule out all Ref.Emit modules in RequestReJIT(), there can still exist types defined
+    // in a non-reflection module and instantiated into a collectible assembly
+    // (e.g., List<MyCollectibleStruct>).  In the future we may lift this
+    // restriction by updating the ReJitManager when the collectible assemblies
+    // owning the instantiations get collected.
+    if (pMD->GetLoaderAllocator()->IsCollectible())
+    {
+        return CORPROF_E_FUNCTION_IS_COLLECTIBLE;
+    }
+
+    return S_OK;
+}
+#endif
+
+//---------------------------------------------------------------------------------------
+//
+// Helper that inits a new CodePublishError and adds it to the pErrors array
 //
 // Arguments:
 //      * pModule - The module in the module/MethodDef identifier pair for the method which
@@ -1978,8 +2012,8 @@ HRESULT CodeVersionManager::AddCodePublishError(Module* pModule, mdMethodDef met
     CONTRACTL
     {
         NOTHROW;
-    GC_NOTRIGGER;
-    MODE_ANY;
+        GC_NOTRIGGER;
+        MODE_ANY;
     }
     CONTRACTL_END;
 
@@ -1996,43 +2030,212 @@ HRESULT CodeVersionManager::AddCodePublishError(Module* pModule, mdMethodDef met
 }
 #endif
 
-//---------------------------------------------------------------------------------------
-//
-// Helper that inits a new ReJitReportErrorWorkItem and adds it to the pErrors array
-//
-// Arguments:
-//      * pReJitInfo - The method which had an error during rejit
-//      * hrStatus - HRESULT for the rejit error that occurred
-//      * pErrors - the list of error records that this method will append to
-//
-// Return Value:
-//      * S_OK: error was appended
-//      * E_OUTOFMEMORY: Not enough memory to create the new error item. The array is unchanged.
-//
-
-//static
 #ifndef DACCESS_COMPILE
-HRESULT CodeVersionManager::AddCodePublishError(NativeCodeVersion nativeCodeVersion, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors)
+void CodeVersionManager::ReportCodePublishError(CodePublishError* pErrorRecord)
 {
     CONTRACTL
     {
         NOTHROW;
-    GC_NOTRIGGER;
-    MODE_ANY;
+        GC_TRIGGERS;
+        CAN_TAKE_LOCK;
+        MODE_ANY;
     }
     CONTRACTL_END;
 
-    return E_NOTIMPL;
-    //TODO
-    /*
+    ReportCodePublishError(pErrorRecord->pModule, pErrorRecord->methodDef, pErrorRecord->pMethodDesc, pErrorRecord->hrStatus);
+}
 
-    Module * pModule = NULL;
-    mdMethodDef methodDef = mdTokenNil;
-    pReJitInfo->GetModuleAndTokenRegardlessOfKeyType(&pModule, &methodDef);
-    return AddReJITError(pModule, methodDef, pReJitInfo->GetMethodDesc(), hrStatus, pErrors);
-    */
+void CodeVersionManager::ReportCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_TRIGGERS;
+        CAN_TAKE_LOCK;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+#ifdef FEATURE_REJIT
+    BOOL isRejitted = FALSE;
+    {
+        TableLockHolder(this);
+        isRejitted = !GetActiveILCodeVersion(pModule, methodDef).IsDefaultVersion();
+    }
+
+    // this isn't perfect, we might be activating a tiered jitting variation of a rejitted
+    // method for example. If it proves to be an issue we can revisit.
+    if (isRejitted)
+    {
+        ReJitManager::ReportReJITError(pModule, methodDef, pMD, hrStatus);
+    }
+#endif
 }
 #endif // DACCESS_COMPILE
+
+//---------------------------------------------------------------------------------------
+//
+// PrepareCodeConfig::SetNativeCode() calls this to determine if there's a non-default code
+// version requested for a MethodDesc that has just been jitted for the first time.
+// This is also called when methods are being restored in NGEN images. The sequence looks like:
+// *Enter holder
+//   Enter code version manager lock
+//   DoJumpStampIfNecessary
+// *Runtime code publishes/restores method
+// *Exit holder
+//   Leave code version manager lock
+//   Send rejit error callbacks if needed
+// 
+//
+// #PublishCode:
+// Note that the runtime needs to publish/restore the PCODE while this holder is
+// on the stack, so it can happen under the code version manager's lock.
+// This prevents a race with a profiler that calls
+// RequestReJIT just as the method finishes compiling. In particular, the locking ensures
+// atomicity between this set of steps (performed in DoJumpStampIfNecessary):
+//     * (1) Checking whether there is a non-default version for this MD
+//     * (2) If not, skip doing the jmp-stamp
+//     * (3) Publishing the PCODE
+//     
+// with respect to these steps performed in RequestReJIT:
+//     * (a) Is PCODE published yet?
+//     * (b) Create non-default ILCodeVersion which the prestub will
+//         consult when it JITs the original IL
+//         
+// Without this atomicity, we could get the ordering (1), (2), (a), (b), (3), resulting
+// in the rejit request getting completely ignored (i.e., we file away the new ILCodeVersion
+// AFTER the prestub checks for it).
+//
+// A similar race is possible for code being restored. In that case the restoring thread
+// does:
+//      * (1) Check if there is a non-default ILCodeVersion for this MD
+//      * (2) If not, no need to jmp-stamp
+//      * (3) Restore the MD
+
+// And RequestRejit does:
+//      * (a) [In LoadedMethodDescIterator] Is a potential MD restored yet?
+//      * (b) [In EnumerateDomainClosedMethodDescs] If not, don't queue it for jump-stamping
+//
+// Same ordering (1), (2), (a), (b), (3) results in missing both opportunities to jump
+// stamp.
+
+#if !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
+PublishMethodHolder::PublishMethodHolder(MethodDesc* pMethodDesc, PCODE pCode) :
+    m_pMD(NULL), m_hr(S_OK)
+{
+    // This method can't have a contract because entering the table lock
+    // below increments GCNoTrigger count. Contracts always revert these changes
+    // at the end of the method but we need the incremented count to flow out of the
+    // method. The balancing decrement occurs in the destructor.
+    STATIC_CONTRACT_NOTHROW;
+    STATIC_CONTRACT_GC_NOTRIGGER;
+    STATIC_CONTRACT_CAN_TAKE_LOCK;
+    STATIC_CONTRACT_MODE_ANY;
+
+    // We come here from the PreStub and from MethodDesc::CheckRestore
+    // The method should be effectively restored, but we haven't yet
+    // cleared the unrestored bit so we can't assert pMethodDesc->IsRestored()
+    // We can assert:
+    _ASSERTE(pMethodDesc->GetMethodTable()->IsRestored());
+
+    if (pCode != NULL)
+    {
+        m_pMD = pMethodDesc;
+        CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
+        pCodeVersionManager->EnterLock();
+        m_hr = pCodeVersionManager->DoJumpStampIfNecessary(pMethodDesc, pCode);
+    }
+}
+
+
+PublishMethodHolder::~PublishMethodHolder()
+{
+    // This method can't have a contract because leaving the table lock
+    // below decrements GCNoTrigger count. Contracts always revert these changes
+    // at the end of the method but we need the decremented count to flow out of the
+    // method. The balancing increment occurred in the constructor.
+    STATIC_CONTRACT_NOTHROW;
+    STATIC_CONTRACT_GC_TRIGGERS; // NOTRIGGER until we leave the lock
+    STATIC_CONTRACT_CAN_TAKE_LOCK;
+    STATIC_CONTRACT_MODE_ANY;
+
+    if (m_pMD)
+    {
+        CodeVersionManager* pCodeVersionManager = m_pMD->GetCodeVersionManager();
+        pCodeVersionManager->LeaveLock();
+        if (FAILED(m_hr))
+        {
+            pCodeVersionManager->ReportCodePublishError(m_pMD->GetModule(), m_pMD->GetMemberDef(), m_pMD, m_hr);
+        }
+    }
+}
+
+PublishMethodTableHolder::PublishMethodTableHolder(MethodTable* pMethodTable) :
+    m_pMethodTable(NULL)
+{
+    // This method can't have a contract because entering the table lock
+    // below increments GCNoTrigger count. Contracts always revert these changes
+    // at the end of the method but we need the incremented count to flow out of the
+    // method. The balancing decrement occurs in the destructor.
+    STATIC_CONTRACT_NOTHROW;
+    STATIC_CONTRACT_GC_NOTRIGGER;
+    STATIC_CONTRACT_CAN_TAKE_LOCK;
+    STATIC_CONTRACT_MODE_ANY;
+
+    // We come here from MethodTable::SetIsRestored
+    // The method table should be effectively restored, but we haven't yet
+    // cleared the unrestored bit so we can't assert pMethodTable->IsRestored()
+
+    m_pMethodTable = pMethodTable;
+    CodeVersionManager* pCodeVersionManager = pMethodTable->GetModule()->GetCodeVersionManager();
+    pCodeVersionManager->EnterLock();
+    MethodTable::IntroducedMethodIterator itMethods(pMethodTable, FALSE);
+    for (; itMethods.IsValid(); itMethods.Next())
+    {
+        // Although the MethodTable is restored, the methods might not be.
+        // We need to be careful to only query portions of the MethodDesc
+        // that work in a partially restored state. The only methods that need
+        // further restoration are IL stubs (which aren't rejittable) and
+        // generic methods. The only generic methods directly accesible from
+        // the MethodTable are definitions. GetNativeCode() on generic defs
+        // will run succesfully and return NULL which short circuits the
+        // rest of the logic.
+        MethodDesc * pMD = itMethods.GetMethodDesc();
+        PCODE pCode = pMD->GetNativeCode();
+        if (pCode != NULL)
+        {
+            HRESULT hr = pCodeVersionManager->DoJumpStampIfNecessary(pMD, pCode);
+            if (FAILED(hr))
+            {
+                CodeVersionManager::AddCodePublishError(pMD->GetModule(), pMD->GetMemberDef(), pMD, hr, &m_errors);
+            }
+        }
+    }
+}
+
+
+PublishMethodTableHolder::~PublishMethodTableHolder()
+{
+    // This method can't have a contract because leaving the table lock
+    // below decrements GCNoTrigger count. Contracts always revert these changes
+    // at the end of the method but we need the decremented count to flow out of the
+    // method. The balancing increment occurred in the constructor.
+    STATIC_CONTRACT_NOTHROW;
+    STATIC_CONTRACT_GC_TRIGGERS; // NOTRIGGER until we leave the lock
+    STATIC_CONTRACT_CAN_TAKE_LOCK;
+    STATIC_CONTRACT_MODE_ANY;
+
+    if (m_pMethodTable)
+    {
+        CodeVersionManager* pCodeVersionManager = m_pMethodTable->GetModule()->GetCodeVersionManager();
+        pCodeVersionManager->LeaveLock();
+        for (int i = 0; i < m_errors.Count(); i++)
+        {
+            pCodeVersionManager->ReportCodePublishError(&(m_errors[i]));
+        }
+    }
+}
+#endif // !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 
 #endif // FEATURE_CODE_VERSIONING
 

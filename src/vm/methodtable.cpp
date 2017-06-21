@@ -592,7 +592,7 @@ void MethodTable::SetIsRestored()
     // for details on the race.
     // 
     {
-        ReJitPublishMethodTableHolder(this);
+        PublishMethodTableHolder(this);
         FastInterlockAnd(EnsureWritablePages(&(GetWriteableDataForWrite()->m_dwFlags)), ~MethodTableWriteableData::enum_flag_Unrestored);
     }
 #ifndef DACCESS_COMPILE

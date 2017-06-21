@@ -37,7 +37,7 @@
 // appropriate IL and codegen flags, calling UnsafeJitFunction(), and redirecting the
 // jump-stamp from the prestub to the newly-rejitted code.
 // 
-// * code:ReJitPublishMethodHolder::ReJitPublishMethodHolder
+// * code:PublishMethodHolder::PublishMethodHolder
 // MethodDesc::MakeJitWorker() calls this to determine if there's an outstanding
 // "pre-rejit" request for a MethodDesc that has just been jitted for the first time. We
 // also call this from MethodDesc::CheckRestore when restoring generic methods.
@@ -48,8 +48,8 @@
 // the PCODE, which is required to avoid races with a profiler that calls RequestReJIT
 // just as the method finishes compiling/restoring.
 //
-// * code:ReJitPublishMethodTableHolder::ReJitPublishMethodTableHolder
-// Does the same thing as ReJitPublishMethodHolder except iterating over every
+// * code:PublishMethodTableHolder::PublishMethodTableHolder
+// Does the same thing as PublishMethodHolder except iterating over every
 // method in the MethodTable. This is called from MethodTable::SetIsRestored.
 // 
 // * code:ReJitManager::GetCurrentReJitFlags:
@@ -163,9 +163,8 @@
 #include "../debug/ee/controller.h"
 #include "codeversion.h"
 
-// This HRESULT is only used as a private implementation detail. If it escapes functions
-// defined in this file it is a bug. Corerror.xml has a comment in it reserving this
-// value for our use but it doesn't appear in the public headers.
+// This HRESULT is only used as a private implementation detail. Corerror.xml has a comment in it
+//  reserving this value for our use but it doesn't appear in the public headers.
 #define CORPROF_E_RUNTIME_SUSPEND_REQUIRED 0x80131381
 
 // This is just used as a unique id. Overflow is OK. If we happen to have more than 4+Billion rejits
@@ -1062,103 +1061,6 @@ HRESULT ReJitManager::MarkForReJit(
 }
 
 
-//---------------------------------------------------------------------------------------
-//
-// Given a MethodDesc, call ReJitInfo::JumpStampNativeCode to stamp the top of its
-// originally-jitted-code with a jmp that goes to the prestub. This is called by the
-// prestub worker after jitting the original code of a function (i.e., the "pre-rejit"
-// scenario). In this case, the EE is not suspended. But that's ok, because the PCODE has
-// not yet been published to the MethodDesc, and no thread can be executing inside the
-// originally JITted function yet.
-//
-// Arguments:
-//    * pMD - MethodDesc to jmp-stamp
-//    * pCode - Top of the code that was just jitted (using original IL).
-//
-//
-// Return value:
-//    * S_OK: Either we successfully did the jmp-stamp, or we didn't have to (e.g., there
-//        was no outstanding pre-rejit request for this MethodDesc, or a racing thread
-//        took care of it for us).
-//    * Else, HRESULT indicating failure.
-
-// Assumptions:
-//     The caller has not yet published pCode to the MethodDesc, so no threads can be
-//     executing inside pMD's code yet. Thus, we don't need to suspend the runtime while
-//     applying the jump-stamp like we usually do for rejit requests that are made after
-//     a function has been JITted.
-//
-
-HRESULT ReJitManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-        CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pMD));
-        PRECONDITION(pCode != NULL);
-    }
-    CONTRACTL_END;
-
-    HRESULT hr;
-
-    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
-    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
-
-    ILCodeVersionCollection ilCodeVersions = pCodeVersionManager->GetILCodeVersions(pMD->GetModule(), pMD->GetMemberDef());
-    ILCodeVersion ilCodeVersionToJumpStamp = ILCodeVersion();
-
-    for (ILCodeVersionIterator iter = ilCodeVersions.Begin();
-        iter != ilCodeVersions.End();
-        iter++)
-    {
-        ILCodeVersion curVersion = *iter;
-        switch (curVersion.GetRejitState())
-        {
-        case ILCodeVersion::kStateRequested:
-        case ILCodeVersion::kStateGettingReJITParameters:
-        case ILCodeVersion::kStateActive:
-            ilCodeVersionToJumpStamp = curVersion;
-            break;
-
-        default:
-            UNREACHABLE();
-        }
-    }
-
-    if (ilCodeVersionToJumpStamp.IsNull())
-    {
-        //Method not requested to be rejitted, nothing to do
-        return S_OK;
-    }
-
-    MethodDescVersioningState* pVersioningState;
-    if (FAILED(hr = pCodeVersionManager->GetOrCreateMethodVersioningState(pMD, &pVersioningState)))
-    {
-        return hr;
-    }
-    if (pVersioningState->GetJumpStampState() != MethodDescVersioningState::JumpStampNone)
-    {
-        //JumpStamp already in place
-        return S_OK;
-    }
-    
-    // We have finished JITting the original code for a function that had been
-    // "pre-rejitted" (i.e., requested to be rejitted before it was first compiled). So
-    // now is the first time where we know the MethodDesc of the request.
-    if (FAILED(hr = IsMethodSafeForReJit(pMD)))
-    {
-        // No jump stamping to do.
-        return hr;
-    }
-
-    return pVersioningState->JumpStampNativeCode(pCode);
-}
-
-//---------------------------------------------------------------------------------------
-//
 // ICorProfilerInfo4::RequestRevert calls into this guy to do most of the
 // work. Takes care of finding the appropriate ReJitManager instances to
 // perform the revert
@@ -1232,52 +1134,7 @@ HRESULT ReJitManager::RequestRevert(
     return S_OK;
 }
 
-
-//---------------------------------------------------------------------------------------
-//
-// Small helper to determine whether a given (possibly instantiated generic) MethodDesc
-// is safe to rejit.  If not, this function is responsible for calling into the
-// profiler's ReJITError()
-//
-// Arguments:
-//      pMD - MethodDesc to test
-// Return Value:
-//      S_OK iff pMD is safe to rejit
-//      CORPROF_E_FUNCTION_IS_COLLECTIBLE - function can't be rejitted because it is collectible
-//      
-
 // static
-HRESULT ReJitManager::IsMethodSafeForReJit(PTR_MethodDesc pMD)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        CAN_TAKE_LOCK;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(pMD != NULL);
-
-    // Weird, non-user functions were already weeded out in RequestReJIT(), and will
-    // also never be passed to us by the prestub worker (for the pre-rejit case).
-    _ASSERTE(pMD->IsIL());
-
-    // Any MethodDescs that could be collected are not currently supported.  Although we
-    // rule out all Ref.Emit modules in RequestReJIT(), there can still exist types defined
-    // in a non-reflection module and instantiated into a collectible assembly
-    // (e.g., List<MyCollectibleStruct>).  In the future we may lift this
-    // restriction by updating the ReJitManager when the collectible assemblies
-    // owning the instantiations get collected.
-    if (pMD->GetLoaderAllocator()->IsCollectible())
-    {
-        return CORPROF_E_FUNCTION_IS_COLLECTIBLE;
-    }
-
-    return S_OK;
-}
-
 
 //---------------------------------------------------------------------------------------
 //
@@ -2054,152 +1911,6 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
     *pcReJitIds = cnt;
 
     return (cnt > cReJitIds) ? S_FALSE : S_OK;
-}
-
-
-
-//---------------------------------------------------------------------------------------
-//
-// MethodDesc::MakeJitWorker() calls this to determine if there's an outstanding
-// "pre-rejit" request for a MethodDesc that has just been jitted for the first time.
-// This is also called when methods are being restored in NGEN images. The sequence looks like:
-// *Enter holder
-//   Enter Rejit table lock
-//   DoJumpStampIfNecessary
-// *Runtime code publishes/restores method
-// *Exit holder
-//   Leave rejit table lock
-//   Send rejit error callbacks if needed
-// 
-// This also has a non-locking early-out if ReJIT is not enabled.
-//
-// #PublishCode:
-// Note that the runtime needs to publish/restore the PCODE while this holder is
-// on the stack, so it can happen under the ReJitManager's lock.
-// This prevents a "lost pre-rejit" race with a profiler that calls
-// RequestReJIT just as the method finishes compiling. In particular, the locking ensures
-// atomicity between this set of steps (performed in DoJumpStampIfNecessary):
-//     * (1) Checking whether there is a pre-rejit request for this MD
-//     * (2) If not, skip doing the pre-rejit-jmp-stamp
-//     * (3) Publishing the PCODE
-//     
-// with respect to these steps performed in RequestReJIT:
-//     * (a) Is PCODE published yet?
-//     * (b) If not, create pre-rejit (placeholder) ReJitInfo which the prestub will
-//         consult when it JITs the original IL
-//         
-// Without this atomicity, we could get the ordering (1), (2), (a), (b), (3), resulting
-// in the rejit request getting completely ignored (i.e., we file away the pre-rejit
-// placeholder AFTER the prestub checks for it).
-//
-// A similar race is possible for code being restored. In that case the restoring thread
-// does:
-//      * (1) Check if there is a pre-rejit request for this MD
-//      * (2) If not, no need to jmp-stamp
-//      * (3) Restore the MD
-
-// And RequestRejit does:
-//      * (a) [In LoadedMethodDescIterator] Is a potential MD restored yet?
-//      * (b) [In MarkInstantiationsForReJit] If not, don't queue it for jump-stamping
-//
-// Same ordering (1), (2), (a), (b), (3) results in missing both opportunities to jump
-// stamp.
-
-#if !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
-ReJitPublishMethodHolder::ReJitPublishMethodHolder(MethodDesc* pMethodDesc, PCODE pCode) :
-m_pMD(NULL), m_hr(S_OK)
-{
-    // This method can't have a contract because entering the table lock
-    // below increments GCNoTrigger count. Contracts always revert these changes
-    // at the end of the method but we need the incremented count to flow out of the
-    // method. The balancing decrement occurs in the destructor.
-    STATIC_CONTRACT_NOTHROW;
-    STATIC_CONTRACT_GC_NOTRIGGER;
-    STATIC_CONTRACT_CAN_TAKE_LOCK;
-    STATIC_CONTRACT_MODE_ANY;
-
-    // We come here from the PreStub and from MethodDesc::CheckRestore
-    // The method should be effectively restored, but we haven't yet
-    // cleared the unrestored bit so we can't assert pMethodDesc->IsRestored()
-    // We can assert:
-    _ASSERTE(pMethodDesc->GetMethodTable()->IsRestored());
-
-    if (ReJitManager::IsReJITEnabled() && (pCode != NULL))
-    {
-        m_pMD = pMethodDesc;
-        CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
-        pCodeVersionManager->EnterLock();
-        m_hr = ReJitManager::DoJumpStampIfNecessary(pMethodDesc, pCode);
-    }
-}
-
-
-ReJitPublishMethodHolder::~ReJitPublishMethodHolder()
-{
-    // This method can't have a contract because leaving the table lock
-    // below decrements GCNoTrigger count. Contracts always revert these changes
-    // at the end of the method but we need the decremented count to flow out of the
-    // method. The balancing increment occurred in the constructor.
-    STATIC_CONTRACT_NOTHROW;
-    STATIC_CONTRACT_GC_TRIGGERS; // NOTRIGGER until we leave the lock
-    STATIC_CONTRACT_CAN_TAKE_LOCK;
-    STATIC_CONTRACT_MODE_ANY;
-
-    if (m_pMD)
-    {
-        CodeVersionManager* pCodeVersionManager = m_pMD->GetCodeVersionManager();
-        pCodeVersionManager->LeaveLock();
-        if (FAILED(m_hr))
-        {
-            ReJitManager::ReportReJITError(m_pMD->GetModule(), m_pMD->GetMemberDef(), m_pMD, m_hr);
-        }
-    }
-}
-
-ReJitPublishMethodTableHolder::ReJitPublishMethodTableHolder(MethodTable* pMethodTable) :
-m_pMethodTable(NULL)
-{
-    // This method can't have a contract because entering the table lock
-    // below increments GCNoTrigger count. Contracts always revert these changes
-    // at the end of the method but we need the incremented count to flow out of the
-    // method. The balancing decrement occurs in the destructor.
-    STATIC_CONTRACT_NOTHROW;
-    STATIC_CONTRACT_GC_NOTRIGGER;
-    STATIC_CONTRACT_CAN_TAKE_LOCK;
-    STATIC_CONTRACT_MODE_ANY;
-
-    // We come here from MethodTable::SetIsRestored
-    // The method table should be effectively restored, but we haven't yet
-    // cleared the unrestored bit so we can't assert pMethodTable->IsRestored()
-
-    if (ReJitManager::IsReJITEnabled())
-    {
-        m_pMethodTable = pMethodTable;
-        CodeVersionManager* pCodeVersionManager = pMethodTable->GetModule()->GetCodeVersionManager();
-        pCodeVersionManager->EnterLock();
-        MethodTable::IntroducedMethodIterator itMethods(pMethodTable, FALSE);
-        for (; itMethods.IsValid(); itMethods.Next())
-        {
-            // Although the MethodTable is restored, the methods might not be.
-            // We need to be careful to only query portions of the MethodDesc
-            // that work in a partially restored state. The only methods that need
-            // further restoration are IL stubs (which aren't rejittable) and
-            // generic methods. The only generic methods directly accesible from
-            // the MethodTable are definitions. GetNativeCode() on generic defs
-            // will run succesfully and return NULL which short circuits the
-            // rest of the logic.
-            MethodDesc * pMD = itMethods.GetMethodDesc();
-            PCODE pCode = pMD->GetNativeCode();
-            if (pCode != NULL)
-            {
-                HRESULT hr = ReJitManager::DoJumpStampIfNecessary(pMD, pCode);
-                if (FAILED(hr))
-                {
-                    CodeVersionManager::AddCodePublishError(pMD->GetModule(), pMD->GetMemberDef(), pMD, hr, &m_errors);
-                }
-            }
-        }
-    }
 }
 
 

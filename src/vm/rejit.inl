@@ -29,6 +29,7 @@ inline BOOL ReJitManager::IsReJITEnabled()
     return CORProfilerEnableRejit();
 }
 
+#ifndef DACCESS_COMPILE
 //static
 inline void ReJitManager::ReportReJITError(CodeVersionManager::CodePublishError* pErrorRecord)
 {
@@ -71,6 +72,7 @@ inline void ReJitManager::ReportReJITError(Module* pModule, mdMethodDef methodDe
     }
 #endif // PROFILING_SUPPORTED
 }
+#endif // DACCESS_COMPILE
 
 #else // FEATURE_REJIT
 

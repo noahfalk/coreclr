@@ -559,6 +559,8 @@ typedef SHash<ILCodeVersioningStateHashTraits> ILCodeVersioningStateHash;
 class CodeVersionManager
 {
     friend class ILCodeVersion;
+    friend class PublishMethodHolder;
+    friend class PublishMethodTableHolder;
 
 public:
     CodeVersionManager();
@@ -647,15 +649,9 @@ public:
         HRESULT hrStatus;
     };
 
-#ifndef DACCESS_COMPILE
-    HRESULT BatchUpdateJumpStamps(CDynArray<NativeCodeVersion> * pUndoMethods,
-        CDynArray<NativeCodeVersion> * pPreStubMethods,
-        CDynArray<CodePublishError> * pErrors);
-#endif
-
-#ifndef DACCESS_COMPILE
     HRESULT AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion);
     HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
+    HRESULT DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode);
     HRESULT PublishNativeCodeVersion(MethodDesc* pMethodDesc, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
     HRESULT GetOrCreateMethodDescVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodDescVersioningState);
     HRESULT GetOrCreateILCodeVersioningState(Module* pModule, mdMethodDef methodDef, ILCodeVersioningState** ppILCodeVersioningState);
@@ -667,6 +663,9 @@ private:
 
 #ifndef DACCESS_COMPILE
     static void OnAppDomainExit(AppDomain* pAppDomain);
+    static HRESULT GetNonVersionableError(MethodDesc* pMD);
+    void ReportCodePublishError(CodePublishError* pErrorRecord);
+    void ReportCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus);
 #endif
 
     //Module,MethodDef -> ILCodeVersioningState
@@ -679,9 +678,45 @@ private:
 };
 
 #endif // FEATURE_CODE_VERSIONING
+
+//
+// These holders are used by runtime code that is making new code
+// available for execution, either by publishing jitted code
+// or restoring NGEN code. It ensures the publishing is synchronized
+// with rejit requests
+//
+class PublishMethodHolder
 {
 public:
+#if !defined(FEATURE_CODE_VERSIONING) || defined(DACCESS_COMPILE) || defined(CROSSGEN_COMPILE)
+    PublishMethodHolder(MethodDesc* pMethod, PCODE pCode) { }
+#else
+    PublishMethodHolder(MethodDesc* pMethod, PCODE pCode);
+    ~PublishMethodHolder();
+#endif
+
+private:
+#if defined(FEATURE_CODE_VERSIONING)
+    MethodDesc * m_pMD;
+    HRESULT m_hr;
+#endif
 };
 
+class PublishMethodTableHolder
+{
+public:
+#if !defined(FEATURE_CODE_VERSIONING) || defined(DACCESS_COMPILE) || defined(CROSSGEN_COMPILE)
+    PublishMethodTableHolder(MethodTable* pMethodTable) { }
+#else
+    PublishMethodTableHolder(MethodTable* pMethodTable);
+    ~PublishMethodTableHolder();
+#endif
+
+private:
+#if defined(FEATURE_CODE_VERSIONING) && !defined(DACCESS_COMPILE)
+    MethodTable* m_pMethodTable;
+    CDynArray<CodeVersionManager::CodePublishError> m_errors;
+#endif
+};
 
 #endif // CODE_VERSION_H

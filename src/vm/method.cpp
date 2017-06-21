@@ -4141,7 +4141,7 @@ void MethodDesc::CheckRestore(ClassLoadLevel level)
             // for details on the race.
             // 
             {
-                ReJitPublishMethodHolder publishWorker(this, GetNativeCode());
+                PublishMethodHolder publishWorker(this, GetNativeCode());
                 pIMD->m_wFlags2 = pIMD->m_wFlags2 & ~InstantiatedMethodDesc::Unrestored;
             }
 

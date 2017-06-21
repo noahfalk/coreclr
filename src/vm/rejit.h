@@ -69,45 +69,7 @@ protected:
 
 #endif  // FEATURE_REJIT
 
-//
-// These holders are used by runtime code that is making new code
-// available for execution, either by publishing jitted code
-// or restoring NGEN code. It ensures the publishing is synchronized
-// with rejit requests
-//
-class ReJitPublishMethodHolder
-{
-public:
-#if !defined(FEATURE_REJIT) || defined(DACCESS_COMPILE) || defined(CROSSGEN_COMPILE)
-    ReJitPublishMethodHolder(MethodDesc* pMethod, PCODE pCode) { }
-#else
-    ReJitPublishMethodHolder(MethodDesc* pMethod, PCODE pCode);
-    ~ReJitPublishMethodHolder();
-#endif
 
-private:
-#if defined(FEATURE_REJIT)
-    MethodDesc * m_pMD;
-    HRESULT m_hr;
-#endif
-};
-
-class ReJitPublishMethodTableHolder
-{
-public:
-#if !defined(FEATURE_REJIT) || defined(DACCESS_COMPILE) || defined(CROSSGEN_COMPILE)
-    ReJitPublishMethodTableHolder(MethodTable* pMethodTable) { }
-#else
-    ReJitPublishMethodTableHolder(MethodTable* pMethodTable);
-    ~ReJitPublishMethodTableHolder();
-#endif
-
-private:
-#if defined(FEATURE_REJIT)
-    MethodTable* m_pMethodTable;
-    CDynArray<CodeVersionManager::CodePublishError> m_errors;
-#endif
-};
 
 //---------------------------------------------------------------------------------------
 // The big honcho.  One of these per AppDomain, plus one for the
@@ -118,11 +80,6 @@ class ReJitManager
 {
     friend class ClrDataAccess;
     friend class DacDbiInterfaceImpl;
-
-    //I would have prefered to make these inner classes, but
-    //then I can't friend them from crst easily.
-    friend class ReJitPublishMethodHolder;
-    friend class ReJitPublishMethodTableHolder;
 
 private:
 
@@ -154,8 +111,6 @@ public:
 
     static PCODE DoReJitIfNecessary(PTR_MethodDesc pMD);  // Invokes the jit, or returns previously rejitted code
     
-    static void DoJumpStampForAssemblyIfNecessary(Assembly* pAssemblyToSearch);
-
     static CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags);
 
     ReJitManager();
@@ -168,12 +123,13 @@ public:
 
 #ifdef FEATURE_REJIT
 
-private:
-    static HRESULT IsMethodSafeForReJit(PTR_MethodDesc pMD);
+#ifndef DACCESS_COMPILE
     static void ReportReJITError(CodeVersionManager::CodePublishError* pErrorRecord);
     static void ReportReJITError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus);
+#endif
 
     static PCODE DoReJitIfNecessaryWorker(MethodDesc* pMD);  // Invokes the jit, or returns previously rejitted code
+private:
 
     static HRESULT BindILVersion(
         CodeVersionManager* pCodeVersionManager,
@@ -193,7 +149,6 @@ private:
 
 
 
-    static HRESULT DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode);
     static HRESULT MarkForReJit(CodeVersionManager* pCodeVersionManager,
                                 PTR_MethodDesc pMD,
                                 ILCodeVersion ilCodeVersion,
