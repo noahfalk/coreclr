@@ -7,17 +7,54 @@
 // ===========================================================================
 
 #include "common.h"
+#include "codeversion.h"
 
 #ifdef FEATURE_CODE_VERSIONING
-
-#include "codeversion.h"
+#include "threadsuspend.h"
+#include "methoditer.h"
 #include "../debug/ee/debugger.h"
 #include "../debug/ee/walker.h"
 #include "../debug/ee/controller.h"
+#endif // FEATURE_CODE_VERSIONING
 
 // This HRESULT is only used as a private implementation detail. If it escapes functions
 // defined in this file it is a bug. Corerror.xml has a comment in it reserving this
 // value for our use but it doesn't appear in the public headers.
+#ifndef FEATURE_CODE_VERSIONING
+
+//
+// When not using code versioning we've got a minimal implementation of 
+// NativeCodeVersion + ILCodeVersion that simply wraps a MethodDesc* with
+// no additional versioning information
+//
+
+NativeCodeVersion::NativeCodeVersion(const NativeCodeVersion & rhs) : m_pMethod(rhs.m_pMethod) {}
+NativeCodeVersion::NativeCodeVersion(PTR_MethodDesc pMethod) : m_pMethod(pMethod) {}
+BOOL NativeCodeVersion::IsNull() const { return m_pMethod == NULL; }
+PTR_MethodDesc NativeCodeVersion::GetMethodDesc() const { return m_pMethod; }
+PCODE NativeCodeVersion::GetNativeCode() const { return m_pMethod->GetNativeCode(); }
+NativeCodeVersionId NativeCodeVersion::GetVersionId() const { return 0; }
+ILCodeVersion NativeCodeVersion::GetILCodeVersion() const { return ILCodeVersion(m_pMethod); }
+#ifndef DACCESS_COMPILE
+BOOL NativeCodeVersion::SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected) { return m_pMethod->SetNativeCodeInterlocked(pCode, pExpected); }
+#endif
+bool NativeCodeVersion::operator==(const NativeCodeVersion & rhs) const { return m_pMethod == rhs.m_pMethod; }
+bool NativeCodeVersion::operator!=(const NativeCodeVersion & rhs) const { return !operator==(rhs); }
+
+
+ILCodeVersion::ILCodeVersion() : m_pMethod(NULL) {}
+ILCodeVersion::ILCodeVersion(const ILCodeVersion & ilCodeVersion) : m_pMethod(ilCodeVersion.m_pMethod) {}
+BOOL ILCodeVersion::IsNull() const { return m_pMethod == NULL }
+PTR_Module ILCodeVersion::GetModule() { return m_pMethod->GetModule() }
+mdMethodDef ILCodeVersion::GetMethodDef() { return m_pMethod->GetMethodDef(); }
+PTR_COR_ILMETHOD ILCodeVersion::GetIL() const { return m_pMethod->GetILHeader(TRUE); }
+DWORD ILCodeVersion::GetJitFlags() const { return 0; }
+bool ILCodeVersion::operator==(const ILCodeVersion & rhs) const { return m_pMethod == rhs.m_pMethod; }
+bool ILCodeVersion::operator!=(const ILCodeVersion & rhs) const { return m_pMethod != rhs.m_pMethod; }
+
+
+
+#else // FEATURE_CODE_VERSIONING
 #define CORPROF_E_RUNTIME_SUSPEND_REQUIRED 0x80131381
 
 #ifndef DACCESS_COMPILE

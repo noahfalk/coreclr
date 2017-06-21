@@ -10,101 +10,92 @@
 #ifndef CODE_VERSION_H
 #define CODE_VERSION_H
 
-#ifdef FEATURE_CODE_VERSIONING
+class NativeCodeVersion;
+class ILCodeVersion;
+typedef DWORD NativeCodeVersionId;
 
+#ifdef FEATURE_CODE_VERSIONING
 class NativeCodeVersionNode;
 typedef DPTR(class NativeCodeVersionNode) PTR_NativeCodeVersionNode;
-class NativeCodeVersion;
 class NativeCodeVersionCollection;
 class NativeCodeVersionIterator;
 class ILCodeVersionNode;
 typedef DPTR(class ILCodeVersionNode) PTR_ILCodeVersionNode;
-class ILCodeVersion;
 class ILCodeVersionCollection;
 class ILCodeVersionIterator;
 class MethodDescVersioningState;
 typedef DPTR(class MethodDescVersioningState) PTR_MethodDescVersioningState;
+
+class ILCodeVersioningState;
+typedef DPTR(class ILCodeVersioningState) PTR_ILCodeVersioningState;
 class CodeVersionManager;
+typedef DPTR(class CodeVersionManager) PTR_CodeVersionManager;
 
+// This HRESULT is only used as a private implementation detail. Corerror.xml has a comment in it
+//  reserving this value for our use but it doesn't appear in the public headers.
+#define CORPROF_E_RUNTIME_SUSPEND_REQUIRED 0x80131381
 
-
-typedef DWORD NativeCodeVersionId;
-
-class NativeCodeVersionNode
-{
-    friend NativeCodeVersionIterator;
-    friend MethodDescVersioningState;
-    friend ILCodeVersionNode;
-public:
-#ifndef DACCESS_COMPILE
-    NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethod, ReJITID parentId);
 #endif
-    PTR_MethodDesc GetMethodDesc() const;
-    NativeCodeVersionId GetVersionId() const;
-    PCODE GetNativeCode() const;
-    BOOL SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected);
-    ReJITID GetILVersionId() const;
-    ILCodeVersion GetILCodeVersion() const;
-//#ifdef FEATURE_TIERED_COMPILATION
-//    TieredCompilationCodeConfiguration* GetTieredCompilationConfig();
-//    const TieredCompilationCodeConfiguration* GetTieredCompilationConfig() const;
-//#endif
 
 
-private:
-    //union
-    //{
-    PCODE m_pNativeCode;
-    PTR_MethodDesc m_pMethodDesc;
-    //};
 
-    //union
-    //{
-    PTR_NativeCodeVersionNode m_pNextILVersionSibling;
-    ReJITID m_parentId;
-    //};
-
-    NativeCodeVersionId m_id;
-//#ifdef FEATURE_TIERED_COMPILATION
-//    TieredCompilationCodeConfiguration m_tieredCompilationConfig;
-//#endif
-};
 
 class NativeCodeVersion
 {
-    friend MethodDescVersioningState;
+#ifdef FEATURE_CODE_VERSIONING
+    friend class MethodDescVersioningState;
+    friend class ILCodeVersion;
+#endif
 
 public:
     NativeCodeVersion();
     NativeCodeVersion(const NativeCodeVersion & rhs);
+#ifdef FEATURE_CODE_VERSIONING
     NativeCodeVersion(PTR_NativeCodeVersionNode pVersionNode);
+#endif
     NativeCodeVersion(PTR_MethodDesc pMethod);
     BOOL IsNull() const;
     PTR_MethodDesc GetMethodDesc() const;
     NativeCodeVersionId GetVersionId() const;
     BOOL IsDefaultVersion() const;
     PCODE GetNativeCode() const;
-    BOOL SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected = NULL);
     ILCodeVersion GetILCodeVersion() const;
-//#ifdef FEATURE_TIERED_COMPILATION
-//    TieredCompilationCodeConfiguration* GetTieredCompilationConfig();
-//    const TieredCompilationCodeConfiguration* GetTieredCompilationConfig() const;
-//#endif
-
+#ifndef DACCESS_COMPILE
+    BOOL SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected = NULL);
+#endif
+#ifdef FEATURE_TIERED_COMPILATION
+    enum OptimizationTier
+    {
+        OptimizationTier0,
+        OptimizationTier1
+    };
+    OptimizationTier GetOptimizationTier() const;
+#ifndef DACCESS_COMPILE
+    void SetOptimizationTier(OptimizationTier tier);
+#endif
+#endif // FEATURE_TIERED_COMPILATION
     bool operator==(const NativeCodeVersion & rhs) const;
     bool operator!=(const NativeCodeVersion & rhs) const;
-
-#ifdef DACCESS_COMPILE
+#if defined(DACCESS_COMPILE) && defined(FEATURE_CODE_VERSIONING)
     // The DAC is privy to the backing node abstraction
     PTR_NativeCodeVersionNode AsNode() const;
 #endif
 
 private:
 
+#ifndef FEATURE_CODE_VERSIONING
+    MethodDesc* m_pMethodDesc;
+#else // FEATURE_CODE_VERSIONING
+
 #ifndef DACCESS_COMPILE
-    PTR_NativeCodeVersionNode AsNode() const;
-    PTR_NativeCodeVersionNode AsNode();
+    NativeCodeVersionNode* AsNode() const;
+    NativeCodeVersionNode* AsNode();
+    void SetActiveChildFlag(BOOL isActive);
+    MethodDescVersioningState* GetMethodDescVersioningState();
 #endif
+
+    BOOL IsActiveChildVersion() const;
+    PTR_MethodDescVersioningState GetMethodDescVersioningState() const;
 
     enum StorageKind
     {
@@ -119,10 +110,172 @@ private:
         PTR_NativeCodeVersionNode m_pVersionNode;
         struct SyntheticStorage
         {
-            MethodDesc* m_pMethodDesc;
-            //TieredCompilationCodeConfiguration m_tieredCompilationConfig;
+            PTR_MethodDesc m_pMethodDesc;
         } m_synthetic;
     };
+#endif // FEATURE_CODE_VERSIONING
+};
+
+class ILCodeVersion
+{
+#ifdef FEATURE_CODE_VERSIONING
+    friend class NativeCodeVersionIterator;
+#endif
+
+public:
+    ILCodeVersion();
+    ILCodeVersion(const ILCodeVersion & ilCodeVersion);
+#ifdef FEATURE_CODE_VERSIONING
+    ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode);
+    ILCodeVersion(PTR_Module pModule, mdMethodDef methodDef);
+#else
+    ILCodeVersion(PTR_MethodDesc);
+#endif
+    bool operator==(const ILCodeVersion & rhs) const;
+    bool operator!=(const ILCodeVersion & rhs) const;
+    BOOL IsNull() const;
+    BOOL IsDefaultVersion() const;
+    PTR_Module GetModule() const;
+    mdMethodDef GetMethodDef() const;
+    ReJITID GetVersionId() const;
+#ifdef FEATURE_CODE_VERSIONING
+    NativeCodeVersionCollection GetNativeCodeVersions(PTR_MethodDesc pClosedMethodDesc) const;
+    NativeCodeVersion GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc) const;
+#endif // FEATURE_CODE_VERSIONING
+    PTR_COR_ILMETHOD GetIL() const;
+    DWORD GetJitFlags() const;
+    const InstrumentedILOffsetMapping* GetInstrumentedILMap() const;
+
+#ifdef FEATURE_CODE_VERSIONING
+#ifndef DACCESS_COMPILE
+    void SetIL(COR_ILMETHOD* pIL);
+    void SetJitFlags(DWORD flags);
+    void SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap);
+    HRESULT AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
+    void LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode);
+#endif //DACCESS_COMPILE
+
+    enum RejitFlags
+    {
+        // The profiler has requested a ReJit, so we've allocated stuff, but we haven't
+        // called back to the profiler to get any info or indicate that the ReJit has
+        // started. (This Info can be 'reused' for a new ReJit if the
+        // profiler calls RequestRejit again before we transition to the next state.)
+        kStateRequested = 0x00000000,
+
+        // The CLR has initiated the call to the profiler's GetReJITParameters() callback
+        // but it hasn't completed yet. At this point we have to assume the profiler has
+        // commited to a specific IL body, even if the CLR doesn't know what it is yet.
+        // If the profiler calls RequestRejit we need to allocate a new ILCodeVersion
+        // and call GetReJITParameters() again.
+        kStateGettingReJITParameters = 0x00000001,
+
+        // We have asked the profiler about this method via ICorProfilerFunctionControl,
+        // and have thus stored the IL and codegen flags the profiler specified. Can only
+        // transition to kStateReverted from this state.
+        kStateActive = 0x00000002,
+
+        // The methoddef has been reverted, but not freed yet. It (or its instantiations
+        // for generics) *MAY* still be active on the stack someplace or have outstanding
+        // memory references.
+        kStateReverted = 0x00000003,
+
+
+        kStateMask = 0x0000000F,
+    };
+
+    RejitFlags GetRejitState() const;
+#ifndef DACCESS_COMPILE
+    void SetRejitState(RejitFlags newState);
+#endif
+
+#ifdef DACCESS_COMPILE
+    // The DAC is privy to the backing node abstraction
+    PTR_ILCodeVersionNode AsNode() const;
+#endif
+#endif // FEATURE_CODE_VERSIONING
+
+private:
+
+#ifndef FEATURE_CODE_VERSIONING
+    MethodDesc* m_pMethod;
+
+#else // FEATURE_CODE_VERSIONING
+#ifndef DACCESS_COMPILE
+    PTR_ILCodeVersionNode AsNode();
+    PTR_ILCodeVersionNode AsNode() const;
+#endif
+
+    enum StorageKind
+    {
+        Unknown,
+        Explicit,
+        Synthetic
+    };
+
+    StorageKind m_storageKind;
+    union
+    {
+        PTR_ILCodeVersionNode m_pVersionNode;
+        struct SyntheticStorage
+        {
+            PTR_Module m_pModule;
+            mdMethodDef m_methodDef;
+        } m_synthetic;
+    };
+#endif // FEATURE_CODE_VERSIONING
+};
+
+
+#ifdef FEATURE_CODE_VERSIONING
+
+
+
+class NativeCodeVersionNode
+{
+    friend NativeCodeVersionIterator;
+    friend MethodDescVersioningState;
+    friend ILCodeVersionNode;
+public:
+#ifndef DACCESS_COMPILE
+    NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethod, ReJITID parentId);
+#endif
+    PTR_MethodDesc GetMethodDesc() const;
+    NativeCodeVersionId GetVersionId() const;
+    PCODE GetNativeCode() const;
+    ReJITID GetILVersionId() const;
+    ILCodeVersion GetILCodeVersion() const;
+    BOOL IsActiveChildVersion() const;
+#ifndef DACCESS_COMPILE
+    BOOL SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected);
+    void SetActiveChildFlag(BOOL isActive);
+#endif
+#ifdef FEATURE_TIERED_COMPILATION
+    NativeCodeVersion::OptimizationTier GetOptimizationTier() const;
+#ifndef DACCESS_COMPILE
+    void SetOptimizationTier(NativeCodeVersion::OptimizationTier tier);
+#endif
+#endif
+
+private:
+    //union - could save a little memory?
+    //{
+    PCODE m_pNativeCode;
+    PTR_MethodDesc m_pMethodDesc;
+    //};
+
+    ReJITID m_parentId;
+    PTR_NativeCodeVersionNode m_pNextMethodDescSibling;
+    NativeCodeVersionId m_id;
+#ifdef FEATURE_TIERED_COMPILATION
+    NativeCodeVersion::OptimizationTier m_optTier;
+#endif
+
+    enum NativeCodeVersionNodeFlags
+    {
+        IsActiveChildFlag = 1
+    };
+    DWORD m_flags;
 };
 
 class NativeCodeVersionNodeHashTraits : public DefaultSHashTraits<PTR_NativeCodeVersionNode>
@@ -158,11 +311,13 @@ class NativeCodeVersionCollection
 {
     friend class NativeCodeVersionIterator;
 public:
-    NativeCodeVersionCollection();
+    NativeCodeVersionCollection(PTR_MethodDesc pMethodDescFilter, ILCodeVersion ilCodeFilter);
     NativeCodeVersionIterator Begin();
     NativeCodeVersionIterator End();
 
 private:
+    PTR_MethodDesc m_pMethodDescFilter;
+    ILCodeVersion m_ilCodeFilter;
 };
 
 class NativeCodeVersionIterator : public Enumerator<const NativeCodeVersion, NativeCodeVersionIterator>
@@ -182,97 +337,17 @@ protected:
     CHECK DoCheck() const { CHECK_OK; }
 
 private:
+    enum IterationStage
+    {
+        Initial,
+        ImplicitCodeVersion,
+        LinkedList,
+        End
+    };
+    IterationStage m_stage;
+    NativeCodeVersionCollection* m_pCollection;
+    PTR_NativeCodeVersionNode m_pLinkedListCur;
     NativeCodeVersion m_cur;
-};
-
-
-
-class ILCodeVersion
-{
-public:
-    ILCodeVersion();
-    ILCodeVersion(const ILCodeVersion & ilCodeVersion);
-    ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode);
-    bool operator==(const ILCodeVersion & rhs) const;
-    BOOL IsNull() const;
-    PTR_Module GetModule();
-    mdMethodDef GetMethodDef();
-    ReJITID GetVersionId();
-    NativeCodeVersionCollection GetNativeCodeVersions(PTR_MethodDesc pClosedMethodDesc);
-    NativeCodeVersion GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc);
-
-    PTR_COR_ILMETHOD GetIL() const;
-    DWORD GetJitFlags() const;
-    const InstrumentedILOffsetMapping* GetInstrumentedILMap() const;
-#ifndef DACCESS_COMPILE
-    void SetIL(COR_ILMETHOD* pIL);
-    void SetJitFlags(DWORD flags);
-    void SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap);
-    HRESULT AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
-    void LinkNativeCodeNode(NativeCodeVersionNode* pNativeCodeVersionNode);
-#endif
-
-    enum RejitFlags
-    {
-        // The profiler has requested a ReJit, so we've allocated stuff, but we haven't
-        // called back to the profiler to get any info or indicate that the ReJit has
-        // started. (This Info can be 'reused' for a new ReJit if the
-        // profiler calls RequestRejit again before we transition to the next state.)
-        kStateRequested = 0x00000000,
-
-        // The CLR has initiated the call to the profiler's GetReJITParameters() callback
-        // but it hasn't completed yet. At this point we have to assume the profiler has
-        // commited to a specific IL body, even if the CLR doesn't know what it is yet.
-        // If the profiler calls RequestRejit we need to allocate a new ILCodeVersion
-        // and call GetReJITParameters() again.
-        kStateGettingReJITParameters = 0x00000001,
-
-        // We have asked the profiler about this method via ICorProfilerFunctionControl,
-        // and have thus stored the IL and codegen flags the profiler specified. Can only
-        // transition to kStateReverted from this state.
-        kStateActive = 0x00000002,
-
-        // The methoddef has been reverted, but not freed yet. It (or its instantiations
-        // for generics) *MAY* still be active on the stack someplace or have outstanding
-        // memory references.
-        kStateReverted = 0x00000003,
-
-
-        kStateMask = 0x0000000F,
-    };
-
-    RejitFlags GetRejitState() const;
-    void SetRejitState(RejitFlags newState);
-
-#ifdef DACCESS_COMPILE
-    // The DAC is privy to the backing node abstraction
-    PTR_ILCodeVersionNode AsNode() const;
-#endif
-
-private:
-
-#ifndef DACCESS_COMPILE
-    PTR_ILCodeVersionNode AsNode();
-    PTR_ILCodeVersionNode AsNode() const;
-#endif
-
-    enum StorageKind
-    {
-        Unknown,
-        Explicit,
-        Synthetic
-    };
-
-    StorageKind m_storageKind;
-    //union
-    //{
-        PTR_ILCodeVersionNode m_pVersionNode;
-    //    struct SyntheticStorage
-    //    {
-    //        PTR_Module m_pModule;
-    //        mdMethodDef m_methodDef;
-    //    } m_synthetic;
-    //};
 };
 
 class ILCodeVersionNode

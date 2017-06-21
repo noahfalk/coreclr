@@ -122,7 +122,7 @@ public:
         m_Crst.Leave();
     }
 
-    static ListLockEntry *Find(ListLockBase<ELEMENT>* pLock, ELEMENT data, const char *description = NULL)
+    static ListLockEntryBase<ELEMENT> *Find(ListLockBase<ELEMENT>* pLock, ELEMENT data, const char *description = NULL)
     {
         CONTRACTL
         {

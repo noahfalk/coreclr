@@ -317,7 +317,7 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
     {
         // Enter the global lock which protects the list of all functions being JITd
-        ListLockHolder pJitLock (GetDomain()->GetJitLock());
+        JitListLock::LockHolder pJitLock(GetDomain()->GetJitLock());
 
         // It is possible that another thread stepped in before we entered the global lock for the first time.
         pCode = GetNativeCode();
@@ -335,14 +335,15 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
         const char *description = "jit lock";
         INDEBUG(description = m_pszDebugMethodName;)
-        ListLockEntryHolder pEntry(ListLockEntry::Find(pJitLock, this, description));
+            ReleaseHolder<JitListLockEntry> pEntry(JitListLockEntry::Find(
 
+                pJitLock, NativeCodeVersion(this), description));
         // We have an entry now, we can release the global lock
         pJitLock.Release();
 
         // Take the entry lock
         {
-            ListLockEntryLockHolder pEntryLock(pEntry, FALSE);
+            JitListLockEntry::LockHolder pEntryLock(pEntry, FALSE);
 
             if (pEntryLock.DeadlockAwareAcquire())
             {

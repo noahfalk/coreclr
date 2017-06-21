@@ -49,9 +49,7 @@
 #include "callcounter.h"
 #endif
 
-#ifdef FEATURE_CODE_VERSIONING
 #include "codeversion.h"
-#endif
 
 class BaseDomain;
 class SystemDomain;
@@ -953,6 +951,9 @@ typedef FileLoadLock::Holder FileLoadLockHolder;
     typedef ReleaseHolder<FileLoadLock> FileLoadLockRefHolder;
 #endif // DACCESS_COMPILE
 
+    typedef ListLockBase<NativeCodeVersion> JitListLock;
+    typedef ListLockEntryBase<NativeCodeVersion> JitListLockEntry;
+
 
 #ifdef _MSC_VER
 #pragma warning(push)
@@ -1208,7 +1209,7 @@ public:
         return &m_ClassInitLock;
     }
 
-    ListLock* GetJitLock()
+    JitListLock* GetJitLock()
     {
         LIMITED_METHOD_CONTRACT;
         return &m_JITLock;
@@ -1402,7 +1403,7 @@ protected:
     CrstExplicitInit m_crstAssemblyList;
     BOOL             m_fDisableInterfaceCache;  // RCW COM interface cache
     ListLock         m_ClassInitLock;
-    ListLock         m_JITLock;
+    JitListLock      m_JITLock;
     ListLock         m_ILStubGenLock;
 
     // Fusion context, used for adding assemblies to the is domain. It defines

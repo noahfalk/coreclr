@@ -873,22 +873,23 @@ void BaseDomain::Terminate()
     m_DomainLocalBlockCrst.Destroy();
     m_InteropDataCrst.Destroy();
 
+    JitListLockEntry* pJitElement;
     ListLockEntry* pElement;
 
     // All the threads that are in this domain had better be stopped by this
     // point.
     //
     // We might be jitting or running a .cctor so we need to empty that queue.
-    pElement = m_JITLock.Pop(TRUE);
-    while (pElement)
+    pJitElement = m_JITLock.Pop(TRUE);
+    while (pJitElement)
     {
 #ifdef STRICT_JITLOCK_ENTRY_LEAK_DETECTION
         _ASSERTE ((m_JITLock.m_pHead->m_dwRefCount == 1
             && m_JITLock.m_pHead->m_hrResultCode == E_FAIL) ||
             dbg_fDrasticShutdown || g_fInControlC);
 #endif // STRICT_JITLOCK_ENTRY_LEAK_DETECTION
-        delete(pElement);
-        pElement = m_JITLock.Pop(TRUE);
+        delete(pJitElement);
+        pJitElement = m_JITLock.Pop(TRUE);
 
     }
     m_JITLock.Destroy();
