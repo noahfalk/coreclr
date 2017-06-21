@@ -413,6 +413,7 @@ public:
     PTR_NativeCodeVersionNode GetFirstVersionNode() const;
 
 #ifndef DACCESS_COMPILE
+    HRESULT SyncJumpStamp(NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
     HRESULT UpdateJumpTarget(BOOL fEESuspended, PCODE pRejittedCode);
     HRESULT UndoJumpStampNativeCode(BOOL fEESuspended);
     HRESULT JumpStampNativeCode(PCODE pCode = NULL);
@@ -652,6 +653,7 @@ public:
     HRESULT AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion);
     HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
     HRESULT DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode);
+    PCODE PublishVersionableCodeIfNecessary(MethodDesc* pMethodDesc, BOOL fCanBackpatchPrestub);
     HRESULT PublishNativeCodeVersion(MethodDesc* pMethodDesc, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
     HRESULT GetOrCreateMethodDescVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodDescVersioningState);
     HRESULT GetOrCreateILCodeVersioningState(Module* pModule, mdMethodDef methodDef, ILCodeVersioningState** ppILCodeVersioningState);

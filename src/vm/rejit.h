@@ -109,8 +109,7 @@ public:
         mdMethodDef rgMethodDefs[],
         HRESULT     rgHrStatuses[]);
 
-    static PCODE DoReJitIfNecessary(PTR_MethodDesc pMD);  // Invokes the jit, or returns previously rejitted code
-    
+    static HRESULT ConfigureILCodeVersion(ILCodeVersion ilCodeVersion);
     static CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags);
 
     ReJitManager();
@@ -128,7 +127,6 @@ public:
     static void ReportReJITError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus);
 #endif
 
-    static PCODE DoReJitIfNecessaryWorker(MethodDesc* pMD);  // Invokes the jit, or returns previously rejitted code
 private:
 
     static HRESULT BindILVersion(
@@ -157,7 +155,6 @@ private:
 
     static HRESULT RequestRevertByToken(PTR_Module pModule, mdMethodDef methodDef);
     static HRESULT Revert(ILCodeVersion ilCodeVersion, CodeVersionManager::JumpStampBatch* pJumpStampBatch);
-    static PCODE   DoReJit(ILCodeVersion ilCodeVersion, MethodDesc* pMethod);
 
 #endif // FEATURE_REJIT
 

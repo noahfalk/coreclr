@@ -446,30 +446,6 @@ COR_IL_MAP* ProfilerFunctionControl::GetInstrumentedMapEntries()
 #ifndef DACCESS_COMPILE
 
 //---------------------------------------------------------------------------------------
-// Called by the prestub worker, this function is a simple wrapper which determines the
-// appropriate ReJitManager, and then calls DoReJitIfNecessaryWorker() on it. See the
-// comment at the top of code:ReJitManager::DoReJitIfNecessaryWorker for more info,
-// including parameter & return value descriptions.
-
-// static
-PCODE ReJitManager::DoReJitIfNecessary(PTR_MethodDesc pMD)
-{
-    STANDARD_VM_CONTRACT;
-
-    if (!pMD->HasNativeCode())
-    {
-        // If method hasn't been jitted yet, the prestub worker should just continue as
-        // usual.
-        return NULL;
-    }
-
-    // We've already published the JITted code for this MethodDesc, and yet we're
-    // back in the prestub (who called us).  Ask the appropriate rejit manager if that's because of a rejit request.  If so, the
-    // ReJitManager will take care of the rejit now
-    return pMD->GetReJitManager()->DoReJitIfNecessaryWorker(pMD);
-}
-
-//---------------------------------------------------------------------------------------
 //
 // ICorProfilerInfo4::RequestReJIT calls into this guy to do most of the
 // work. Takes care of finding the appropriate ReJitManager instances to
@@ -1219,147 +1195,37 @@ HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef metho
 
 
 
-//---------------------------------------------------------------------------------------
-//
-// Called by the prestub worker, this function decides if the MethodDesc needs to be
-// rejitted, and if so, this will call the profiler to get the rejit parameters (if they
-// are not yet stored), and then perform the actual re-JIT (by calling, indirectly,
-// UnsafeJitFunction).
-// 
-// In order to allow the re-JIT to occur outside of any locks, the following sequence is
-// performed:
-// 
-//     * Enter this ReJitManager's table crst
-//       * Find the single ReJitInfo (if any) in the table matching the input pMD. This
-//           represents the outstanding rejit request against thie pMD
-//     * If necessary, ask profiler for IL & codegen flags (by calling
-//         GetReJITParameters()), thus transitioning the corresponding SharedReJitInfo
-//         state kStateRequested-->kStateActive
-//     * Exit this ReJitManager's table crst
-// * (following steps occur when DoReJitIfNecessary() calls DoReJit())
-//   * Call profiler's ReJitCompilationStarted()
-//   * Call UnsafeJitFunction with the IL / codegen flags provided by profiler, as stored
-//       on the SharedReJitInfo. Note that if another Rejit request came in, then we would
-//       create new SharedReJitInfo & ReJitInfo structures to track it, rather than
-//       modifying the ReJitInfo / SharedReJitInfo we found above. So the ReJitInfo we're
-//       using here (outside the lock), is "fixed" in the sense that its IL / codegen flags
-//       will not change.
-//   * (below is where we handle any races that might have occurred between threads
-//     simultaneously rejitting this function)
-//   * Enter this ReJitManager's table crst
-//     * Check to see if another thread has already published the rejitted PCODE to
-//         ReJitInfo::m_pCode. If so, bail.
-//     * If we're the winner, publish our rejitted PCODE to ReJitInfo::m_pCode...
-//     * ...and update the jump-stamp at the top of the originally JITted code so that it
-//         now points to our rejitted code (instead of the prestub)
-//   * Exit this ReJitManager's table crst
-//   * Call profiler's ReJitCompilationFinished()
-//   * Fire relevant ETW events
-//
-// Arguments:
-//      pMD - MethodDesc to decide whether to rejit
-//
-// Return Value:
-//      * If a rejit was performed, the PCODE of the generated code.
-//      * If the ReJitManager changed its mind and chose not to do a rejit (e.g., a
-//          revert request raced with this rejit request, and the revert won), just
-//          return the PCODE of the originally JITted code (pMD->GetNativeCode())
-//      * Else, NULL (which means the ReJitManager doesn't know or care about this 
-//          MethodDesc)
-//
-
-PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
+HRESULT ReJitManager::ConfigureILCodeVersion(ILCodeVersion ilCodeVersion)
 {
     STANDARD_VM_CONTRACT;
 
-    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
+    CodeVersionManager* pCodeVersionManager = ilCodeVersion.GetModule()->GetCodeVersionManager();
     _ASSERTE(!pCodeVersionManager->LockOwnedByCurrentThread());
 
-    // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
-    // of a lock to impact our caller (the prestub worker) as little as possible. If the
-    // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    if (pCodeVersionManager->GetNonDefaultILVersionCount() == 0)
-    {
-        return NULL;
-    }
 
     HRESULT hr = S_OK;
-    ILCodeVersion ilCodeVersion;
-    Module* pModule = NULL;
-    mdMethodDef methodDef = mdTokenNil;
+    Module* pModule = ilCodeVersion.GetModule();
+    mdMethodDef methodDef = ilCodeVersion.GetMethodDef();
     BOOL fNeedsParameters = FALSE;
     BOOL fWaitForParameters = FALSE;
 
     {
-        // Serialize access to the rejit table.  Though once we find the ReJitInfo we want,
-        // exit the Crst so we can ReJIT the method without holding a lock.
+        // Serialize access to the rejit state
         CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
-
-        MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMD);
-        if (pVersioningState == NULL || pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampNone)
+        switch (ilCodeVersion.GetRejitState())
         {
-            // We haven't yet installed a jumpstamp so we shouldn't be rejiting with the new IL yet
-            return NULL;
+        case ILCodeVersion::kStateRequested:
+            ilCodeVersion.SetRejitState(ILCodeVersion::kStateGettingReJITParameters);
+            fNeedsParameters = TRUE;
+            break;
+
+        case ILCodeVersion::kStateGettingReJITParameters:
+            fWaitForParameters = TRUE;
+            break;
+
+        default:
+            return S_OK;
         }
-
-        pModule = pMD->GetModule();
-        methodDef = pMD->GetMemberDef();
-        ILCodeVersionCollection versions = pCodeVersionManager->GetILCodeVersions(pModule, methodDef);
-        ILCodeVersionIterator iter = versions.Begin();
-        ILCodeVersionIterator end = versions.End();
-
-        if (iter == end)
-        {
-            // No rejit actions necessary
-            return NULL;
-        }
-
-        for (; iter != end; iter++)
-        {
-            ILCodeVersion curVersion = *iter;
-
-            switch (curVersion.GetRejitState())
-            {
-            case ILCodeVersion::kStateRequested:
-                // When the SharedReJitInfo is still in the requested state, we haven't
-                // gathered IL & codegen flags from the profiler yet.  So, we can't be
-                // pointing to rejitted code already.  So we must be pointing to the prestub
-                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
-                curVersion.SetRejitState(ILCodeVersion::kStateGettingReJITParameters);
-                ilCodeVersion = curVersion;
-                fNeedsParameters = TRUE;
-                break;
-
-            case ILCodeVersion::kStateGettingReJITParameters:
-                ilCodeVersion = curVersion;
-                fWaitForParameters = TRUE;
-                break;
-
-            case ILCodeVersion::kStateActive:
-                if (pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToActiveVersion)
-                {
-                    // Looks like another thread has beat us in a race to rejit, so ignore.
-                    return NULL;
-                }
-
-                // Found a ReJitInfo to actually rejit.
-                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
-                ilCodeVersion = curVersion;
-                goto ExitLoop;
-
-
-            default:
-                UNREACHABLE();
-            }
-        }
-    ExitLoop:
-        ;
-    }
-
-    if (ilCodeVersion.IsNull())
-    {
-        // Didn't find the requested MD to rejit.
-        return NULL;
     }
 
     if (fNeedsParameters)
@@ -1391,16 +1257,26 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
         if (FAILED(hr))
         {
             {
+                // Historically on failure we would revert to the kRequested state and fall-back
+                // to the initial code gen. The next time the method ran it would try again.
+                //
+                // Preserving that behavior is possible, but a bit awkward now that we have
+                // Precode swapping as well. Instead of doing that I am acting as if GetReJITParameters
+                // had succeeded, using the original IL, no jit flags, and no modified IL mapping.
+                // This is similar to a fallback except the profiler won't get any further attempts
+                // to provide the parameters correctly. If the profiler wants another attempt it would
+                // need to call RequestRejit again.
                 CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
                 if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters)
                 {
-                    ilCodeVersion.SetRejitState(ILCodeVersion::kStateRequested);
+                    ilCodeVersion.SetRejitState(ILCodeVersion::kStateActive);
+                    ilCodeVersion.SetIL(ILCodeVersion(pModule, methodDef).GetIL());
                 }
             }
-            ReportReJITError(pModule, methodDef, pMD, hr);
-            return NULL;
+            ReportReJITError(pModule, methodDef, pModule->LookupMethodDef(methodDef), hr);
+            return S_OK;
         }
-
+        else
         {
             CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
             if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters)
@@ -1414,10 +1290,6 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
                 ilCodeVersion.SetInstrumentedILMap(pFuncControl->GetInstrumentedMapEntryCount(),
                     pFuncControl->GetInstrumentedMapEntries());
                 ilCodeVersion.SetRejitState(ILCodeVersion::kStateActive);
-#ifdef DEBUG
-                MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMD);
-                _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
-#endif
             }
         }
     }
@@ -1452,247 +1324,11 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
                 {
                     break; // the other thread got the parameters succesfully, go race to rejit
                 }
-                else if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateRequested)
-                {
-                    return NULL; // the other thread had an error getting parameters and went
-                                 // back to requested
-                }
             }
             ClrSleepEx(1, FALSE);
         }
     }
     
-    // We've got the info from the profiler, so JIT the method.  This is also
-    // responsible for updating the jump target from the prestub to the newly
-    // rejitted code AND for publishing the top of the newly rejitted code to
-    // pInfoToRejit->m_pCode.  If two threads race to rejit, DoReJit handles the
-    // race, and ensures the winner publishes his result to pInfoToRejit->m_pCode.
-    return DoReJit(ilCodeVersion, pMD);
-    
-}
-
-
-//---------------------------------------------------------------------------------------
-//
-// Called by DoReJitIfNecessaryWorker(), this function assumes the IL & codegen flags have
-// already been gathered from the profiler, and then calls UnsafeJitFunction to perform
-// the re-JIT (bracketing that with profiler callbacks to announce the start/finish of
-// the rejit).
-// 
-// This is also responsible for handling any races between multiple threads
-// simultaneously rejitting a function.  See the comment at the top of
-// code:ReJitManager::DoReJitIfNecessaryWorker for details.
-//
-// Arguments:
-//      pInfo - ReJitInfo tracking this MethodDesc's rejit request
-//
-// Return Value:
-//      * Generally, return the PCODE of the start of the rejitted code.  However,
-//          depending on the result of races determined by DoReJit(), the return value
-//          can be different:
-//      * If the current thread races with another thread to do the rejit, return the
-//          PCODE generated by the winner.
-//      * If the current thread races with another thread doing a revert, and the revert
-//          wins, then return the PCODE of the start of the originally JITted code
-//          (i.e., pInfo->GetMethodDesc()->GetNativeCode())
-//
-
-PCODE ReJitManager::DoReJit(ILCodeVersion ilCodeVersion, MethodDesc* pMethod)
-{
-    STANDARD_VM_CONTRACT;
-
-#ifdef PROFILING_SUPPORTED
-
-    _ASSERTE(!pMethod->IsNoMetadata());
-    {
-        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
-        g_profControlBlock.pProfInterface->ReJITCompilationStarted((FunctionID)pMethod,
-            ilCodeVersion.GetVersionId(),
-            TRUE);
-        END_PIN_PROFILER();
-    }
-
-    COR_ILMETHOD* pIL = ilCodeVersion.GetIL();
-    if (pIL == NULL)
-    {
-        // If the user hasn't overriden us, get whatever the original IL had
-        pIL = pMethod->GetILHeader(TRUE);
-    }
-
-    COR_ILMETHOD_DECODER ILHeader(pIL, pMethod->GetMDImport(), NULL);
-    PCODE pCodeOfRejittedCode = NULL;
-
-    // Note that we're intentionally not enclosing UnsafeJitFunction in a try block
-    // to swallow exceptions.  It's expected that any exception thrown is fatal and
-    // should pass through.  This is in contrast to MethodDesc::MakeJitWorker, which
-    // does enclose UnsafeJitFunction in a try block, and attempts to swallow an
-    // exception that occurs on the current thread when another thread has
-    // simultaneously attempted (and provably succeeded in) the JITting of the same
-    // function.  This is a very unusual case (likely due to an out of memory error
-    // encountered on the current thread and not on the competing thread), which is
-    // not worth attempting to cover.
-    pCodeOfRejittedCode = UnsafeJitFunction(
-        pMethod,
-        &ILHeader,
-        JitFlagsFromProfCodegenFlags(ilCodeVersion.GetJitFlags()));
-
-    _ASSERTE(pCodeOfRejittedCode != NULL);
-
-    // This atomically updates the jmp target (from prestub to top of rejitted code) and publishes
-    // the top of rejitted code into pInfo, all inside the same acquisition of this
-    // ReJitManager's table Crst.
-    HRESULT hr = S_OK;
-    BOOL fEESuspended = FALSE;
-    BOOL fNotify = FALSE;
-    PCODE ret = NULL;
-    while (true)
-    {
-        if (fEESuspended)
-        {
-            ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
-        }
-        
-        CodeVersionManager* pCodeVersionManager = ilCodeVersion.GetModule()->GetCodeVersionManager();
-        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
-
-
-        NativeCodeVersion activeNativeCodeVersion = ilCodeVersion.GetActiveNativeCodeVersion(pMethod);
-        if (activeNativeCodeVersion.IsNull())
-        {
-            hr = ilCodeVersion.AddNativeCodeVersion(pMethod, &activeNativeCodeVersion);
-            if (FAILED(hr))
-            {
-                break;
-            }
-        }
-
-        // Now that we're under the lock, recheck whether pInfo->m_pCode has been filled
-        // in...
-        if (activeNativeCodeVersion.GetNativeCode() != NULL)
-        {
-            // Yup, another thread rejitted this request at the same time as us, and beat
-            // us to publishing the result. Intentionally skip the rest of this, and do
-            // not issue a ReJITCompilationFinished from this thread.
-            ret = activeNativeCodeVersion.GetNativeCode();
-            break;
-        }
-        
-        // BUGBUG: This revert check below appears to introduce behavior we probably don't want.
-        // This is a pre-existing issue and I don't have time to create a test for this right now,
-        // but wanted to capture the issue in a comment for future work.
-        // Imagine the profiler has one thread which is calling RequestReJIT periodically
-        // updating the method's IL:
-        //   1) RequestReJit (table lock keeps these atomic)
-        //     1.1) Revert old shared rejit info
-        //     1.2) Create new shared rejit info
-        //   2) RequestReJit (table lock keeps these atomic)
-        //     2.1) Revert old shared rejit info
-        //     2.2) Create new shared rejit info
-        //   ...
-        // On a second thread we keep calling the method which needs to periodically rejit
-        // to update to the newest version:
-        //   a) [DoReJitIfNecessaryWorker] detects active rejit request
-        //   b) [DoReJit] if shared rejit info is reverted, execute original method code.
-        //
-        // Because (a) and (b) are not under the same lock acquisition this ordering is possible:
-        // (1), (a), (2), (b)
-        // The result is that (b) sees the shared rejit is reverted and the method executes its
-        // original code. As a profiler using rejit I would expect either the IL specified in
-        // (1) or the IL specified in (2) would be used, but never the original IL.
-        //
-        // I think the correct behavior is to bind a method execution to the current rejit
-        // version at some point, and from then on we guarantee to execute that version of the
-        // code, regardless of reverts or re-rejit request.
-        //
-        // There is also a related issue with GetCurrentReJitFlagsWorker which assumes jitting
-        // always corresponds to the most recent version of the method. If we start pinning
-        // method invocations to particular versions then that method can't be allowed to
-        // float forward to the newest version, nor can it abort if the most recent version
-        // is reverted.
-        // END BUGBUG
-        // 
-        // And recheck whether some other thread tried to revert this method in the
-        // meantime (this check would also include an attempt to re-rejit the method
-        // (i.e., calling RequestReJIT on the method multiple times), which would revert
-        // this pInfo before creating a new one to track the latest rejit request).
-
-#ifdef DEBUGGING_SUPPORTED
-        // Notify the debugger of the rejitted function, so it can generate
-        // DebuggerMethodInfo / DebugJitInfo for it. Normally this is done inside
-        // UnsafeJitFunction (via CallCompileMethodWithSEHWrapper), but it skips this
-        // when it detects the MethodDesc was already jitted. Since we know here that
-        // we're rejitting it (and this is not just some sort of multi-thread JIT race),
-        // now is a good place to notify the debugger.
-        if (g_pDebugInterface != NULL)
-        {
-            g_pDebugInterface->JITComplete(pMethod, pCodeOfRejittedCode);
-        }
-
-#endif // DEBUGGING_SUPPORTED
-
-        _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive);
-        MethodDescVersioningState* pVersioningState = pCodeVersionManager->GetMethodVersioningState(pMethod);
-        _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToPrestub);
-
-        // Atomically publish the PCODE and update the jmp stamp (to go to the rejitted
-        // code) under the lock
-        hr = pVersioningState->UpdateJumpTarget(fEESuspended, pCodeOfRejittedCode);
-        if (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED)
-        {
-            _ASSERTE(!fEESuspended);
-            fEESuspended = TRUE;
-            continue;
-        }
-        if (FAILED(hr))
-        {
-            break;
-        }
-        activeNativeCodeVersion.SetNativeCodeInterlocked(pCodeOfRejittedCode);
-        fNotify = TRUE;
-        ret = pCodeOfRejittedCode;
-
-        _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive);
-        _ASSERTE(pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToActiveVersion);
-        break;
-    }
-
-    if (fEESuspended)
-    {
-        ThreadSuspend::RestartEE(FALSE, TRUE);
-        fEESuspended = FALSE;
-    }
-
-    if (FAILED(hr))
-    {
-        ReportReJITError(ilCodeVersion.GetModule(), ilCodeVersion.GetMethodDef(), pMethod, hr);
-    }
-
-    // Notify the profiler that JIT completed.
-    if (fNotify)
-    {
-        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
-        g_profControlBlock.pProfInterface->ReJITCompilationFinished((FunctionID)pMethod,
-            ilCodeVersion.GetVersionId(),
-            S_OK,
-            TRUE);
-        END_PIN_PROFILER();
-    }
-#endif // PROFILING_SUPPORTED
-
-    // Fire relevant ETW events
-    if (fNotify)
-    {
-        ETW::MethodLog::MethodJitted(
-            pMethod,
-            NULL,               // namespaceOrClassName
-            NULL,               // methodName
-            NULL,               // methodSignature
-            pCodeOfRejittedCode,
-            ilCodeVersion.GetVersionId());
-    }
-    return ret;
-}
-
 
 //---------------------------------------------------------------------------------------
 //
@@ -1912,30 +1548,6 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
 
     return (cnt > cReJitIds) ? S_FALSE : S_OK;
 }
-
-
-ReJitPublishMethodTableHolder::~ReJitPublishMethodTableHolder()
-{
-    // This method can't have a contract because leaving the table lock
-    // below decrements GCNoTrigger count. Contracts always revert these changes
-    // at the end of the method but we need the decremented count to flow out of the
-    // method. The balancing increment occurred in the constructor.
-    STATIC_CONTRACT_NOTHROW; 
-    STATIC_CONTRACT_GC_TRIGGERS; // NOTRIGGER until we leave the lock
-    STATIC_CONTRACT_CAN_TAKE_LOCK;
-    STATIC_CONTRACT_MODE_ANY;
-
-    if (m_pMethodTable)
-    {
-        CodeVersionManager* pCodeVersionManager = m_pMethodTable->GetModule()->GetCodeVersionManager();
-        pCodeVersionManager->LeaveLock();
-        for (int i = 0; i < m_errors.Count(); i++)
-        {
-            ReJitManager::ReportReJITError(&(m_errors[i]));
-        }
-    }
-}
-#endif // !defined(DACCESS_COMPILE) && !defined(CROSSGEN_COMPILE)
 
 #endif // FEATURE_CODE_VERSIONING
 #else // FEATURE_REJIT

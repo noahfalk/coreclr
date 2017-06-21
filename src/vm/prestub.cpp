@@ -277,6 +277,7 @@ PCODE MethodDesc::PrepareCode(NativeCodeVersion codeVersion)
 PCODE MethodDesc::PrepareCode(PrepareCodeConfig* pConfig)
 {
     STANDARD_VM_CONTRACT;
+    pConfig->FinishConfiguration();
 
     // If other kinds of code need multi-versioning we could add more cases here,
     // but for now generation of all other code/stubs occurs in other code paths
@@ -764,9 +765,23 @@ void MethodDesc::EmitJitStartingNotifications(JitNotificationInfo* pJitNotificat
 #endif // MDA_SUPPORTED
 
 #ifdef PROFILING_SUPPORTED 
-            // If profiling, need to give a chance for a tool to examine and modify
-            // the IL before it gets to the JIT.  This allows one to add probe calls for
-            // things like code coverage, performance, or whatever.
+    
+    // For methods with non-zero rejit id we send ReJITCompilationStarted, otherwise
+    // JITCompilationStarted. It isn't clear if this is the ideal policy for these
+    // notifications yet.
+    ILCodeVersion ilCodeVersion = pJitNotificationInfo->pConfig->GetILCodeVersion();
+    if (!ilCodeVersion.IsDefaultVersion())
+    {
+        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
+        g_profControlBlock.pProfInterface->ReJITCompilationStarted((FunctionID)this,
+            ilCodeVersion.GetVersionId(),
+            TRUE);
+        END_PIN_PROFILER();
+    }
+    else
+    // If profiling, need to give a chance for a tool to examine and modify
+    // the IL before it gets to the JIT.  This allows one to add probe calls for
+    // things like code coverage, performance, or whatever.
     {
         BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
         {
@@ -817,6 +832,20 @@ void MethodDesc::EmitJitFinishedNotifications(JitNotificationInfo* pJitNotificat
 
 #ifdef PROFILING_SUPPORTED
 
+    // For methods with non-zero rejit id we send ReJITCompilationFinished, otherwise
+    // JITCompilationFinished. It isn't clear if this is the ideal policy for these
+    // notifications yet.
+    ILCodeVersion ilCodeVersion = pJitNotificationInfo->pConfig->GetILCodeVersion();
+    if (!ilCodeVersion.IsDefaultVersion())
+    {
+        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
+        g_profControlBlock.pProfInterface->ReJITCompilationFinished((FunctionID)this,
+            ilCodeVersion.GetVersionId(),
+            S_OK,
+            TRUE);
+        END_PIN_PROFILER();
+    }
+    else
     // Notify the profiler that JIT completed.
     // Must do this after the address has been set.
     // @ToDo: Why must we set the address before notifying the profiler ??
@@ -890,9 +919,26 @@ PrepareCodeConfig::PrepareCodeConfig(NativeCodeVersion codeVersion) :
     m_ilCodeVersion = m_nativeCodeVersion.GetILCodeVersion();
 }
 
+HRESULT PrepareCodeConfig::FinishConfiguration()
+{
+    STANDARD_VM_CONTRACT;
 
-
+#ifdef FEATURE_CODE_VERSIONING
+    _ASSERTE(!GetMethodDesc()->GetCodeVersionManager()->LockOwnedByCurrentThread());
 #endif
+
+    // Any code build stages that do just in time configuration should
+    // be configured now
+#ifdef FEATURE_REJIT
+    if (m_ilCodeVersion.GetRejitState() != ILCodeVersion::kStateActive)
+    {
+        ReJitManager::ConfigureILCodeVersion(m_ilCodeVersion);
+    }
+    _ASSERTE(m_ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive);
+#endif
+    
+    return S_OK;
+}
 
 MethodDesc* PrepareCodeConfig::GetMethodDesc()
 {
@@ -1563,21 +1609,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     GCStress<cfg_any, EeconfigFastGcSPolicy, CoopGcModePolicy>::MaybeTrigger();
 
-    // Are we in the prestub because of a rejit request?  If so, let the ReJitManager
-    // take it from here.
-    pCode = ReJitManager::DoReJitIfNecessary(this);
-    if (pCode != NULL)
-    {
-        // A ReJIT was performed, so nothing left for DoPrestub() to do. Return now.
-        // 
-        // The stable entrypoint will either be a pointer to the original JITted code
-        // (with a jmp at the top to jump to the newly-rejitted code) OR a pointer to any
-        // stub code that must be executed first (e.g., a remoting stub), which in turn
-        // will call the original JITted code (which then jmps to the newly-rejitted
-        // code).
-        RETURN GetStableEntryPoint();
-    }
-
 
 #ifdef FEATURE_COMINTEROP 
     /**************************   INTEROP   *************************/
@@ -1615,6 +1646,15 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     {
         pMT->CheckRunClassInitThrowing();
     }
+
+    /***************************  VERSIONABLE CODE    *********************/
+
+#ifdef FEATURE_CODE_VERSIONING
+    if (IsVersionable() && (!IsPointingToPrestub() || !IsVersionableWithJumpStamp()))
+    {
+        pCode = GetCodeVersionManager()->PublishVersionableCodeIfNecessary(this, fCanBackpatchPrestub);
+    }
+#endif
 
     /**************************   BACKPATCHING   *************************/
     // See if the addr of code has changed from the pre-stub

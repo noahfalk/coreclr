@@ -1006,6 +1006,45 @@ void MethodDescVersioningState::SetJumpStampState(JumpStampFlags newState)
 }
 #endif
 
+#ifndef DACCESS_COMPILE
+HRESULT MethodDescVersioningState::SyncJumpStamp(NativeCodeVersion nativeCodeVersion, BOOL fEESuspended)
+ {
+    LIMITED_METHOD_CONTRACT;
+    HRESULT hr = S_OK;
+    PCODE pCode = nativeCodeVersion.IsNull() ? NULL : nativeCodeVersion.GetNativeCode();
+    MethodDesc* pMethod = GetMethodDesc();
+    _ASSERTE(pMethod->IsVersionable() && pMethod->IsVersionableWithJumpStamp());
+
+    if (!pMethod->HasNativeCode())
+    {
+        //we'll set up the jump-stamp when the default native code is created
+        return S_OK;
+    }
+
+    if (!nativeCodeVersion.IsNull() && nativeCodeVersion.IsDefaultVersion())
+    {
+        return UndoJumpStampNativeCode(fEESuspended);
+    }
+    else
+    {
+        // We don't have new code ready yet, jumpstamp back to the prestub to let us generate it the next time
+        // the method is called
+        if (pCode == NULL)
+        {
+            if (!fEESuspended)
+            {
+                return CORPROF_E_RUNTIME_SUSPEND_REQUIRED;
+            }
+            return JumpStampNativeCode();
+        }
+        // We do know the new code body, install the jump stamp now
+        else
+        {
+            return UpdateJumpTarget(fEESuspended, pCode);
+        }
+    }
+}
+#endif
 
 //---------------------------------------------------------------------------------------
 //
@@ -1396,8 +1435,8 @@ HRESULT MethodDescVersioningState::UpdateJumpStampHelper(BYTE* pbCode, INT64 i64
     CONTRACTL
     {
         NOTHROW;
-    GC_NOTRIGGER;
-    MODE_ANY;
+        GC_NOTRIGGER;
+        MODE_ANY;
     }
     CONTRACTL_END;
 
@@ -1857,7 +1896,154 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(ILCodeVersion ilCodeVersion, Me
     *pNativeCodeVersion = NativeCodeVersion(pNativeCodeVersionNode);
     return S_OK;
 }
+
+PCODE CodeVersionManager::PublishVersionableCodeIfNecessary(MethodDesc* pMethodDesc, BOOL fCanBackpatchPrestub)
+{
+    STANDARD_VM_CONTRACT;
+    _ASSERTE(!LockOwnedByCurrentThread());
+    _ASSERTE(pMethodDesc->IsVersionable());
+    _ASSERTE(!pMethodDesc->IsPointingToPrestub() || !pMethodDesc->IsVersionableWithJumpStamp());
+
+    HRESULT hr = S_OK;
+    PCODE pCode = NULL;
+    BOOL fIsJumpStampMethod = pMethodDesc->IsVersionableWithJumpStamp();
+
+    NativeCodeVersion activeVersion;
     {
+        TableLockHolder lock(this);
+        if (FAILED(hr = GetActiveILCodeVersion(pMethodDesc).GetOrCreateActiveNativeCodeVersion(pMethodDesc, &activeVersion)))
+        {
+            _ASSERTE(hr == E_OUTOFMEMORY);
+            ReportCodePublishError(pMethodDesc->GetModule(), pMethodDesc->GetMemberDef(), pMethodDesc, hr);
+            return NULL;
+        }
+    }
+
+    BOOL fEESuspend = FALSE;
+    while (true)
+    {
+        // compile the code if needed
+        pCode = activeVersion.GetNativeCode();
+        if (pCode == NULL)
+        {
+            pCode = pMethodDesc->PrepareCode(activeVersion);
+        }
+
+        // suspend in preparation for publishing if needed
+        if (fEESuspend)
+        {
+            ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
+        }
+
+        {
+            TableLockHolder lock(this);
+            // The common case is that newActiveCode == activeCode, however we did leave the lock so there is
+            // possibility that the active version has changed. If it has we need to restart the compilation
+            // and publishing process with the new active version instead.
+            //
+            // In theory it should be legitimate to break out of this loop and run the less recent active version,
+            // because ultimately this is a race between one thread that is updating the version and another thread
+            // trying to run the current version. However for back-compat with ReJIT we need to guarantee that
+            // a versioning update at least as late as the profiler JitCompilationFinished callback wins the race.
+            NativeCodeVersion newActiveVersion;
+            if (FAILED(hr = GetActiveILCodeVersion(pMethodDesc).GetOrCreateActiveNativeCodeVersion(pMethodDesc, &newActiveVersion)))
+            {
+                _ASSERTE(hr == E_OUTOFMEMORY);
+                ReportCodePublishError(pMethodDesc->GetModule(), pMethodDesc->GetMemberDef(), pMethodDesc, hr);
+                pCode = NULL;
+                break;
+            }
+            if (newActiveVersion != activeVersion)
+            {
+                activeVersion = newActiveVersion;
+            }
+            else
+            {
+                // if we aren't allowed to backpatch we are done
+                if (!fCanBackpatchPrestub)
+                {
+                    break;
+                }
+
+                // attempt to publish the active version still under the lock
+                if (FAILED(hr = PublishNativeCodeVersion(pMethodDesc, activeVersion, fEESuspend)))
+                {
+                    // if we need an EESuspend to publish then start over. We have to leave the lock in order to suspend,
+                    // and when we leave the lock the active version might change again. However now we know that suspend
+                    if (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED)
+                    {
+                        _ASSERTE(!fEESuspend);
+                        fEESuspend = true;
+                    }
+                    else
+                    {
+                        ReportCodePublishError(pMethodDesc->GetModule(), pMethodDesc->GetMemberDef(), pMethodDesc, hr);
+                        pCode = NULL;
+                        break;
+                    }
+                }
+                else
+                {
+                    //success
+                    break;
+                }
+            }
+        } // exit lock
+
+        if (fEESuspend)
+        {
+            ThreadSuspend::RestartEE(FALSE, TRUE);
+        }
+    }
+    
+    // if the EE is still suspended from breaking in the middle of the loop, resume it
+    if (fEESuspend)
+    {
+        ThreadSuspend::RestartEE(FALSE, TRUE);
+    }
+    return pCode;
+}
+
+HRESULT CodeVersionManager::PublishNativeCodeVersion(MethodDesc* pMethod, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended)
+{
+    LIMITED_METHOD_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+    _ASSERTE(pMethod->IsVersionable());
+    HRESULT hr = S_OK;
+    PCODE pCode = nativeCodeVersion.IsNull() ? NULL : nativeCodeVersion.GetNativeCode();
+    if (pMethod->IsVersionableWithPrecode())
+    {
+        Precode* pPrecode = pMethod->GetOrCreatePrecode();
+        if (pCode == NULL)
+        {
+            EX_TRY
+            {
+                pPrecode->Reset();
+            }
+            EX_CATCH_HRESULT(hr);
+            return hr;
+        }
+        else
+        {
+            EX_TRY
+            {
+                hr = pPrecode->SetTargetInterlocked(pCode, FALSE) ? S_OK : E_FAIL;
+            }
+            EX_CATCH_HRESULT(hr);
+            return hr;
+        }
+    }
+    else
+    {
+        MethodDescVersioningState* pVersioningState;
+        if (FAILED(hr = GetOrCreateMethodDescVersioningState(pMethod, &pVersioningState)))
+        {
+            _ASSERTE(hr == E_OUTOFMEMORY);
+            return hr;
+        }
+        return pVersioningState->SyncJumpStamp(nativeCodeVersion, fEESuspended);
+    }
+}
         return hr;
     }
 

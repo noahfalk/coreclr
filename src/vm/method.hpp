@@ -1284,6 +1284,61 @@ public:
 
 public:
 
+    // TRUE iff it is possible to change the code this method will run using
+    // the MethodCodeVersioningManager.
+    // Note: EnC currently returns FALSE here because it uses its own seperate
+    // scheme to manage versionability. We will likely want to converge them
+    // at some point.
+    BOOL IsVersionable()
+    {
+#ifndef FEATURE_CODE_VERSIONING
+        return FALSE;
+#else
+        if (!(IsIL() || IsNoMetadata()))
+            return FALSE;
+        if (GetLoaderAllocator()->IsCollectible())
+            return FALSE;
+        if (IsUnboxingStub() || IsInstantiatingStub())
+            return FALSE;
+
+        return TRUE;
+#endif
+    }
+
+    // Of the methods where IsVersionable() == TRUE, these methods switch between
+    // different code versions by updating the target of the precode.
+    // If IsVersionable() == FALSE, undefined
+    BOOL IsVersionableWithPrecode()
+    {
+#ifdef FEATURE_CODE_VERSIONING
+        return
+            // policy: which things do we want to version with a precode if possible
+            IsEligibleForTieredCompilation() &&
+
+            // functional requirements:
+            !IsZapped() &&        // NGEN directly invokes the pre-generated native code.
+                                  // without necessarily going through the prestub or
+                                  // precode
+            HasNativeCodeSlot();  // the stable entry point will need to point at our
+                                  // precode and not directly contain the native code.
+#else
+        return FALSE;
+#endif
+    }
+
+    // Of the methods where IsVersionable() == TRUE, these methods switch between 
+    // different code versions by overwriting the first bytes of the method's initial
+    // native code with a jmp instruction.
+    // If IsVersionable() == FALSE, undefined
+    BOOL IsVersionableWithJumpStamp()
+    {
+#ifdef FEATURE_CODE_VERSIONING
+        return !IsVersionableWithPrecode();
+#else
+        return FALSE;
+#endif
+    }
+
 #ifdef FEATURE_TIERED_COMPILATION
     // Is this method allowed to be recompiled and the entrypoint redirected so that we
     // can optimize its performance? Eligibility is invariant for the lifetime of a method.
@@ -2001,6 +2056,7 @@ class PrepareCodeConfig
 public:
     PrepareCodeConfig();
     PrepareCodeConfig(NativeCodeVersion codeVersion);
+    HRESULT FinishConfiguration();
     MethodDesc* GetMethodDesc();
     NativeCodeVersion GetCodeVersion();
     ILCodeVersion GetILCodeVersion();

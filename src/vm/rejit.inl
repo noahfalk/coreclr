@@ -80,12 +80,6 @@ inline void ReJitManager::ReportReJITError(Module* pModule, mdMethodDef methodDe
 // stubs so the rest of the VM doesn't have to be littered with #ifdef FEATURE_REJIT
 
 // static
-inline PCODE ReJitManager::DoReJitIfNecessary(PTR_MethodDesc)
-{
-    return NULL;
-}
-
-// static
 inline BOOL ReJitManager::IsReJITEnabled()
 {
     return FALSE;
