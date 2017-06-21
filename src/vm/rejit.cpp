@@ -469,6 +469,18 @@ HRESULT ReJitManager::RequestReJIT(
     ModuleID    rgModuleIDs[],
     mdMethodDef rgMethodDefs[])
 {
+    return ReJitManager::UpdateActiveILVersions(cFunctions, rgModuleIDs, rgMethodDefs, NULL, FALSE);
+}
+
+
+    // static
+HRESULT ReJitManager::UpdateActiveILVersions(
+    ULONG       cFunctions,
+    ModuleID    rgModuleIDs[],
+    mdMethodDef rgMethodDefs[],
+    HRESULT     rgHrStatuses[],
+    BOOL        fIsRevert)
+{
     CONTRACTL
     {
         NOTHROW;
@@ -489,19 +501,11 @@ HRESULT ReJitManager::RequestReJIT(
     // Temporary storage to batch up all the ReJitInfos that will get jump stamped
     // later when the runtime is suspended.
     //
-    //BUGBUG: Its not clear to me why it is safe to hold ReJitInfo* lists
-    // outside the table locks. If an AppDomain unload occurred I don't see anything
-    // that prevents them from being deleted. If this is a bug it is a pre-existing
-    // condition and nobody has reported it as an issue yet. AppDomainExit probably
-    // needs to synchronize with something.
-    // Jan also pointed out the ModuleIDs have the same issue, in order to use this
-    // function safely the profiler needs prevent the AppDomain which contains the
-    // modules from being unloaded. I doubt any profilers are doing this intentionally
-    // but calling from within typical callbacks like ModuleLoadFinished or
-    // JIT events would do it for the current domain I think. Of course RequestRejit
-    // could always be called with ModuleIDs in some other AppDomain.
-    //END BUGBUG
-    SHash<CodeVersionManager::JumpStampBatchTraits> mgrToJumpStampBatch;
+    //DESKTOP WARNING: On CoreCLR we are safe but if this code ever gets ported back
+    //there aren't any protections against domain unload. Any of these moduleIDs
+    //code version managers, or code versions would become invalid if the domain which
+    //contains them was unloaded.
+    SHash<CodeActivationBatchTraits> mgrToCodeActivationBatch;
     CDynArray<CodeVersionManager::CodePublishError> errorRecords;
     for (ULONG i = 0; i < cFunctions; i++)
     {
@@ -552,11 +556,11 @@ HRESULT ReJitManager::RequestReJIT(
 
         CodeVersionManager * pCodeVersionManager = pModule->GetCodeVersionManager();
         _ASSERTE(pCodeVersionManager != NULL);
-        CodeVersionManager::JumpStampBatch * pJumpStampBatch = mgrToJumpStampBatch.Lookup(pCodeVersionManager);
-        if (pJumpStampBatch == NULL)
+        CodeActivationBatch * pCodeActivationBatch = mgrToCodeActivationBatch.Lookup(pCodeVersionManager);
+        if (pCodeActivationBatch == NULL)
         {
-            pJumpStampBatch = new (nothrow)CodeVersionManager::JumpStampBatch(pCodeVersionManager);
-            if (pJumpStampBatch == NULL)
+            pCodeActivationBatch = new (nothrow)CodeActivationBatch(pCodeVersionManager);
+            if (pCodeActivationBatch == NULL)
             {
                 return E_OUTOFMEMORY;
             }
@@ -566,7 +570,7 @@ HRESULT ReJitManager::RequestReJIT(
             {
                 // This guy throws when out of memory, but remains internally
                 // consistent (without adding the new element)
-                mgrToJumpStampBatch.Add(pJumpStampBatch);
+                mgrToCodeActivationBatch.Add(pCodeActivationBatch);
             }
             EX_CATCH_HRESULT(hr);
 
@@ -577,128 +581,24 @@ HRESULT ReJitManager::RequestReJIT(
             }
         }
 
-
-        // At this stage, pMD may be NULL or non-NULL, and the specified function may or
-        // may not be a generic (or a function on a generic class).  The operations
-        // below depend on these conditions as follows:
-        // 
-        // (1) In all cases, bind to an ILCodeVersion
-        // This serves as a pre-rejit request for any code that has yet to be generated
-        // and will also hold the modified IL + REJITID that tracks the request generally
-        // 
-        // (2) IF pMD != NULL, but not generic (or function on generic class)
-        // Do a REAL REJIT (add a real ReJitInfo that points to pMD and jump-stamp)
-        // 
-        // (3) IF pMD != NULL, and is a generic (or function on generic class)
-        // Do a real rejit (including jump-stamp) for all already-jitted instantiations.
-
-        BaseDomain * pBaseDomainFromModule = pModule->GetDomain();
-        ILCodeVersion ilCodeVersion;
         {
             CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
 
             // Bind the il code version
-            hr = ReJitManager::BindILVersion(pCodeVersionManager, pJumpStampBatch, pModule, rgMethodDefs[i], &ilCodeVersion);
-            if (FAILED(hr))
+            ILCodeVersion* pILCodeVersion = pCodeActivationBatch->m_methodsToActivate.Append();
+            if (pILCodeVersion == NULL)
             {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
+                return E_OUTOFMEMORY;
             }
-
-            if (pMD == NULL)
+            if (fIsRevert)
             {
-                // nothing is loaded yet so only the pre-rejit placeholder is needed. We're done for this method.
-                continue;
-            }
-
-            if (!pMD->HasClassOrMethodInstantiation() && pMD->HasNativeCode())
-            {
-                // We have a JITted non-generic. Easy case. Just mark the JITted method
-                // desc as needing to be rejitted
-                hr = ReJitManager::MarkForReJit(
-                    pCodeVersionManager,
-                    pMD,
-                    ilCodeVersion,
-                    pJumpStampBatch,
-                    &errorRecords);
-
-                if (FAILED(hr))
-                {
-                    _ASSERTE(hr == E_OUTOFMEMORY);
-                    return hr;
-                }
-            }
-            
-            if (!pMD->HasClassOrMethodInstantiation())
-            {
-                // not generic, we're done for this method
-                continue;
-            }
-
-            // Ok, now the case of a generic function (or function on generic class), which
-            // is loaded, and may thus have compiled instantiations.
-            // It's impossible to get to any other kind of domain from the profiling API
-            _ASSERTE(pBaseDomainFromModule->IsAppDomain() ||
-                pBaseDomainFromModule->IsSharedDomain());
-
-            if (pBaseDomainFromModule->IsSharedDomain())
-            {
-                // Iterate through all modules loaded into the shared domain, to
-                // find all instantiations living in the shared domain. This will
-                // include orphaned code (i.e., shared code used by ADs that have
-                // all unloaded), which is good, because orphaned code could get
-                // re-adopted if a new AD is created that can use that shared code
-                hr = ReJitManager::MarkAllInstantiationsForReJit(
-                    pCodeVersionManager,
-                    ilCodeVersion,
-                    NULL,  // NULL means to search SharedDomain instead of an AD
-                    pModule,
-                    rgMethodDefs[i],
-                    pJumpStampBatch,
-                    &errorRecords);
+                // activate the original version
+                *pILCodeVersion = ILCodeVersion(pModule, rgMethodDefs[i]);
             }
             else
             {
-                // Module is unshared, so just use the module's domain to find instantiations.
-                hr = ReJitManager::MarkAllInstantiationsForReJit(
-                    pCodeVersionManager,
-                    ilCodeVersion,
-                    pBaseDomainFromModule->AsAppDomain(),
-                    pModule,
-                    rgMethodDefs[i],
-                    pJumpStampBatch,
-                    &errorRecords);
-            }
-            if (FAILED(hr))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-        }
-
-        // We want to iterate through all compilations of existing instantiations to
-        // ensure they get marked for rejit.  Note: There may be zero instantiations,
-        // but we won't know until we try.
-        if (pBaseDomainFromModule->IsSharedDomain())
-        {
-            // Iterate through all real domains, to find shared instantiations.
-            AppDomainIterator appDomainIterator(TRUE);
-            while (appDomainIterator.Next())
-            {
-                AppDomain * pAppDomain = appDomainIterator.GetDomain();
-                if (pAppDomain->IsUnloading())
-                {
-                    continue;
-                }
-                CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
-                hr = ReJitManager::MarkAllInstantiationsForReJit(
-                    pCodeVersionManager,
-                    ilCodeVersion,
-                    pAppDomain,
-                    pModule,
-                    rgMethodDefs[i],
-                    pJumpStampBatch,
-                    &errorRecords);
+                // activate an unused or new IL version
+                hr = ReJitManager::BindILVersion(pCodeVersionManager, pModule, rgMethodDefs[i], pILCodeVersion);
                 if (FAILED(hr))
                 {
                     _ASSERTE(hr == E_OUTOFMEMORY);
@@ -711,15 +611,15 @@ HRESULT ReJitManager::RequestReJIT(
     // For each code versioning mgr, if there's work to do, suspend EE if needed,
     // enter the code versioning mgr's crst, and do the batched work.
     BOOL fEESuspended = FALSE;
-    SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator beginIter = mgrToJumpStampBatch.Begin();
-    SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator endIter = mgrToJumpStampBatch.End();
-    for (SHash<CodeVersionManager::JumpStampBatchTraits>::Iterator iter = beginIter; iter != endIter; iter++)
+    SHash<CodeActivationBatchTraits>::Iterator beginIter = mgrToCodeActivationBatch.Begin();
+    SHash<CodeActivationBatchTraits>::Iterator endIter = mgrToCodeActivationBatch.End();
+    for (SHash<CodeActivationBatchTraits>::Iterator iter = beginIter; iter != endIter; iter++)
     {
-        CodeVersionManager::JumpStampBatch * pJumpStampBatch = *iter;
-        CodeVersionManager * pCodeVersionManager = pJumpStampBatch->pCodeVersionManager;
+        CodeActivationBatch * pCodeActivationBatch = *iter;
+        CodeVersionManager * pCodeVersionManager = pCodeActivationBatch->m_pCodeVersionManager;
 
-        int cBatchedPreStubMethods = pJumpStampBatch->preStubMethods.Count();
-        if (cBatchedPreStubMethods == 0)
+        int cMethodsToActivate = pCodeActivationBatch->m_methodsToActivate.Count();
+        if (cMethodsToActivate == 0)
         {
             continue;
         }
@@ -727,14 +627,12 @@ HRESULT ReJitManager::RequestReJIT(
         {
             // As a potential future optimization we could speculatively try to update the jump stamps without
             // suspending the runtime. That needs to be plumbed through BatchUpdateJumpStamps though.
-            
             ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
             fEESuspended = TRUE;
         }
 
-        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
         _ASSERTE(ThreadStore::HoldingThreadStore());
-        hr = pCodeVersionManager->BatchUpdateJumpStamps(&(pJumpStampBatch->undoMethods), &(pJumpStampBatch->preStubMethods), &errorRecords);
+        hr = pCodeVersionManager->SetActiveILCodeVersions(pCodeActivationBatch->m_methodsToActivate.Ptr(), pCodeActivationBatch->m_methodsToActivate.Count(), fEESuspended, &errorRecords);
         if (FAILED(hr))
             break;
     }
@@ -752,7 +650,22 @@ HRESULT ReJitManager::RequestReJIT(
     // Report any errors that were batched up
     for (int i = 0; i < errorRecords.Count(); i++)
     {
-        ReportReJITError(&(errorRecords[i]));
+        if (rgHrStatuses != NULL)
+        {
+            for (DWORD j = 0; j < cFunctions; j++)
+            {
+                if (rgMethodDefs[j] == errorRecords[i].methodDef &&
+                    reinterpret_cast<Module*>(rgModuleIDs[j]) == errorRecords[i].pModule)
+                {
+                    rgHrStatuses[j] = errorRecords[i].hrStatus;
+                }
+            }
+        }
+        else
+        {
+            ReportReJITError(&(errorRecords[i]));
+        }
+        
     }
 
     // We got through processing everything, but profiler will need to see the individual ReJITError
@@ -760,173 +673,9 @@ HRESULT ReJitManager::RequestReJIT(
     return S_OK;
 }
 
-//---------------------------------------------------------------------------------------
-//
-// Helper used by ReJitManager::RequestReJIT to iterate through any generic
-// instantiations of a function in a given AppDomain, and to create the corresponding
-// ReJitInfos for those MethodDescs. This also adds corresponding entries to a temporary
-// dynamic array created by our caller for batching up the jump-stamping we'll need to do
-// later.
-// 
-// This method is responsible for calling ReJITError on the profiler if anything goes
-// wrong.
-//
-// Arguments:
-//    * pSharedForAllGenericInstantiations - The SharedReJitInfo for this mdMethodDef's
-//        rejit request. This is what we must associate any newly-created ReJitInfo with.
-//    * pAppDomainToSearch - AppDomain in which to search for generic instantiations
-//        matching the specified methodDef. If it is NULL, then we'll search for all
-//        MethodDescs whose metadata definition appears in a Module loaded into the
-//        SharedDomain (regardless of which ADs--if any--are using those MethodDescs).
-//        This captures the case of domain-neutral code that was in use by an AD that
-//        unloaded, and may come into use again once a new AD loads that can use the
-//        shared code.
-//    * pModuleContainingMethodDef - Module* containing the specified methodDef token.
-//    * methodDef - Token for the method for which we're searching for MethodDescs.
-//    * pJumpStampBatch - Batch we're responsible for placing ReJitInfo's into, on which
-//        the caller will update the jump stamps.
-//    * pRejitErrors - Dynamic array we're responsible for adding error records into.
-//        The caller will report them to the profiler outside the table lock
-//   
-// Returns:
-//    S_OK - all methods were either marked for rejit OR have appropriate error records
-//           in pRejitErrors
-//    E_OUTOFMEMORY - some methods weren't marked for rejit AND we didn't have enough
-//           memory to create the error records
-//
-// Assumptions:
-//     * This function should only be called on the ReJitManager that owns the (generic)
-//         definition of methodDef
-//     * If pModuleContainingMethodDef is loaded into the SharedDomain, then
-//         pAppDomainToSearch may be NULL (to search all instantiations loaded shared),
-//         or may be non-NULL (to search all instantiations loaded into
-//         pAppDomainToSearch)
-//     * If pModuleContainingMethodDef is not loaded domain-neutral, then
-//         pAppDomainToSearch must be non-NULL (and, indeed, must be the very AD that
-//         pModuleContainingMethodDef is loaded into).
-//
-
-HRESULT ReJitManager::MarkAllInstantiationsForReJit(
-    CodeVersionManager* pCodeVersionManager,
-    ILCodeVersion ilCodeVersion,
-    AppDomain * pAppDomainToSearch,
-    PTR_Module pModuleContainingMethodDef,
-    mdMethodDef methodDef,
-    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
-    CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-        CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pCodeVersionManager));
-        PRECONDITION(CheckPointer(pAppDomainToSearch, NULL_OK));
-        PRECONDITION(CheckPointer(pModuleContainingMethodDef));
-        PRECONDITION(CheckPointer(pJumpStampBatch));
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
-    _ASSERTE(methodDef != mdTokenNil);
-    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
-
-    HRESULT hr;
-
-    BaseDomain * pDomainContainingGenericDefinition = pModuleContainingMethodDef->GetDomain();
-
-#ifdef _DEBUG
-    _ASSERTE(pCodeVersionManager == pDomainContainingGenericDefinition->GetCodeVersionManager());
-
-    // If the generic definition is not loaded domain-neutral, then all its
-    // instantiations will also be non-domain-neutral and loaded into the same
-    // domain as the generic definition.  So the caller may only pass the
-    // domain containing the generic definition as pAppDomainToSearch
-    if (!pDomainContainingGenericDefinition->IsSharedDomain())
-    {
-        _ASSERTE(pDomainContainingGenericDefinition == pAppDomainToSearch);
-    }
-#endif //_DEBUG
-
-    // If pAppDomainToSearch is NULL, iterate through all existing 
-    // instantiations loaded into the SharedDomain. If pAppDomainToSearch is non-NULL, 
-    // iterate through all existing instantiations in pAppDomainToSearch, and only consider
-    // instantiations in non-domain-neutral assemblies (as we already covered domain 
-    // neutral assemblies when we searched the SharedDomain).
-    LoadedMethodDescIterator::AssemblyIterationMode mode = LoadedMethodDescIterator::kModeSharedDomainAssemblies;
-    // these are the default flags which won't actually be used in shared mode other than
-    // asserting they were specified with their default values
-    AssemblyIterationFlags assemFlags = (AssemblyIterationFlags) (kIncludeLoaded | kIncludeExecution);
-    ModuleIterationOption moduleFlags = (ModuleIterationOption) kModIterIncludeLoaded;
-    if (pAppDomainToSearch != NULL)
-    {
-        mode = LoadedMethodDescIterator::kModeUnsharedADAssemblies;
-        assemFlags = (AssemblyIterationFlags)(kIncludeAvailableToProfilers | kIncludeExecution);
-        moduleFlags = (ModuleIterationOption)kModIterIncludeAvailableToProfilers;
-    }
-    LoadedMethodDescIterator it(
-        pAppDomainToSearch, 
-        pModuleContainingMethodDef, 
-        methodDef,
-        mode,
-        assemFlags,
-        moduleFlags);
-    CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
-    while (it.Next(pDomainAssembly.This()))
-    {
-        MethodDesc * pLoadedMD = it.Current();
-
-        if (!pLoadedMD->HasNativeCode())
-        {
-            // Skip uninstantiated MethodDescs. The placeholder added by our caller
-            // is sufficient to ensure they'll eventually be rejitted when they get
-            // compiled.
-            continue;
-        }
-
-        if (FAILED(hr = IsMethodSafeForReJit(pLoadedMD)))
-        {
-            if (FAILED(hr = CodeVersionManager::AddCodePublishError(pModuleContainingMethodDef, methodDef, pLoadedMD, hr, pRejitErrors)))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-            continue;
-        }
-
-#ifdef _DEBUG
-        if (!pDomainContainingGenericDefinition->IsSharedDomain())
-        {
-            // Method is defined outside of the shared domain, so its instantiation must
-            // be defined in the AD we're iterating over (pAppDomainToSearch, which, as
-            // asserted above, must be the same domain as the generic's definition)
-            _ASSERTE(pLoadedMD->GetDomain() == pAppDomainToSearch);
-        }
-#endif // _DEBUG
-
-        // This will queue up the MethodDesc for rejitting and create all the
-        // look-aside tables needed.
-        hr = MarkForReJit(
-            pCodeVersionManager,
-            pLoadedMD, 
-            ilCodeVersion, 
-            pJumpStampBatch,
-            pRejitErrors);
-        if (FAILED(hr))
-        {
-            _ASSERTE(hr == E_OUTOFMEMORY);
-            return hr;
-        }
-    }
-
-    return S_OK;
-}
-
 // static
 HRESULT ReJitManager::BindILVersion(
     CodeVersionManager* pCodeVersionManager,
-    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
     PTR_Module pModule,
     mdMethodDef methodDef,
     ILCodeVersion *pILCodeVersion)
@@ -938,7 +687,6 @@ HRESULT ReJitManager::BindILVersion(
         MODE_PREEMPTIVE;
         CAN_TAKE_LOCK;
         PRECONDITION(CheckPointer(pCodeVersionManager));
-        PRECONDITION(CheckPointer(pJumpStampBatch));
         PRECONDITION(CheckPointer(pModule));
         PRECONDITION(CheckPointer(pILCodeVersion));
     }
@@ -972,71 +720,6 @@ HRESULT ReJitManager::BindILVersion(
 
 //---------------------------------------------------------------------------------------
 //
-// Helper used by ReJitManager::MarkAllInstantiationsForReJit and
-// ReJitManager::RequestReJIT to do the actual ReJitInfo allocation and
-// placement inside m_table.
-//
-// Arguments:
-//    * pMD - MethodDesc for which to find / create ReJitInfo. Only used if
-//        we're creating a regular ReJitInfo
-//    * ilCodeVersion - ILCodeVersion to associate any newly created
-//        ReJitInfo with.
-//    * pJumpStampBatch - a batch of methods that need to have jump stamps added
-//        or removed. This method will add new ReJitInfos to the batch as needed.
-//    * pRejitErrors - An array of rejit errors that this call will append to
-//        if there is an error marking
-//
-// Return Value:
-//    * S_OK: Successfully created a new ReJitInfo to manage this request
-//    * S_FALSE: An existing ReJitInfo was already available to manage this
-//        request, so we didn't need to create a new one.
-//    * E_OUTOFMEMORY
-//    * Else, a failure HRESULT indicating what went wrong.
-//
-
-HRESULT ReJitManager::MarkForReJit(
-    CodeVersionManager* pCodeVersionManager,
-    PTR_MethodDesc pMD, 
-    ILCodeVersion ilCodeVersion, 
-    CodeVersionManager::JumpStampBatch* pJumpStampBatch,
-    CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-        CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pCodeVersionManager));
-        PRECONDITION(CheckPointer(pMD));
-        PRECONDITION(CheckPointer(pJumpStampBatch));
-        PRECONDITION(CheckPointer(pRejitErrors));
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
-    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
-
-    HRESULT hr = S_OK;
-
-
-    // ReJitInfos with MethodDesc's need to be jump-stamped,
-    NativeCodeVersion * pNativeCodeVersion = pJumpStampBatch->preStubMethods.Append();
-    if (pNativeCodeVersion == NULL)
-    {
-        return E_OUTOFMEMORY;
-    }
-    hr = ilCodeVersion.AddNativeCodeVersion(pMD, pNativeCodeVersion);
-    if (FAILED(hr))
-    {
-        _ASSERTE(hr == E_OUTOFMEMORY);
-        return hr;
-    }
-
-    return S_OK;
-}
-
-
 // ICorProfilerInfo4::RequestRevert calls into this guy to do most of the
 // work. Takes care of finding the appropriate ReJitManager instances to
 // perform the revert
@@ -1071,130 +754,10 @@ HRESULT ReJitManager::RequestRevert(
     }
     CONTRACTL_END;
 
-    // Serialize all RequestReJIT() and Revert() calls against each other (even across AppDomains)
-    CrstHolder ch(&(s_csGlobalRequest));
-
-    // Request at least 1 method to revert!
-    _ASSERTE ((cFunctions != 0) && (rgModuleIDs != NULL) && (rgMethodDefs != NULL));
-
-    ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
-    for (ULONG i = 0; i < cFunctions; i++)
-    {
-        HRESULT hr = E_UNEXPECTED;
-        Module * pModule = reinterpret_cast< Module * >(rgModuleIDs[i]);
-        if (pModule == NULL || TypeFromToken(rgMethodDefs[i]) != mdtMethodDef)
-        {
-            hr = E_INVALIDARG;
-        }
-        else if (pModule->IsBeingUnloaded())
-        {
-            hr = CORPROF_E_DATAINCOMPLETE;
-        }
-        else if (pModule->IsReflection())
-        {
-            hr = CORPROF_E_MODULE_IS_DYNAMIC;
-        }
-        else
-        {
-            hr = ReJitManager::RequestRevertByToken(pModule, rgMethodDefs[i]);
-        }
-        
-        if (rgHrStatuses != NULL)
-        {
-            rgHrStatuses[i] = hr;
-        }
-    }
-
-    ThreadSuspend::RestartEE(FALSE /* bFinishedGC */, TRUE /* SuspendSucceded */);
-
-    return S_OK;
+    return UpdateActiveILVersions(cFunctions, rgModuleIDs, rgMethodDefs, rgHrStatuses, TRUE);
 }
 
 // static
-
-//---------------------------------------------------------------------------------------
-//
-// Given a methodDef token, finds the corresponding ReJitInfo, and asks the
-// ReJitInfo to perform a revert.
-//
-// Arguments:
-//    * pModule - Module to revert
-//    * methodDef - methodDef token to revert
-//
-// Return Value:
-//      HRESULT indicating success or failure.  If the method was never
-//      rejitted in the first place, this method returns a special error code
-//      (CORPROF_E_ACTIVE_REJIT_REQUEST_NOT_FOUND).
-//      E_OUTOFMEMORY
-//
-
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4702) // Disable bogus unreachable code warning
-#endif // _MSC_VER
-HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef methodDef)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        CAN_TAKE_LOCK;
-        MODE_PREEMPTIVE;
-    }
-    CONTRACTL_END;
-
-    _ASSERTE(ThreadStore::HoldingThreadStore());
-    return E_NOTIMPL;
-    /*
-    CrstHolder ch(&m_crstTable);
-
-    _ASSERTE(pModule != NULL);
-    _ASSERTE(methodDef != mdTokenNil);
-
-    ReJitInfo * pInfo = NULL;
-    MethodDesc * pMD = NULL;
-
-    pInfo = FindNonRevertedReJitInfo(pModule, methodDef);
-    if (pInfo == NULL)
-    {
-        pMD = pModule->LookupMethodDef(methodDef);
-        pInfo = FindNonRevertedReJitInfo(pMD);
-        if (pInfo == NULL)
-            return CORPROF_E_ACTIVE_REJIT_REQUEST_NOT_FOUND;
-    }
-
-    _ASSERTE (pInfo != NULL);
-    _ASSERTE (pInfo->m_pShared != NULL);
-    ReJitManagerJumpStampBatch batch(this);
-    HRESULT hr = Revert(pInfo->m_pShared, &batch);
-    if (FAILED(hr))
-    {
-        _ASSERTE(hr == E_OUTOFMEMORY);
-        return hr;
-    }
-    CDynArray<ReJitReportErrorWorkItem> errorRecords;
-    hr = BatchUpdateJumpStamps(&(batch.undoMethods), &(batch.preStubMethods), &errorRecords);
-    if (FAILED(hr))
-    {
-        _ASSERTE(hr == E_OUTOFMEMORY);
-        return hr;
-    }
-
-    // If there were any errors, return the first one. This matches previous error handling
-    // behavior that only returned the first error encountered within Revert().
-    for (int i = 0; i < errorRecords.Count(); i++)
-    {
-        _ASSERTE(FAILED(errorRecords[i].hrStatus));
-        return errorRecords[i].hrStatus;
-    }
-    return S_OK;*/
-}
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif // _MSC_VER
-
-
-
 HRESULT ReJitManager::ConfigureILCodeVersion(ILCodeVersion ilCodeVersion)
 {
     STANDARD_VM_CONTRACT;
@@ -1329,69 +892,8 @@ HRESULT ReJitManager::ConfigureILCodeVersion(ILCodeVersion ilCodeVersion)
         }
     }
     
-
-//---------------------------------------------------------------------------------------
-//
-// Transition SharedReJitInfo to Reverted state and add all associated ReJitInfos to the
-// undo list in the method batch
-//
-// Arguments:
-//      pShared - SharedReJitInfo to revert
-//      pJumpStampBatch - a batch of methods that need their jump stamps reverted. This method
-//                        is responsible for adding additional ReJitInfos to the list.
-//
-// Return Value:
-//      S_OK if all MDs are batched and the SharedReJitInfo is marked reverted 
-//      E_OUTOFMEMORY (MDs couldn't be added to batch, SharedReJitInfo is not reverted)
-//
-// Assumptions:
-//      Caller must be holding this ReJitManager's table crst.
-//
-
-HRESULT ReJitManager::Revert(ILCodeVersion ilCodeVersion, CodeVersionManager::JumpStampBatch* pJumpStampBatch)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    CodeVersionManager* pCodeVersionManager = ilCodeVersion.GetModule()->GetCodeVersionManager();
-
-    _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
-    _ASSERTE((ilCodeVersion.GetRejitState() == ILCodeVersion::kStateRequested) ||
-             (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateGettingReJITParameters) ||
-             (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateActive));
-    _ASSERTE(pJumpStampBatch->pCodeVersionManager == pCodeVersionManager);
-
-    //TODO
-    return E_NOTIMPL;
-    /*
-    HRESULT hrReturn = S_OK;
-    for (ReJitInfo * pInfo = pShared->GetMethods(); pInfo != NULL; pInfo = pInfo->m_pNext)
-    {
-        if (pInfo->GetState() == ReJitInfo::kJumpNone)
-        {
-            // Nothing to revert for this MethodDesc / instantiation.
-            continue;
-        }
-
-        ReJitInfo** ppInfo = pJumpStampBatch->undoMethods.Append();
-        if (ppInfo == NULL)
-        {
-            return E_OUTOFMEMORY;
-        }
-        *ppInfo = pInfo;
-    }
-
-    pShared->m_dwInternalFlags &= ~SharedReJitInfo::kStateMask;
-    pShared->m_dwInternalFlags |= SharedReJitInfo::kStateReverted;
     return S_OK;
-    */
 }
-
 
 #endif // DACCESS_COMPILE
 // The rest of the ReJitManager methods are safe to compile for DAC

@@ -1175,11 +1175,6 @@ HRESULT MethodDescVersioningState::JumpStampNativeCode(PCODE pCode /* = NULL */)
     // buffer.
     DebuggerController::ControllerLockHolder lockController;
 
-    // We could be in a race. Either two threads simultaneously JITting the same
-    // method for the first time or two threads restoring NGEN'ed code.
-    // Another thread may (or may not) have jump-stamped its copy of the code already
-    _ASSERTE((GetJumpStampState() == JumpStampNone) || (GetJumpStampState() == JumpStampToPrestub));
-
     if (GetJumpStampState() == JumpStampToPrestub)
     {
         // The method has already been jump stamped so nothing left to do
@@ -1189,9 +1184,12 @@ HRESULT MethodDescVersioningState::JumpStampNativeCode(PCODE pCode /* = NULL */)
 
     // Remember what we're stamping our jump on top of, so we can replace it during a
     // revert.
-    for (int i = 0; i < sizeof(m_rgSavedCode); i++)
+    if (GetJumpStampState() == JumpStampNone)
     {
-        m_rgSavedCode[i] = *FirstCodeByteAddr(pbCode + i, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)(pbCode + i)));
+        for (int i = 0; i < sizeof(m_rgSavedCode); i++)
+        {
+            m_rgSavedCode[i] = *FirstCodeByteAddr(pbCode + i, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)(pbCode + i)));
+        }
     }
 
     EX_TRY
@@ -1205,8 +1203,8 @@ HRESULT MethodDescVersioningState::JumpStampNativeCode(PCODE pCode /* = NULL */)
 #if defined(_X86_) || defined(_AMD64_)
 
         // Normal unpatched code never starts with a jump
-        // so make sure this code isn't already patched
-        _ASSERTE(*FirstCodeByteAddr(pbCode, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)pbCode)) != X86_INSTR_JMP_REL32);
+        _ASSERTE(GetJumpStampState() == JumpStampToActiveVersion ||
+            *FirstCodeByteAddr(pbCode, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)pbCode)) != X86_INSTR_JMP_REL32);
 
         INT64 i64OldCode = *(INT64*)pbCode;
         INT64 i64NewCode = i64OldCode;
@@ -1276,10 +1274,28 @@ HRESULT MethodDescVersioningState::UpdateJumpTarget(BOOL fEESuspended, PCODE pRe
 
     MethodDesc * pMD = GetMethodDesc();
     _ASSERTE(pMD->GetCodeVersionManager()->LockOwnedByCurrentThread());
-    _ASSERTE(GetJumpStampState() == JumpStampToPrestub);
+
+    // It isn't safe to overwrite the original method prolog with a jmp because threads might
+    // be at an IP in the middle of the jump stamp already. However converting between different
+    // jump stamps is OK (when done atomically) because this only changes the jmp target, not
+    // instruction boundaries.
+    if (GetJumpStampState() == JumpStampNone && !fEESuspended)
+    {
+        return CORPROF_E_RUNTIME_SUSPEND_REQUIRED;
+    }
 
     // Beginning of originally JITted code containing the jmp that we will redirect.
     BYTE * pbCode = (BYTE*)pMD->GetNativeCode();
+
+    // Remember what we're stamping our jump on top of, so we can replace it during a
+    // revert.
+    if (GetJumpStampState() == JumpStampNone)
+    {
+        for (int i = 0; i < sizeof(m_rgSavedCode); i++)
+        {
+            m_rgSavedCode[i] = *FirstCodeByteAddr(pbCode + i, DebuggerController::GetPatchTable()->GetPatch((CORDB_ADDRESS_TYPE *)(pbCode + i)));
+        }
+    }
 
 #if defined(_X86_) || defined(_AMD64_)
 
@@ -1312,8 +1328,7 @@ HRESULT MethodDescVersioningState::UpdateJumpTarget(BOOL fEESuspended, PCODE pRe
         INT64 i64NewValue = i64OldValue;
         LPBYTE pbNewValue = (LPBYTE)&i64NewValue;
 
-        // First byte becomes a rel32 jmp instruction (should be a no-op as asserted
-        // above, but can't hurt)
+        // First byte becomes a rel32 jmp instruction (if it wasn't already)
         *pbNewValue = X86_INSTR_JMP_REL32;
         // Next 4 bytes are the jmp target (offset to jmp stub)
         INT32 UNALIGNED * pnOffset = reinterpret_cast<INT32 UNALIGNED *>(&pbNewValue[1]);
@@ -1367,8 +1382,12 @@ HRESULT MethodDescVersioningState::UndoJumpStampNativeCode(BOOL fEESuspended)
     CONTRACTL_END;
 
     _ASSERTE(GetMethodDesc()->GetCodeVersionManager()->LockOwnedByCurrentThread());
-    _ASSERTE((GetJumpStampState() == JumpStampToPrestub) || (GetJumpStampState() == JumpStampToActiveVersion));
-    _ASSERTE(m_rgSavedCode[0] != 0); // saved code should not start with 0 (see above test)
+    if (GetJumpStampState() == JumpStampNone)
+    {
+        return S_OK;
+    }
+
+    _ASSERTE(m_rgSavedCode[0] != 0); // saved code should not start with 0
 
     BYTE * pbCode = (BYTE*)GetMethodDesc()->GetNativeCode();
     DebuggerController::ControllerLockHolder lockController;
@@ -1852,10 +1871,123 @@ HRESULT CodeVersionManager::AddILCodeVersion(Module* pModule, mdMethodDef method
     *pILCodeVersion = ILCodeVersion(pILCodeVersionNode);
     return S_OK;
 }
+
+HRESULT CodeVersionManager::SetActiveILCodeVersions(ILCodeVersion* pActiveVersions, DWORD cActiveVersions, BOOL fEESuspended, CDynArray<CodePublishError> * pErrors)
+{
+    // If the IL version is in the shared domain we need to iterate all domains
+    // looking for instantiations. The domain iterator lock is bigger than
+    // the code version manager lock so we can't do this atomically. In one atomic
+    // update the bookkeeping for IL versioning will happen and then in a second
+    // update the active native code versions will change/code jumpstamps+precodes
+    // will update.
+    //
+    // Note: For all domains other than the shared AppDomain we could do this
+    // atomically, but for now we use the lowest common denominator for all
+    // domains.
+    CONTRACTL
     {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        CAN_TAKE_LOCK;
+        PRECONDITION(CheckPointer(pActiveVersions));
+        PRECONDITION(CheckPointer(pErrors, NULL_OK));
     }
+    CONTRACTL_END;
+    _ASSERTE(!LockOwnedByCurrentThread());
+    HRESULT hr = S_OK;
+
+#if DEBUG
+    for (DWORD i = 0; i < cActiveVersions; i++)
     {
+        ILCodeVersion activeVersion = pActiveVersions[i];
+        if (activeVersion.IsNull())
+        {
+            _ASSERTE(!"The active IL version can't be NULL");
+        }
     }
+#endif
+
+    // step 1 - mark the IL versions as being active, this ensures that
+    // any new method instantiations added after this point will bind to
+    // the correct version
+    {
+        TableLockHolder(this);
+        for (DWORD i = 0; i < cActiveVersions; i++)
+        {
+            ILCodeVersion activeVersion = pActiveVersions[i];
+            ILCodeVersioningState* pILCodeVersioningState = NULL;
+            if (FAILED(hr = GetOrCreateILCodeVersioningState(activeVersion.GetModule(), activeVersion.GetMethodDef(), &pILCodeVersioningState)))
+            {
+                _ASSERTE(hr == E_OUTOFMEMORY);
+                return hr;
+            }
+            pILCodeVersioningState->SetActiveVersion(activeVersion);
+        }
+    }
+
+    // step 2 - determine the set of pre-existing method instantiations
+
+    // a parallel array to activeVersions
+    // for each ILCodeVersion in activeVersions, this lists the set
+    // MethodDescs that will need to be updated
+    CDynArray<CDynArray<MethodDesc*>> methodDescsToUpdate;
+    CDynArray<CodePublishError> errorRecords;
+    for (DWORD i = 0; i < cActiveVersions; i++)
+    {
+        CDynArray<MethodDesc*>* pMethodDescs = methodDescsToUpdate.Append();
+        if (pMethodDescs == NULL)
+        {
+            return E_OUTOFMEMORY;
+        }
+        *pMethodDescs = CDynArray<MethodDesc*>();
+
+        MethodDesc* pLoadedMethodDesc = pActiveVersions[i].GetModule()->LookupMethodDef(pActiveVersions[i].GetMethodDef());
+        if (FAILED(hr = CodeVersionManager::EnumerateClosedMethodDescs(pLoadedMethodDesc, pMethodDescs, &errorRecords)))
+        {
+            _ASSERTE(hr == E_OUTOFMEMORY);
+            return hr;
+        }
+    }
+
+    // step 3 - update each pre-existing method instantiation
+    {
+        TableLockHolder lock(this);
+        for (DWORD i = 0; i < cActiveVersions; i++)
+        {
+            // Its possible the active IL version has changed if
+            // another caller made an update while this method wasn't
+            // holding the lock. We will ensure that we synchronize
+            // publishing to whatever version is currently active, even
+            // if that isn't the IL version we set above.
+            //
+            // Note: Although we attempt to handle this case gracefully
+            // it isn't recommended for callers to do this. Racing two calls
+            // that set the IL version to different results means it will be
+            // completely arbitrary which version wins.
+            ILCodeVersion requestedActiveILVersion = pActiveVersions[i];
+            ILCodeVersion activeILVersion = GetActiveILCodeVersion(requestedActiveILVersion.GetModule(), requestedActiveILVersion.GetMethodDef());
+
+            CDynArray<MethodDesc*> methodDescs = methodDescsToUpdate[i];
+            for (int j = 0; j < methodDescs.Count(); j++)
+            {
+                // Get an the active child code version for this method instantiation (it might be NULL, that is OK)
+                NativeCodeVersion activeNativeChild = activeILVersion.GetActiveNativeCodeVersion(methodDescs[j]);
+
+                // Publish that child version, because it is the active native child of the active IL version
+                // Failing to publish is non-fatal, but we do record it so the caller is aware
+                if (FAILED(hr = PublishNativeCodeVersion(methodDescs[j], activeNativeChild, fEESuspended)))
+                {
+                    if (FAILED(hr = AddCodePublishError(activeILVersion.GetModule(), activeILVersion.GetMethodDef(), methodDescs[j], hr, &errorRecords)))
+                    {
+                        _ASSERTE(hr == E_OUTOFMEMORY);
+                        return hr;
+                    }
+                }
+            }
+        }
+    }
+
     return S_OK;
 }
 
@@ -2044,12 +2176,220 @@ HRESULT CodeVersionManager::PublishNativeCodeVersion(MethodDesc* pMethod, Native
         return pVersioningState->SyncJumpStamp(nativeCodeVersion, fEESuspended);
     }
 }
+
+// static
+HRESULT CodeVersionManager::EnumerateClosedMethodDescs(
+    MethodDesc* pMD,
+    CDynArray<MethodDesc*> * pClosedMethodDescs,
+    CDynArray<CodePublishError> * pUnsupportedMethodErrors)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        CAN_TAKE_LOCK;
+        PRECONDITION(CheckPointer(pMD));
+        PRECONDITION(CheckPointer(pClosedMethodDescs));
+        PRECONDITION(CheckPointer(pUnsupportedMethodErrors));
+    }
+    CONTRACTL_END;
+    HRESULT hr = S_OK;
+    if (pMD == NULL)
+    {
+        // nothing is loaded yet so we're done for this method.
+        return S_OK;
+    }
+
+    if (!pMD->HasClassOrMethodInstantiation() && pMD->HasNativeCode())
+    {
+        // We have a JITted non-generic.
+        MethodDesc ** ppMD = pClosedMethodDescs->Append();
+        if (ppMD == NULL)
+        {
+            return E_OUTOFMEMORY;
+        }
+        *ppMD = pMD;
+    }
+
+    if (!pMD->HasClassOrMethodInstantiation())
+    {
+        // not generic, we're done for this method
+        return S_OK;
+    }
+
+    // Ok, now the case of a generic function (or function on generic class), which
+    // is loaded, and may thus have compiled instantiations.
+    // It's impossible to get to any other kind of domain from the profiling API
+    Module* pModule = pMD->GetModule();
+    mdMethodDef methodDef = pMD->GetMemberDef();
+    BaseDomain * pBaseDomainFromModule = pModule->GetDomain();
+    _ASSERTE(pBaseDomainFromModule->IsAppDomain() ||
+        pBaseDomainFromModule->IsSharedDomain());
+
+    if (pBaseDomainFromModule->IsSharedDomain())
+    {
+        // Iterate through all modules loaded into the shared domain, to
+        // find all instantiations living in the shared domain. This will
+        // include orphaned code (i.e., shared code used by ADs that have
+        // all unloaded), which is good, because orphaned code could get
+        // re-adopted if a new AD is created that can use that shared code
+        hr = EnumerateDomainClosedMethodDescs(
+            NULL,  // NULL means to search SharedDomain instead of an AD
+            pModule,
+            methodDef,
+            pClosedMethodDescs,
+            pUnsupportedMethodErrors);
+    }
+    else
+    {
+        // Module is unshared, so just use the module's domain to find instantiations.
+        hr = EnumerateDomainClosedMethodDescs(
+            pBaseDomainFromModule->AsAppDomain(),
+            pModule,
+            methodDef,
+            pClosedMethodDescs,
+            pUnsupportedMethodErrors);
+    }
+    if (FAILED(hr))
+    {
+        _ASSERTE(hr == E_OUTOFMEMORY);
         return hr;
     }
 
+    // We want to iterate through all compilations of existing instantiations to
+    // ensure they get marked for rejit.  Note: There may be zero instantiations,
+    // but we won't know until we try.
+    if (pBaseDomainFromModule->IsSharedDomain())
+    {
+        // Iterate through all real domains, to find shared instantiations.
+        AppDomainIterator appDomainIterator(TRUE);
+        while (appDomainIterator.Next())
+        {
+            AppDomain * pAppDomain = appDomainIterator.GetDomain();
+            if (pAppDomain->IsUnloading())
+            {
+                continue;
+            }
+            hr = EnumerateDomainClosedMethodDescs(
+                pAppDomain,
+                pModule,
+                methodDef,
+                pClosedMethodDescs,
+                pUnsupportedMethodErrors);
+            if (FAILED(hr))
+            {
+                _ASSERTE(hr == E_OUTOFMEMORY);
+                return hr;
+            }
+        }
+    }
+    return S_OK;
+}
+
+// static
+HRESULT CodeVersionManager::EnumerateDomainClosedMethodDescs(
+    AppDomain * pAppDomainToSearch,
+    Module* pModuleContainingMethodDef,
+    mdMethodDef methodDef,
+    CDynArray<MethodDesc*> * pClosedMethodDescs,
+    CDynArray<CodePublishError> * pUnsupportedMethodErrors)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        CAN_TAKE_LOCK;
+        PRECONDITION(CheckPointer(pAppDomainToSearch, NULL_OK));
+        PRECONDITION(CheckPointer(pModuleContainingMethodDef));
+        PRECONDITION(CheckPointer(pClosedMethodDescs));
+        PRECONDITION(CheckPointer(pUnsupportedMethodErrors));
+    }
+    CONTRACTL_END;
+
+    _ASSERTE(methodDef != mdTokenNil);
+
+    HRESULT hr;
+
+    BaseDomain * pDomainContainingGenericDefinition = pModuleContainingMethodDef->GetDomain();
+
+#ifdef _DEBUG
+    // If the generic definition is not loaded domain-neutral, then all its
+    // instantiations will also be non-domain-neutral and loaded into the same
+    // domain as the generic definition.  So the caller may only pass the
+    // domain containing the generic definition as pAppDomainToSearch
+    if (!pDomainContainingGenericDefinition->IsSharedDomain())
+    {
+        _ASSERTE(pDomainContainingGenericDefinition == pAppDomainToSearch);
+    }
+#endif //_DEBUG
+
+    // If pAppDomainToSearch is NULL, iterate through all existing 
+    // instantiations loaded into the SharedDomain. If pAppDomainToSearch is non-NULL, 
+    // iterate through all existing instantiations in pAppDomainToSearch, and only consider
+    // instantiations in non-domain-neutral assemblies (as we already covered domain 
+    // neutral assemblies when we searched the SharedDomain).
+    LoadedMethodDescIterator::AssemblyIterationMode mode = LoadedMethodDescIterator::kModeSharedDomainAssemblies;
+    // these are the default flags which won't actually be used in shared mode other than
+    // asserting they were specified with their default values
+    AssemblyIterationFlags assemFlags = (AssemblyIterationFlags)(kIncludeLoaded | kIncludeExecution);
+    ModuleIterationOption moduleFlags = (ModuleIterationOption)kModIterIncludeLoaded;
+    if (pAppDomainToSearch != NULL)
+    {
+        mode = LoadedMethodDescIterator::kModeUnsharedADAssemblies;
+        assemFlags = (AssemblyIterationFlags)(kIncludeAvailableToProfilers | kIncludeExecution);
+        moduleFlags = (ModuleIterationOption)kModIterIncludeAvailableToProfilers;
+    }
+    LoadedMethodDescIterator it(
+        pAppDomainToSearch,
+        pModuleContainingMethodDef,
+        methodDef,
+        mode,
+        assemFlags,
+        moduleFlags);
+    CollectibleAssemblyHolder<DomainAssembly *> pDomainAssembly;
+    while (it.Next(pDomainAssembly.This()))
+    {
+        MethodDesc * pLoadedMD = it.Current();
+
+        if (!pLoadedMD->IsVersionable())
+        {
+            // For compatibility with the rejit APIs we ensure certain errors are detected and reported using their
+            // original HRESULTS
+            HRESULT errorHR = GetNonVersionableError(pLoadedMD);
+            if (FAILED(errorHR))
+            {
+                if (FAILED(hr = CodeVersionManager::AddCodePublishError(pModuleContainingMethodDef, methodDef, pLoadedMD, CORPROF_E_FUNCTION_IS_COLLECTIBLE, pUnsupportedMethodErrors)))
+                {
+                    _ASSERTE(hr == E_OUTOFMEMORY);
+                    return hr;
+                }
+            }
+            continue;
+        }
+        
+#ifdef _DEBUG
+        if (!pDomainContainingGenericDefinition->IsSharedDomain())
+        {
+            // Method is defined outside of the shared domain, so its instantiation must
+            // be defined in the AD we're iterating over (pAppDomainToSearch, which, as
+            // asserted above, must be the same domain as the generic's definition)
+            _ASSERTE(pLoadedMD->GetDomain() == pAppDomainToSearch);
+        }
+#endif // _DEBUG
+
+        MethodDesc ** ppMD = pClosedMethodDescs->Append();
+        if (ppMD == NULL)
+        {
+            return E_OUTOFMEMORY;
+        }
+        *ppMD = pLoadedMD;
+    }
     return S_OK;
 }
 #endif // DACCESS_COMPILE
+
 
 //---------------------------------------------------------------------------------------
 //
@@ -2121,6 +2461,7 @@ HRESULT CodeVersionManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
 //static
 void CodeVersionManager::OnAppDomainExit(AppDomain * pAppDomain)
 {
+    LIMITED_METHOD_CONTRACT;
     // This would clean up all the allocations we have done and synchronize with any threads that might
     // still be using the data
     _ASSERTE(!".Net Core shouldn't be doing app domain shutdown - if we start doing so this needs to be implemented");
@@ -2202,6 +2543,11 @@ HRESULT CodeVersionManager::AddCodePublishError(Module* pModule, mdMethodDef met
         MODE_ANY;
     }
     CONTRACTL_END;
+
+    if (pErrors == NULL)
+    {
+        return S_OK;
+    }
 
     CodePublishError* pError = pErrors->Append();
     if (pError == NULL)

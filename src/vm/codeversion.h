@@ -594,53 +594,6 @@ public:
     PTR_ILCodeVersioningState GetILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef) const;
     PTR_MethodDescVersioningState GetMethodDescVersioningState(PTR_MethodDesc pMethod) const;
 
-
-    struct JumpStampBatch
-    {
-        JumpStampBatch(CodeVersionManager * pCodeVersionManager) : undoMethods(), preStubMethods()
-        {
-            LIMITED_METHOD_CONTRACT;
-            this->pCodeVersionManager = pCodeVersionManager;
-        }
-
-        CodeVersionManager* pCodeVersionManager;
-        CDynArray<NativeCodeVersion> undoMethods;
-        CDynArray<NativeCodeVersion> preStubMethods;
-    };
-
-    class JumpStampBatchTraits : public DefaultSHashTraits<JumpStampBatch *>
-    {
-    public:
-
-        // explicitly declare local typedefs for these traits types, otherwise 
-        // the compiler may get confused
-        typedef DefaultSHashTraits<JumpStampBatch *> PARENT;
-        typedef PARENT::element_t element_t;
-        typedef PARENT::count_t count_t;
-
-        typedef CodeVersionManager * key_t;
-
-        static key_t GetKey(const element_t &e)
-        {
-            return e->pCodeVersionManager;
-        }
-
-        static BOOL Equals(key_t k1, key_t k2)
-        {
-            return (k1 == k2);
-        }
-
-        static count_t Hash(key_t k)
-        {
-            return (count_t)k;
-        }
-
-        static bool IsNull(const element_t &e)
-        {
-            return (e == NULL);
-        }
-    };
-
 #ifndef DACCESS_COMPILE
     struct CodePublishError
     {
@@ -657,14 +610,22 @@ public:
     HRESULT PublishNativeCodeVersion(MethodDesc* pMethodDesc, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
     HRESULT GetOrCreateMethodDescVersioningState(MethodDesc* pMethod, MethodDescVersioningState** ppMethodDescVersioningState);
     HRESULT GetOrCreateILCodeVersioningState(Module* pModule, mdMethodDef methodDef, ILCodeVersioningState** ppILCodeVersioningState);
+    HRESULT SetActiveILCodeVersions(ILCodeVersion* pActiveVersions, DWORD cActiveVersions, BOOL fEESuspended, CDynArray<CodePublishError> * pPublishErrors);
     static HRESULT AddCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
     static HRESULT AddCodePublishError(NativeCodeVersion nativeCodeVersion, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
+    static void OnAppDomainExit(AppDomain* pAppDomain);
 #endif
 
 private:
 
 #ifndef DACCESS_COMPILE
-    static void OnAppDomainExit(AppDomain* pAppDomain);
+    static HRESULT EnumerateClosedMethodDescs(MethodDesc* pMD, CDynArray<MethodDesc*> * pClosedMethodDescs, CDynArray<CodePublishError> * pUnsupportedMethodErrors);
+    static HRESULT EnumerateDomainClosedMethodDescs(
+        AppDomain * pAppDomainToSearch,
+        Module* pModuleContainingMethodDef,
+        mdMethodDef methodDef,
+        CDynArray<MethodDesc*> * pClosedMethodDescs,
+        CDynArray<CodePublishError> * pUnsupportedMethodErrors);
     static HRESULT GetNonVersionableError(MethodDesc* pMD);
     void ReportCodePublishError(CodePublishError* pErrorRecord);
     void ReportCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus);

@@ -129,32 +129,40 @@ public:
 
 private:
 
+    static HRESULT UpdateActiveILVersions(
+        ULONG       cFunctions,
+        ModuleID    rgModuleIDs[],
+        mdMethodDef rgMethodDefs[],
+        HRESULT     rgHrStatuses[],
+        BOOL        fIsRevert);
+
+    struct CodeActivationBatch
+    {
+        CodeActivationBatch(CodeVersionManager * pCodeVersionManager) :
+            m_pCodeVersionManager(pCodeVersionManager)
+        {}
+        CodeVersionManager* m_pCodeVersionManager;
+        CDynArray<ILCodeVersion> m_methodsToActivate;
+    };
+
+    class CodeActivationBatchTraits : public DefaultSHashTraits<CodeActivationBatch *>
+    {
+    public:
+        typedef DefaultSHashTraits<CodeActivationBatch *> PARENT;
+        typedef PARENT::element_t element_t;
+        typedef PARENT::count_t count_t;
+        typedef CodeVersionManager * key_t;
+        static key_t GetKey(const element_t &e) { return e->m_pCodeVersionManager; }
+        static BOOL Equals(key_t k1, key_t k2) { return (k1 == k2); }
+        static count_t Hash(key_t k) { return (count_t)k; }
+        static bool IsNull(const element_t &e) { return (e == NULL); }
+    };
+
     static HRESULT BindILVersion(
         CodeVersionManager* pCodeVersionManager,
-        CodeVersionManager::JumpStampBatch* pJumpStampBatch,
         PTR_Module pModule,
         mdMethodDef methodDef,
         ILCodeVersion *pILCodeVersion);
-
-    static HRESULT MarkAllInstantiationsForReJit(
-        CodeVersionManager* pCodeVersionManager,
-        ILCodeVersion ilCodeVersion,
-        AppDomain * pAppDomainToSearch,
-        PTR_Module pModuleContainingGenericDefinition,
-        mdMethodDef methodDef,
-        CodeVersionManager::JumpStampBatch* pJumpStampBatch,
-        CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors);
-
-
-
-    static HRESULT MarkForReJit(CodeVersionManager* pCodeVersionManager,
-                                PTR_MethodDesc pMD,
-                                ILCodeVersion ilCodeVersion,
-                                CodeVersionManager::JumpStampBatch* pJumpStampBatch,
-                                CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors);
-
-    static HRESULT RequestRevertByToken(PTR_Module pModule, mdMethodDef methodDef);
-    static HRESULT Revert(ILCodeVersion ilCodeVersion, CodeVersionManager::JumpStampBatch* pJumpStampBatch);
 
 #endif // FEATURE_REJIT
 
