@@ -960,6 +960,10 @@ CORJIT_FLAGS PrepareCodeConfig::GetJitCompilationFlags()
     STANDARD_VM_CONTRACT;
     CORJIT_FLAGS flags;
 
+#ifdef FEATURE_REJIT
+    DWORD profilerFlags = m_ilCodeVersion.GetJitFlags();
+    flags.Add(ReJitManager::JitFlagsFromProfCodegenFlags(profilerFlags));
+#endif
 
     MethodDesc* pMethod = GetMethodDesc();
     if (pMethod->IsILStub())

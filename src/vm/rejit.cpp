@@ -180,18 +180,19 @@ CrstStatic ReJitManager::s_csGlobalRequest;
 //---------------------------------------------------------------------------------------
 // Helpers
 
-inline CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags)
+//static
+CORJIT_FLAGS ReJitManager::JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags)
 {
     LIMITED_METHOD_DAC_CONTRACT;
 
     CORJIT_FLAGS jitFlags;
-
-    // Note: COR_PRF_CODEGEN_DISABLE_INLINING is checked in
-    // code:CEEInfo::canInline#rejit (it has no equivalent CORJIT flag).
-
     if ((dwCodegenFlags & COR_PRF_CODEGEN_DISABLE_ALL_OPTIMIZATIONS) != 0)
     {
         jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_DEBUG_CODE);
+    }
+    if ((dwCodegenFlags & COR_PRF_CODEGEN_DISABLE_INLINING) != 0)
+    {
+        jitFlags.Set(CORJIT_FLAGS::CORJIT_FLAG_NO_INLINING);
     }
 
     // In the future more flags may be added that need to be converted here (e.g.,
@@ -199,9 +200,6 @@ inline CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags)
 
     return jitFlags;
 }
-
-
-
 
 //---------------------------------------------------------------------------------------
 // ProfilerFunctionControl implementation
@@ -1324,28 +1322,6 @@ HRESULT ReJitManager::IsMethodSafeForReJit(PTR_MethodDesc pMD)
 
 //---------------------------------------------------------------------------------------
 //
-// Simple wrapper around GetCurrentReJitWorker. See
-// code:ReJitManager::GetCurrentReJitWorker for information about parameters, return
-// values, etc.
-
-// static
-DWORD ReJitManager::GetCurrentReJitFlags(PTR_MethodDesc pMD)
-{
-    CONTRACTL 
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-        PRECONDITION(CheckPointer(pMD));
-    } 
-    CONTRACTL_END;
-
-    return pMD->GetReJitManager()->GetCurrentReJitFlagsWorker(pMD);
-}
-
-
-//---------------------------------------------------------------------------------------
-//
 // Given a methodDef token, finds the corresponding ReJitInfo, and asks the
 // ReJitInfo to perform a revert.
 //
@@ -2078,65 +2054,7 @@ ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
     return pInfo->m_pShared->GetId();
     */
     return 0;
-}
 
-//---------------------------------------------------------------------------------------
-//
-// If a function has been requested to be rejitted, finds the one current
-// SharedReJitInfo (ignoring all that are in the reverted state) and returns the codegen
-// flags recorded on it (which were thus used to rejit the MD). CEEInfo::canInline() calls
-// this as part of its calculation of whether it may inline a given method. (Profilers
-// may specify on a per-rejit-request basis whether the rejit of a method may inline
-// callees.)
-//
-// Arguments:
-//      * pMD - MethodDesc * of interest.
-//
-// Return Value:
-//     Returns the requested codegen flags, or 0 (i.e., no flags set) if no rejit attempt
-//     can be found for the MD.
-//
-DWORD ReJitManager::GetCurrentReJitFlagsWorker(PTR_MethodDesc pMD)
-{
-    CONTRACTL 
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_PREEMPTIVE;
-        PRECONDITION(CheckPointer(pMD));
-    } 
-    CONTRACTL_END;
-
-    // Fast-path: If the rejit map is empty, no need to look up anything. Do this outside
-    // of a lock to impact our caller (e.g., the JIT asking if it can inline) as little as possible. If the
-    // map is nonempty, we'll acquire the lock at that point and do the lookup for real.
-    CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
-    if (pCodeVersionManager->GetNonDefaultILVersionCount() == 0)
-    {
-        return 0;
-    }
-
-    CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
-
-    ILCodeVersionCollection ilCodeVersions = pCodeVersionManager->GetILCodeVersions(pMD);
-    for (ILCodeVersionIterator iter = ilCodeVersions.Begin(), end = ilCodeVersions.End();
-        iter != end; 
-        iter++)
-    {
-        ILCodeVersion curVersion = *iter;
-
-        if (curVersion.GetRejitState() != ILCodeVersion::kStateActive)
-        {
-            // Not active means we never asked profiler for the codegen flags OR the
-            // rejit request has been reverted. So this one is useless.
-            continue;
-        }
-
-        // Found it!
-        return curVersion.GetJitFlags();
-    }
-
-    return 0;
 }
 
 //---------------------------------------------------------------------------------------

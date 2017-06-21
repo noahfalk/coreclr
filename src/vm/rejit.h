@@ -156,7 +156,7 @@ public:
     
     static void DoJumpStampForAssemblyIfNecessary(Assembly* pAssemblyToSearch);
 
-    static DWORD GetCurrentReJitFlags(PTR_MethodDesc pMD);
+    static CORJIT_FLAGS JitFlagsFromProfCodegenFlags(DWORD dwCodegenFlags);
 
     ReJitManager();
 
@@ -174,7 +174,6 @@ private:
     static void ReportReJITError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus);
 
     static PCODE DoReJitIfNecessaryWorker(MethodDesc* pMD);  // Invokes the jit, or returns previously rejitted code
-    static DWORD GetCurrentReJitFlagsWorker(PTR_MethodDesc pMD);
 
     static HRESULT BindILVersion(
         CodeVersionManager* pCodeVersionManager,

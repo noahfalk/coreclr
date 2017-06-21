@@ -89,12 +89,6 @@ inline BOOL ReJitManager::IsReJITEnabled()
     return FALSE;
 }
 
-// static
-inline DWORD ReJitManager::GetCurrentReJitFlags(PTR_MethodDesc)
-{
-    return 0;
-}
-
 // static 
 inline void ReJitManager::InitStatic()
 {
