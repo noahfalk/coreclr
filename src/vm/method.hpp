@@ -506,8 +506,6 @@ public:
 
     BaseDomain *GetDomain();
 
-    ReJitManager * GetReJitManager();
-
 #ifdef FEATURE_CODE_VERSIONING
     CodeVersionManager* GetCodeVersionManager();
 #endif

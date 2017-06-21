@@ -203,12 +203,6 @@ inline BOOL HasTypeEquivalentStructParameters()
 }
 #endif // FEATURE_TYPEEQUIVALENCE
 
-inline ReJitManager * MethodDesc::GetReJitManager()
-{
-    LIMITED_METHOD_CONTRACT;
-    return GetModule()->GetReJitManager();
-}
-
 #ifdef FEATURE_CODE_VERSIONING
 
 inline CodeVersionManager * MethodDesc::GetCodeVersionManager()

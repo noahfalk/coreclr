@@ -898,17 +898,6 @@ HRESULT ReJitManager::ConfigureILCodeVersion(ILCodeVersion ilCodeVersion)
 #endif // DACCESS_COMPILE
 // The rest of the ReJitManager methods are safe to compile for DAC
 
-
-//---------------------------------------------------------------------------------------
-//
-// ReJitManager instance constructor--for now, does nothing
-//
-
-ReJitManager::ReJitManager()
-{
-    LIMITED_METHOD_DAC_CONTRACT;
-}
-
 //---------------------------------------------------------------------------------------
 //
 // Used by profiler to get the ReJITID corrseponding to a (MethodDesc *, PCODE) pair. 
@@ -977,17 +966,12 @@ ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
     CodeVersionManager* pCodeVersionManager = pMD->GetCodeVersionManager();
     _ASSERTE(pCodeVersionManager->LockOwnedByCurrentThread());
 
-    /* TODO
-    ReJitInfo * pInfo = FindReJitInfo(pMD, pCodeStart, 0);
-    if (pInfo == NULL)
+    NativeCodeVersion nativeCodeVersion = pCodeVersionManager->GetNativeCodeVersion(pMD, pCodeStart);
+    if (nativeCodeVersion.IsNull())
     {
         return 0;
     }
-
-    return pInfo->m_pShared->GetId();
-    */
-    return 0;
-
+    return nativeCodeVersion.GetILCodeVersion().GetVersionId();
 }
 
 //---------------------------------------------------------------------------------------
@@ -1074,10 +1058,6 @@ HRESULT ReJitManager::RequestRevert(
         HRESULT     rgHrStatuses[])
 {
     return E_NOTIMPL;
-}
-
-ReJitManager::ReJitManager()
-{
 }
 
 void ReJitManager::PreInit(BOOL fSharedDomain)

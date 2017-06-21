@@ -656,12 +656,6 @@ inline MethodTable* Module::GetDynamicClassMT(DWORD dynamicClassID)
     return m_pDynamicStaticsInfo[dynamicClassID].pEnclosingMT;
 }
 
-inline ReJitManager * Module::GetReJitManager()
-{
-    LIMITED_METHOD_CONTRACT;
-    return GetDomain()->GetReJitManager();
-}
-
 #ifdef FEATURE_CODE_VERSIONING
 inline CodeVersionManager * Module::GetCodeVersionManager()
 {

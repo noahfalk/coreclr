@@ -2117,7 +2117,7 @@ HRESULT ProfToEEInterfaceImpl::GetFunctionFromIP2(LPCBYTE ip, FunctionID * pFunc
     if (pReJitId != NULL)
     {
         MethodDesc * pMD = codeInfo.GetMethodDesc();
-        *pReJitId = pMD->GetReJitManager()->GetReJitId(pMD, codeInfo.GetStartAddress());
+        *pReJitId = ReJitManager::GetReJitId(pMD, codeInfo.GetStartAddress());
     }
 
     return S_OK;
@@ -6436,7 +6436,7 @@ HRESULT ProfToEEInterfaceImpl::GetFunctionFromIP3(LPCBYTE ip, FunctionID * pFunc
     if (pReJitId != NULL)
     {
         MethodDesc * pMD = codeInfo.GetMethodDesc();
-        *pReJitId = pMD->GetReJitManager()->GetReJitId(pMD, codeInfo.GetStartAddress());
+        *pReJitId = ReJitManager::GetReJitId(pMD, codeInfo.GetStartAddress());
     }
 
     return S_OK;
@@ -8250,7 +8250,7 @@ HRESULT ProfToEEInterfaceImpl::GetReJITIDs(
 
     MethodDesc * pMD = FunctionIdToMethodDesc(functionId);
 
-    return pMD->GetReJitManager()->GetReJITIDs(pMD, cReJitIds, pcReJitIds, reJitIds);
+    return ReJitManager::GetReJITIDs(pMD, cReJitIds, pcReJitIds, reJitIds);
 }
 
 HRESULT ProfToEEInterfaceImpl::RequestReJIT(ULONG       cFunctions,   // in

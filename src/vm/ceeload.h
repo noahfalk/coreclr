@@ -79,7 +79,6 @@ class CerNgenRootTable;
 struct MethodContextElement;
 class TypeHandleList;
 class ProfileEmitter;
-class ReJitManager;
 class CodeVersionManager;
 class TrackingMap;
 struct MethodInModule;
@@ -1785,7 +1784,6 @@ protected:
 
     ClassLoader *GetClassLoader();
     PTR_BaseDomain GetDomain();
-    ReJitManager * GetReJitManager();
 #ifdef FEATURE_CODE_VERSIONING
     CodeVersionManager * GetCodeVersionManager();
 #endif

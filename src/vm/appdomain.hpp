@@ -1552,13 +1552,6 @@ public:
         return m_dwSizedRefHandles;
     }
 
-    // Profiler rejit
-private:
-    ReJitManager m_reJitMgr;
-
-public:
-    ReJitManager * GetReJitManager() { return &m_reJitMgr; }
-
 #ifdef FEATURE_CODE_VERSIONING
 private:
     CodeVersionManager m_codeVersionManager;
