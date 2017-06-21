@@ -171,15 +171,8 @@ public:
         kStateGettingReJITParameters = 0x00000001,
 
         // We have asked the profiler about this method via ICorProfilerFunctionControl,
-        // and have thus stored the IL and codegen flags the profiler specified. Can only
-        // transition to kStateReverted from this state.
+        // and have thus stored the IL and codegen flags the profiler specified.
         kStateActive = 0x00000002,
-
-        // The methoddef has been reverted, but not freed yet. It (or its instantiations
-        // for generics) *MAY* still be active on the stack someplace or have outstanding
-        // memory references.
-        kStateReverted = 0x00000003,
-
 
         kStateMask = 0x0000000F,
     };

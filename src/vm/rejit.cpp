@@ -974,57 +974,20 @@ HRESULT ReJitManager::BindILVersion(
 
     // Check if there was there a previous rejit request for this method that hasn't been exposed back
     // to the profiler yet
-    ILCodeVersionCollection existingVersions = pCodeVersionManager->GetILCodeVersions(pModule, methodDef);
+    ILCodeVersion ilCodeVersion = pCodeVersionManager->GetActiveILCodeVersion(pModule, methodDef);
 
-    for (ILCodeVersionIterator iter = existingVersions.Begin();
-        iter != existingVersions.End();
-        iter++)
+    if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateRequested)
     {
-        ILCodeVersion ilCodeVersion = *iter;
+        // We can 'reuse' this instance because the profiler doesn't know about
+        // it yet. (This likely happened because a profiler called RequestReJIT
+        // twice in a row, without us having a chance to jmp-stamp the code yet OR
+        // while iterating through instantiations of a generic, the iterator found
+        // duplicate entries for the same instantiation.)
+        _ASSERTE(ilCodeVersion.GetIL() == NULL);
 
-        switch (ilCodeVersion.GetRejitState())
-        {
-        case ILCodeVersion::kStateRequested:
-            // We can 'reuse' this instance because the profiler doesn't know about
-            // it yet. (This likely happened because a profiler called RequestReJIT
-            // twice in a row, without us having a chance to jmp-stamp the code yet OR
-            // while iterating through instantiations of a generic, the iterator found
-            // duplicate entries for the same instantiation.)
-            _ASSERTE(ilCodeVersion.GetIL() == NULL);
-
-            *pILCodeVersion = ilCodeVersion;
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, existingVersions.End()));
-            return S_FALSE;
-
-        case ILCodeVersion::kStateGettingReJITParameters:
-        case ILCodeVersion::kStateActive:
-        {
-            // Profiler has already requested to rejit this guy, AND we've already
-            // at least started getting the rejit parameters from the profiler. We need to revert this
-            // instance (this will put back the original code)
-
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, existingVersions.End()));
-            HRESULT hr = Revert(ilCodeVersion, pJumpStampBatch);
-            if (FAILED(hr))
-            {
-                _ASSERTE(hr == E_OUTOFMEMORY);
-                return hr;
-            }
-            _ASSERTE(ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted);
-
-            // No need to continue looping.  Break out of loop to create a new
-            // ILCodeVersion to service the request.
-            goto EXIT_LOOP;
-        }
-        case ILCodeVersion::kStateReverted:
-            // just ignore this guy
-            continue;
-
-        default:
-            UNREACHABLE();
-        }
+        *pILCodeVersion = ilCodeVersion;
+        return S_FALSE;
     }
-EXIT_LOOP:
 
     // Either there was no ILCodeVersion yet for this MethodDesc OR whatever we've found
     // couldn't be reused (and needed to be reverted).  Create a new ILCodeVersion to return
@@ -1157,12 +1120,8 @@ HRESULT ReJitManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
         case ILCodeVersion::kStateRequested:
         case ILCodeVersion::kStateGettingReJITParameters:
         case ILCodeVersion::kStateActive:
-            INDEBUG(AssertRestOfEntriesAreReverted(iter, ilCodeVersions.End()));
             ilCodeVersionToJumpStamp = curVersion;
             break;
-        case ILCodeVersion::kStateReverted:
-            // just ignore this guy
-            continue;
 
         default:
             UNREACHABLE();
@@ -1373,7 +1332,6 @@ HRESULT ReJitManager::RequestRevertByToken(PTR_Module pModule, mdMethodDef metho
 
     _ASSERTE (pInfo != NULL);
     _ASSERTE (pInfo->m_pShared != NULL);
-    _ASSERTE (pInfo->m_pShared->GetState() != SharedReJitInfo::kStateReverted);
     ReJitManagerJumpStampBatch batch(this);
     HRESULT hr = Revert(pInfo->m_pShared, &batch);
     if (FAILED(hr))
@@ -1521,7 +1479,6 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
                 break;
 
             case ILCodeVersion::kStateActive:
-                INDEBUG(AssertRestOfEntriesAreReverted(iter, end));
                 if (pVersioningState->GetJumpStampState() == MethodDescVersioningState::JumpStampToActiveVersion)
                 {
                     // Looks like another thread has beat us in a race to rejit, so ignore.
@@ -1533,9 +1490,6 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
                 ilCodeVersion = curVersion;
                 goto ExitLoop;
 
-            case ILCodeVersion::kStateReverted:
-                // just ignore this guy
-                continue;
 
             default:
                 UNREACHABLE();
@@ -1645,11 +1599,6 @@ PCODE ReJitManager::DoReJitIfNecessaryWorker(MethodDesc* pMD)
                 {
                     return NULL; // the other thread had an error getting parameters and went
                                  // back to requested
-                }
-                else if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted)
-                {
-                    break; // we got reverted, enter DoReJit anyways and it will detect this and
-                           // bail out.
                 }
             }
             ClrSleepEx(1, FALSE);
@@ -1809,15 +1758,6 @@ PCODE ReJitManager::DoReJit(ILCodeVersion ilCodeVersion, MethodDesc* pMethod)
         // meantime (this check would also include an attempt to re-rejit the method
         // (i.e., calling RequestReJIT on the method multiple times), which would revert
         // this pInfo before creating a new one to track the latest rejit request).
-        if (ilCodeVersion.GetRejitState() == ILCodeVersion::kStateReverted)
-        {
-            // Yes, we've been reverted, so the jmp-to-prestub has already been removed,
-            // and we should certainly not attempt to redirect that nonexistent jmp to
-            // the code we just rejitted
-            _ASSERTE(pMethod->GetNativeCode() != NULL);
-            ret = pMethod->GetNativeCode();
-            break;
-        }
 
 #ifdef DEBUGGING_SUPPORTED
         // Notify the debugger of the rejitted function, so it can generate
@@ -2049,8 +1989,6 @@ ReJITID ReJitManager::GetReJitIdNoLock(PTR_MethodDesc pMD, PCODE pCodeStart)
         return 0;
     }
 
-    _ASSERTE(pInfo->m_pShared->GetState() == SharedReJitInfo::kStateActive ||
-        pInfo->m_pShared->GetState() == SharedReJitInfo::kStateReverted);
     return pInfo->m_pShared->GetId();
     */
     return 0;
@@ -2101,8 +2039,7 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
     {
         ILCodeVersion curILVersion = *iter;
 
-        if (curILVersion.GetRejitState() == ILCodeVersion::kStateActive ||
-            curILVersion.GetRejitState() == ILCodeVersion::kStateReverted)
+        if (curILVersion.GetRejitState() == ILCodeVersion::kStateActive)
         {
             if (cnt < cReJitIds)
             {
@@ -2119,33 +2056,6 @@ HRESULT ReJitManager::GetReJITIDs(PTR_MethodDesc pMD, ULONG cReJitIds, ULONG * p
     return (cnt > cReJitIds) ? S_FALSE : S_OK;
 }
 
-#ifdef _DEBUG
-//---------------------------------------------------------------------------------------
-//
-// Debug-only helper used while iterating through the hash table of
-// ReJitInfos to verify that all entries between the specified iterators are
-// reverted.  Asserts if it finds any non-reverted entries.
-//
-// Arguments:
-//    * iter - Iterator to start verifying at
-//    * end - Iterator to stop verifying at
-//
-//
-
-void ReJitManager::AssertRestOfEntriesAreReverted(
-    ILCodeVersionIterator iter, 
-    ILCodeVersionIterator end)
-{
-    LIMITED_METHOD_CONTRACT;
-
-    // All other rejits should be in the reverted state
-    while (++iter != end)
-    {
-        _ASSERTE(iter->GetRejitState() == ILCodeVersion::kStateReverted);
-    }
-}
-
-#endif // _DEBUG
 
 
 //---------------------------------------------------------------------------------------

@@ -817,29 +817,32 @@ ClrDataAccess::GetThreadData(CLRDATA_ADDRESS threadAddr, struct DacpThreadData *
 }
 
 #ifdef FEATURE_REJIT
-void CopyNativeCodeVersionToReJitData(NativeCodeVersion nativeCodeVersion, DacpReJitData * pReJitData)
+void CopyNativeCodeVersionToReJitData(NativeCodeVersion nativeCodeVersion, NativeCodeVersion activeCodeVersion, DacpReJitData * pReJitData)
 {
     pReJitData->rejitID = nativeCodeVersion.GetILCodeVersion().GetVersionId();
     pReJitData->NativeCodeAddr = nativeCodeVersion.GetNativeCode();
 
-    switch (nativeCodeVersion.GetILCodeVersion().GetRejitState())
+    if (nativeCodeVersion != activeCodeVersion)
     {
-    default:
-        _ASSERTE(!"Unknown SharedRejitInfo state.  DAC should be updated to understand this new state.");
-        pReJitData->flags = DacpReJitData::kUnknown;
-        break;
-
-    case ILCodeVersion::kStateRequested:
-        pReJitData->flags = DacpReJitData::kRequested;
-        break;
-
-    case ILCodeVersion::kStateActive:
-        pReJitData->flags = DacpReJitData::kActive;
-        break;
-
-    case ILCodeVersion::kStateReverted:
         pReJitData->flags = DacpReJitData::kReverted;
-        break;
+    }
+    else
+    {
+        switch (nativeCodeVersion.GetILCodeVersion().GetRejitState())
+        {
+        default:
+            _ASSERTE(!"Unknown SharedRejitInfo state.  DAC should be updated to understand this new state.");
+            pReJitData->flags = DacpReJitData::kUnknown;
+            break;
+
+        case ILCodeVersion::kStateRequested:
+            pReJitData->flags = DacpReJitData::kRequested;
+            break;
+
+        case ILCodeVersion::kStateActive:
+            pReJitData->flags = DacpReJitData::kActive;
+            break;
+        }
     }
 }
 #endif // FEATURE_REJIT
@@ -948,6 +951,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
 
             // Current ReJitInfo
             ILCodeVersion activeILCodeVersion = pCodeVersionManager->GetActiveILCodeVersion(pMD);
+            NativeCodeVersion activeChild = activeILCodeVersion.GetActiveNativeCodeVersion(pMD);
             NativeCodeVersionCollection nativeCodeVersions = activeILCodeVersion.GetNativeCodeVersions(pMD);
             for (NativeCodeVersionIterator iter = nativeCodeVersions.Begin(); iter != nativeCodeVersions.End(); iter++)
             {
@@ -955,7 +959,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                 // tiered compilation there could be many such method bodies. Before tiered compilation is enabled in a broader set
                 // of scenarios we need to consider how this change goes all the way up to the UI - probably exposing the
                 // entire set of methods.
-                CopyNativeCodeVersionToReJitData(*iter, &methodDescData->rejitDataCurrent);
+                CopyNativeCodeVersionToReJitData(*iter, activeChild, &methodDescData->rejitDataCurrent);
             }
 
             // Requested ReJitInfo
@@ -968,7 +972,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
 
                 if (!nativeCodeVersionRequested.IsNull())
                 {
-                    CopyNativeCodeVersionToReJitData(nativeCodeVersionRequested, &methodDescData->rejitDataRequested);
+                    CopyNativeCodeVersionToReJitData(nativeCodeVersionRequested, activeChild, &methodDescData->rejitDataRequested);
                 }
             }
 
@@ -1007,6 +1011,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                         // Go through rejitids.  For each reverted one, populate a entry in rgRevertedRejitData
                         reJitIds.CloseRawBuffer(cReJitIds);
                         ULONG iRejitDataReverted = 0;
+                        ILCodeVersion activeVersion = pCodeVersionManager->GetActiveILCodeVersion(pMD);
                         for (COUNT_T i=0; 
                             (i < cReJitIds) && (iRejitDataReverted < cRevertedRejitVersions);
                             i++)
@@ -1014,7 +1019,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                             ILCodeVersion ilCodeVersion = pCodeVersionManager->GetILCodeVersion(pMD, reJitIds[i]);
 
                             if ((ilCodeVersion.IsNull()) || 
-                                (ilCodeVersion.GetRejitState() != ILCodeVersion::kStateReverted))
+                                (ilCodeVersion == activeVersion))
                             {
                                 continue;
                             }
@@ -1026,7 +1031,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                                 // tiered compilation there could be many such method bodies. Before tiered compilation is enabled in a broader set
                                 // of scenarios we need to consider how this change goes all the way up to the UI - probably exposing the
                                 // entire set of methods.
-                                CopyNativeCodeVersionToReJitData(*iter, &rgRevertedRejitData[iRejitDataReverted]);
+                                CopyNativeCodeVersionToReJitData(*iter, activeChild, &rgRevertedRejitData[iRejitDataReverted]);
                             }
                             iRejitDataReverted++;
                         }

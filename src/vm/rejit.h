@@ -191,9 +191,6 @@ private:
         CodeVersionManager::JumpStampBatch* pJumpStampBatch,
         CDynArray<CodeVersionManager::CodePublishError> * pRejitErrors);
 
-    INDEBUG(static void AssertRestOfEntriesAreReverted(
-            ILCodeVersionIterator iter,
-            ILCodeVersionIterator end);)
 
 
     static HRESULT DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode);
