@@ -14156,16 +14156,7 @@ void Module::ExpandAll()
                     || pMD->HasClassInstantiation())
                 && (pMD->MayHaveNativeCode() && !pMD->IsFCallOrIntrinsic()))
             {
-                COR_ILMETHOD * ilHeader = pMD->GetILHeader();
-                COR_ILMETHOD_DECODER::DecoderStatus ignored;
-                NewHolder<COR_ILMETHOD_DECODER> pHeader(new COR_ILMETHOD_DECODER(ilHeader,
-                                                                                 pMD->GetMDImport(),
-                                                                                 &ignored));
-#ifdef FEATURE_INTERPRETER
-                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_MAKEFINALCODE));
-#else
-                pMD->MakeJitWorker(pHeader, CORJIT_FLAGS());
-#endif
+                pMD->PrepareInitialCode();
             }
         }
         static void CompileMethodsForMethodTable(MethodTable * pMT)

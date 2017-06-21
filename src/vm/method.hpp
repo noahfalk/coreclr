@@ -25,6 +25,7 @@
 #include <stddef.h>
 #include "eeconfig.h"
 #include "precode.h"
+#include "codeversion.h"
 
 #ifndef FEATURE_PREJIT
 #include "fixuppointer.h"
@@ -43,6 +44,7 @@ class GCCoverageInfo;
 class DynamicMethodDesc;
 class ReJitManager;
 class CodeVersionManager;
+class PrepareCodeConfig;
 
 typedef DPTR(FCallMethodDesc)        PTR_FCallMethodDesc;
 typedef DPTR(ArrayMethodDesc)        PTR_ArrayMethodDesc;
@@ -1305,6 +1307,14 @@ public:
     }
 #endif
 
+    // Returns a code version that represents the first (default)
+    // code body that this method would have.
+    NativeCodeVersion GetInitialCodeVersion()
+    {
+        LIMITED_METHOD_DAC_CONTRACT;
+        return NativeCodeVersion(dac_cast<PTR_MethodDesc>(this));
+    }
+
     // Does this method force the NativeCodeSlot to stay fixed after it
     // is first initialized to native code? Consumers of the native code
     // pointer need to be very careful about if and when they cache it
@@ -1682,8 +1692,6 @@ public:
 
     PCODE DoPrestub(MethodTable *pDispatchingMT);
 
-    PCODE MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS flags);
-
     VOID GetMethodInfo(SString &namespaceOrClassName, SString &methodName, SString &methodSignature);
     VOID GetMethodInfoWithNewSig(SString &namespaceOrClassName, SString &methodName, SString &methodSignature);
     VOID GetMethodInfoNoSig(SString &namespaceOrClassName, SString &methodName);
@@ -1946,7 +1954,67 @@ public:
     REFLECTMETHODREF GetStubMethodInfo();
     
     PrecodeType GetPrecodeType();
+
+
+    // ---------------------------------------------------------------------------------
+    // IL based Code generation pipeline
+    // ---------------------------------------------------------------------------------
+
+#ifndef DACCESS_COMPILE
+public:
+    PCODE PrepareInitialCode();
+    PCODE PrepareCode(NativeCodeVersion codeVersion);
+    PCODE PrepareCode(PrepareCodeConfig* pConfig);
+
+private:
+    PCODE PrepareILBasedCode(PrepareCodeConfig* pConfig);
+    PCODE GetPrecompiledCode(PrepareCodeConfig* pConfig);
+    PCODE GetPrecompiledNgenCode();
+    PCODE GetPrecompiledR2RCode();
+    PCODE GetMulticoreJitCode();
+    COR_ILMETHOD_DECODER* GetAndVerifyILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & holder);
+    COR_ILMETHOD_DECODER* GetAndVerifyMetadataILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & holder);
+    COR_ILMETHOD_DECODER* GetAndVerifyNoMetadataILHeader();
+    PCODE JitCompileCode(PrepareCodeConfig* pConfig);
+    PCODE JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pLockEntry);
+    struct JitNotificationInfo
+    {
+        // jit started info
+        PrepareCodeConfig* pConfig;
+        SString* pNamespaceOrClassName;
+        SString* pMethodName;
+        SString* pMethodSignature;
+        // additional jit finished info
+        CORJIT_FLAGS flags;
+        PCODE pCode;
+        ULONG sizeOfCode;
+        HRESULT compilationErrorHR;
+    };
+    void EmitJitStartingNotifications(JitNotificationInfo* pJitNotificationInfo);
+    void EmitJitFinishedNotifications(JitNotificationInfo* pJitNotificationInfo);
+#endif // DACCESS_COMPILE
 };
+
+#ifndef DACCESS_COMPILE
+class PrepareCodeConfig
+{
+public:
+    PrepareCodeConfig();
+    PrepareCodeConfig(NativeCodeVersion codeVersion);
+    MethodDesc* GetMethodDesc();
+    NativeCodeVersion GetCodeVersion();
+    ILCodeVersion GetILCodeVersion();
+    virtual BOOL IsJitCancellationRequested(PCODE * ppCodeToUse);
+    virtual BOOL SetNativeCode(PCODE pCode, PCODE * ppAlternateCodeToUse);
+    virtual BOOL NeedsMulticoreJitNotification();
+    virtual COR_ILMETHOD* GetILHeader();
+    virtual CORJIT_FLAGS GetJitCompilationFlags();
+    virtual BOOL MayUsePrecompiledCode();
+private:
+    NativeCodeVersion m_nativeCodeVersion;
+    ILCodeVersion m_ilCodeVersion;
+};
+#endif // DACCESS_COMPILE
 
 /******************************************************************/
 

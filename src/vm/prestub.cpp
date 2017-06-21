@@ -250,74 +250,343 @@ void DACNotifyCompilationFinished(MethodDesc *methodDesc)
 #endif
 // </TODO>
 
+PCODE MethodDesc::PrepareInitialCode()
+{
+    STANDARD_VM_CONTRACT;
+    return PrepareCode(GetInitialCodeVersion());
+}
+
+PCODE MethodDesc::PrepareCode(NativeCodeVersion codeVersion)
+{
+    STANDARD_VM_CONTRACT;
+    PrepareCodeConfig config;
+    if (codeVersion.IsDefaultVersion())
+    {
+        config = PrepareCodeConfig(codeVersion);
+    }
+#if FEATURE_CODE_VERSIONING
+    else
+    {
+        CodeVersionManager::TableLockHolder lock(GetCodeVersionManager());
+        config = PrepareCodeConfig(codeVersion);
+    }
+#endif
+    return PrepareCode(&config);
+}
+
+PCODE MethodDesc::PrepareCode(PrepareCodeConfig* pConfig)
+{
+    STANDARD_VM_CONTRACT;
+
+    // If other kinds of code need multi-versioning we could add more cases here,
+    // but for now generation of all other code/stubs occurs in other code paths
+    _ASSERTE(IsIL() || IsNoMetadata());
+    return PrepareILBasedCode(pConfig);
+}
+
+PCODE MethodDesc::PrepareILBasedCode(PrepareCodeConfig* pConfig)
+{
+    STANDARD_VM_CONTRACT;
+    PCODE pCode = NULL;
+
+    if (pConfig->MayUsePrecompiledCode())
+    {
+        pCode = GetPrecompiledCode(pConfig);
+    }
+    if (pCode == NULL)
+    {
+        LOG((LF_CLASSLOADER, LL_INFO1000000,
+            "    In PrepareILBasedCode, calling JitCompileCode\n"));
+        // Mark the code as hot in case the method ends up in the native image
+        g_IBCLogger.LogMethodCodeAccess(this);
+        pCode = JitCompileCode(pConfig);
+    }
+
+    return pCode;
+}
+
+PCODE MethodDesc::GetPrecompiledCode(PrepareCodeConfig* pConfig)
+{
+    STANDARD_VM_CONTRACT;
+    PCODE pCode = NULL;
+
+#ifdef FEATURE_PREJIT 
+    pCode = GetPrecompiledNgenCode();
+#endif FEATURE_PREJIT
+
+#ifdef FEATURE_READYTORUN
+    if (pCode == NULL)
+    {
+        pCode = GetPrecompiledR2RCode();
+        if (pCode != NULL)
+        {
+            pConfig->SetNativeCode(pCode, &pCode);
+        }
+    }
+#endif // FEATURE_READYTORUN
+
+    return pCode;
+}
+
+PCODE MethodDesc::GetPrecompiledNgenCode()
+{
+    STANDARD_VM_CONTRACT;
+    PCODE pCode = NULL;
+
+#ifdef FEATURE_PREJIT 
+    pCode = GetPreImplementedCode();
+
+#ifdef PROFILING_SUPPORTED
+
+    // The pre-existing cache search callbacks aren't implemented as you might expect.
+    // Instead of sending a cache search started for all methods, we only send the notification
+    // when we already know a pre-compiled version of the method exists. In the NGEN case we also
+    // don't send callbacks unless the method triggers the prestub which excludes a lot of methods.
+    // From the profiler's perspective this technique is only reliable/predictable when using profiler
+    // instrumented NGEN images (that virtually no profilers use). As-is the callback only
+    // gives an opportunity for the profiler to say whether or not it wants to use the ngen'ed
+    // code.
+    //
+    // Despite those oddities I am leaving this behavior as-is during refactoring because trying to
+    // improve it probably offers little value vs. the potential for compat issues and creating more
+    // complexity reasoning how the API behavior changed across runtime releases.
+    if (pCode != NULL)
+    {
+        BOOL fShouldSearchCache = TRUE;
+        {
+            BEGIN_PIN_PROFILER(CORProfilerTrackCacheSearches());
+            g_profControlBlock.pProfInterface->JITCachedFunctionSearchStarted((FunctionID)this, &fShouldSearchCache);
+            END_PIN_PROFILER();
+        }
+
+        if (!fShouldSearchCache)
+        {
+            SetNativeCodeInterlocked(NULL, pCode);
+            _ASSERTE(!IsPreImplemented());
+            pCode = NULL;
+        }
+    }
+#endif // PROFILING_SUPPORTED
+
+    if (pCode != NULL)
+    {
+        LOG((LF_ZAP, LL_INFO10000,
+            "ZAP: Using code" FMT_ADDR "for %s.%s sig=\"%s\" (token %x).\n",
+            DBG_ADDR(pCode),
+            m_pszDebugClassName,
+            m_pszDebugMethodName,
+            m_pszDebugMethodSignature,
+            GetMemberDef()));
+
+        TADDR pFixupList = GetFixupList();
+        if (pFixupList != NULL)
+        {
+            Module *pZapModule = GetZapModule();
+            _ASSERTE(pZapModule != NULL);
+            if (!pZapModule->FixupDelayList(pFixupList))
+            {
+                _ASSERTE(!"FixupDelayList failed");
+                ThrowHR(COR_E_BADIMAGEFORMAT);
+            }
+        }
+
+#ifdef HAVE_GCCOVER
+        if (GCStress<cfg_instr_ngen>::IsEnabled())
+            SetupGcCoverage(this, (BYTE*)pCode);
+#endif // HAVE_GCCOVER
+
+#ifdef PROFILING_SUPPORTED 
+        /*
+        * This notifies the profiler that a search to find a
+        * cached jitted function has been made.
+        */
+        {
+            BEGIN_PIN_PROFILER(CORProfilerTrackCacheSearches());
+            g_profControlBlock.pProfInterface->
+                JITCachedFunctionSearchFinished((FunctionID)this, COR_PRF_CACHED_FUNCTION_FOUND);
+            END_PIN_PROFILER();
+        }
+#endif // PROFILING_SUPPORTED
+
+    }
+#endif // FEATURE_PREJIT
+
+    return pCode;
+}
+
+
+PCODE MethodDesc::GetPrecompiledR2RCode()
+{
+    STANDARD_VM_CONTRACT;
+
+    PCODE pCode = NULL;
+#ifdef FEATURE_READYTORUN
+    Module * pModule = GetModule();
+    if (pModule->IsReadyToRun())
+    {
+        pCode = pModule->GetReadyToRunInfo()->GetEntryPoint(this);
+    }
+#endif FEATURE_READYTORUN
+    return pCode;
+}
+
+PCODE MethodDesc::GetMulticoreJitCode()
+{
+    STANDARD_VM_CONTRACT;
+
+    PCODE pCode = NULL;
+#ifdef FEATURE_MULTICOREJIT
+    // Quick check before calling expensive out of line function on this method's domain has code JITted by background thread
+    MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+    if (mcJitManager.GetMulticoreJitCodeStorage().GetRemainingMethodCount() > 0)
+    {
+        if (MulticoreJitManager::IsMethodSupported(this))
+        {
+            pCode = mcJitManager.RequestMethodCode(this); // Query multi-core JIT manager for compiled code
+        }
+    }
+#endif;
+    return pCode;
+}
+
+COR_ILMETHOD_DECODER* MethodDesc::GetAndVerifyMetadataILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & pHeader)
+{
+    STANDARD_VM_CONTRACT;
+
+    _ASSERTE(!IsNoMetadata());
+
+    COR_ILMETHOD* ilHeader = pConfig->GetILHeader();
+    if (ilHeader == NULL)
+    {
+#ifdef FEATURE_COMINTEROP
+        // Abstract methods can be called through WinRT derivation if the deriving type
+        // is not implemented in managed code, and calls through the CCW to the abstract
+        // method. Throw a sensible exception in that case.
+        if (GetMethodTable()->IsExportedToWinRT() && IsAbstract())
+        {
+            COMPlusThrowHR(E_NOTIMPL);
+        }
+#endif // FEATURE_COMINTEROP
+
+        COMPlusThrowHR(COR_E_BADIMAGEFORMAT, BFA_BAD_IL);
+    }
+
+    COR_ILMETHOD_DECODER::DecoderStatus status = COR_ILMETHOD_DECODER::FORMAT_ERROR;
+    {
+        // Decoder ctor can AV on a malformed method header
+        AVInRuntimeImplOkayHolder AVOkay;
+        pHeader = new COR_ILMETHOD_DECODER(ilHeader, GetMDImport(), &status);
+        if (pHeader == NULL)
+            status = COR_ILMETHOD_DECODER::FORMAT_ERROR;
+    }
+
+    if (status == COR_ILMETHOD_DECODER::VERIFICATION_ERROR &&
+        Security::CanSkipVerification(GetModule()->GetDomainAssembly()))
+    {
+        status = COR_ILMETHOD_DECODER::SUCCESS;
+    }
+
+    if (status != COR_ILMETHOD_DECODER::SUCCESS)
+    {
+        if (status == COR_ILMETHOD_DECODER::VERIFICATION_ERROR)
+        {
+            // Throw a verification HR
+            COMPlusThrowHR(COR_E_VERIFICATION);
+        }
+        else
+        {
+            COMPlusThrowHR(COR_E_BADIMAGEFORMAT, BFA_BAD_IL);
+        }
+    }
+
+#ifdef _VER_EE_VERIFICATION_ENABLED 
+    static ConfigDWORD peVerify;
+
+    if (peVerify.val(CLRConfig::EXTERNAL_PEVerify))
+        m_pMethod->Verify(pHeader, TRUE, FALSE);   // Throws a VerifierException if verification fails
+#endif // _VER_EE_VERIFICATION_ENABLED
+
+    return pHeader;
+}
+
+COR_ILMETHOD_DECODER* MethodDesc::GetAndVerifyNoMetadataILHeader()
+{
+    STANDARD_VM_CONTRACT;
+
+    if (IsILStub())
+    {
+        ILStubResolver* pResolver = AsDynamicMethodDesc()->GetILStubResolver();
+        return pResolver->GetILHeader();
+    }
+    else
+    {
+        return NULL;
+    }
+
+    // NoMetadata currently doesn't verify the IL. I'm not sure if that was
+    // a deliberate decision in the past or not, but I've left the behavior
+    // as-is during refactoring.
+}
+
+COR_ILMETHOD_DECODER* MethodDesc::GetAndVerifyILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & holder)
+{
+    STANDARD_VM_CONTRACT;
+    _ASSERTE(IsIL() || IsNoMetadata());
+
+    if (IsNoMetadata())
+    {
+        // The NoMetadata version doesn't allocate the decoder in response 
+        // to this call so it doesn't need the holder
+        return GetAndVerifyNoMetadataILHeader();
+    }
+    else
+    {
+        return GetAndVerifyMetadataILHeader(pConfig, holder);
+    }
+}
 
 // ********************************************************************
 //                  README!!
 // ********************************************************************
 
-// MakeJitWorker is the thread safe way to invoke the JIT compiler
-// If multiple threads get in here for the same pMD, ALL of them
-// MUST return the SAME value for pstub.
+// JitCompileCode is the thread safe way to invoke the JIT compiler
+// If multiple threads get in here for the same config, ALL of them
+// MUST return the SAME value for pcode.
 //
 // This function creates a DeadlockAware list of methods being jitted
 // which prevents us from trying to JIT the same method more that once.
 
-PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS flags)
+PCODE MethodDesc::JitCompileCode(PrepareCodeConfig* pConfig)
 {
     STANDARD_VM_CONTRACT;
 
-    BOOL fIsILStub = IsILStub();        // @TODO: understand the need for this special case
-
     LOG((LF_JIT, LL_INFO1000000,
-         "MakeJitWorker(" FMT_ADDR ", %s) for %s:%s\n",
-         DBG_ADDR(this),
-         fIsILStub               ? " TRUE" : "FALSE",
-         GetMethodTable()->GetDebugClassName(),
-         m_pszDebugMethodName));
+        "JitCompileCode(" FMT_ADDR ", %s) for %s:%s\n",
+        DBG_ADDR(this),
+        IsILStub() ? " TRUE" : "FALSE",
+        GetMethodTable()->GetDebugClassName(),
+        m_pszDebugMethodName));
 
 #if defined(FEATURE_JIT_PITCHING)
     CheckStacksAndPitch();
 #endif
 
     PCODE pCode = NULL;
-    ULONG sizeOfCode = 0;
-
-#ifdef FEATURE_MULTICOREJIT
-    MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
-
-    bool fBackgroundThread = flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_MCJIT_BACKGROUND);
-#endif
-
-    // If this is the first stage of a tiered compilation progression, use tier0, otherwise
-    // use default compilation options
-#ifdef FEATURE_TIERED_COMPILATION
-    if (!IsEligibleForTieredCompilation())
-    {
-        fStable = TRUE;
-    }
-    else
-    {
-        fStable = FALSE;
-        flags.Add(CORJIT_FLAGS(CORJIT_FLAGS::CORJIT_FLAG_TIER0));
-    }
-#endif
-
     {
         // Enter the global lock which protects the list of all functions being JITd
         JitListLock::LockHolder pJitLock(GetDomain()->GetJitLock());
 
         // It is possible that another thread stepped in before we entered the global lock for the first time.
-        pCode = GetNativeCode();
-        if (pCode != NULL)
+        if (pConfig->IsJitCancellationRequested(&pCode))
         {
-            goto Done;
+            return pCode;
         }
 
         const char *description = "jit lock";
         INDEBUG(description = m_pszDebugMethodName;)
             ReleaseHolder<JitListLockEntry> pEntry(JitListLockEntry::Find(
+                pJitLock, pConfig->GetCodeVersion(), description));
 
-                pJitLock, NativeCodeVersion(this), description));
         // We have an entry now, we can release the global lock
         pJitLock.Release();
 
@@ -364,284 +633,347 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
             }
 
             // It is possible that another thread stepped in before we entered the lock.
-            pCode = GetNativeCode();
+            if (pConfig->IsJitCancellationRequested(&pCode))
+            {
+                return pCode;
+            }
+
+            pCode = GetMulticoreJitCode();
             if (pCode != NULL)
             {
-                goto Done;
+                pConfig->SetNativeCode(pCode, &pCode);
+                pEntry->m_hrResultCode = S_OK;
+                return pCode;
             }
-
-            SString namespaceOrClassName, methodName, methodSignature;
-
-            PCODE pOtherCode = NULL; // Need to move here due to 'goto GotNewCode'
-            
-#ifdef FEATURE_MULTICOREJIT
-
-            bool fCompiledInBackground = false;
-
-            // If not called from multi-core JIT thread, 
-            if (! fBackgroundThread)
+            else
             {
-                // Quick check before calling expensive out of line function on this method's domain has code JITted by background thread
-                if (mcJitManager.GetMulticoreJitCodeStorage().GetRemainingMethodCount() > 0)
-                {
-                    if (MulticoreJitManager::IsMethodSupported(this))
-                    {
-                        pCode = mcJitManager.RequestMethodCode(this); // Query multi-core JIT manager for compiled code
-
-                        // Multicore JIT manager starts background thread to pre-compile methods, but it does not back-patch it/notify profiler/notify DAC,
-                        // Jumtp to GotNewCode to do so
-                        if (pCode != NULL)
-                        {
-                            fCompiledInBackground = true;
-                    
-#ifdef DEBUGGING_SUPPORTED
-                            // Notify the debugger of the jitted function
-                            if (g_pDebugInterface != NULL)
-                            {
-                                g_pDebugInterface->JITComplete(this, pCode);
-                            }
-#endif
-
-                            goto GotNewCode;
-                        }
-                    }
-                }
+                return JitCompileCodeLocked(pConfig, pEntryLock);
             }
+        }
+    }
+}
+
+PCODE MethodDesc::JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pEntry)
+{
+    STANDARD_VM_CONTRACT;
+
+    PCODE pCode = NULL;
+    ULONG sizeOfCode = 0;
+    SString namespaceOrClassName, methodName, methodSignature;
+    JitNotificationInfo notifyInfo;
+    notifyInfo.pConfig = pConfig;
+    notifyInfo.pNamespaceOrClassName = &namespaceOrClassName;
+    notifyInfo.pMethodName = &methodName;
+    notifyInfo.pMethodSignature = &methodSignature;
+    EmitJitStartingNotifications(&notifyInfo);
+
+    // The profiler may have changed the code on the callback.  Need to
+    // pick up the new code. 
+    //
+    // GetAndVerify may need to dynamically allocate a decoder, in which case the holder
+    // will ensure that it is released.
+    NewHolder<COR_ILMETHOD_DECODER> ilDecoderHolder;
+    COR_ILMETHOD_DECODER *pilHeader = GetAndVerifyILHeader(pConfig, ilDecoderHolder);
+    CORJIT_FLAGS flags = pConfig->GetJitCompilationFlags();
+    PCODE pOtherCode = NULL;
+    EX_TRY
+    {
+        pCode = UnsafeJitFunction(this, pilHeader, flags, &sizeOfCode);
+    }
+    EX_CATCH
+    {
+        // If the current thread threw an exception, but a competing thread
+        // somehow succeeded at JITting the same function (e.g., out of memory
+        // encountered on current thread but not competing thread), then go ahead
+        // and swallow this current thread's exception, since we somehow managed
+        // to successfully JIT the code on the other thread.
+        // 
+        // Note that if a deadlock cycle is broken, that does not result in an
+        // exception--the thread would just pass through the lock and JIT the
+        // function in competition with the other thread (with the winner of the
+        // race decided later on when we do SetNativeCodeInterlocked). This
+        // try/catch is purely to deal with the (unusual) case where a competing
+        // thread succeeded where we aborted.
+
+        if (!pConfig->IsJitCancellationRequested(&pOtherCode))
+        {
+            pEntry->m_hrResultCode = E_FAIL;
+            EX_RETHROW;
+        }
+    }
+    EX_END_CATCH(RethrowTerminalExceptions)
+
+        if (pOtherCode != NULL)
+        {
+            // Somebody finished jitting recursively while we were jitting the method.
+            // Just use their method & leak the one we finished. (Normally we hope
+            // not to finish our JIT in this case, as we will abort early if we notice
+            // a reentrant jit has occurred.  But we may not catch every place so we
+            // do a definitive final check here.
+            return pOtherCode;
+        }
+
+    _ASSERTE(pCode != NULL);
+    
+    // Aside from rejit, performing a SetNativeCodeInterlocked at this point
+    // generally ensures that there is only one winning version of the native
+    // code. This also avoid races with profiler overriding ngened code (see
+    // matching SetNativeCodeInterlocked done after
+    // JITCachedFunctionSearchStarted)
+    {
+        if (!pConfig->SetNativeCode(pCode, &pOtherCode))
+        {
+            // Another thread beat us to publishing its copy of the JITted code.
+            return pOtherCode;
+        }
+#if defined(FEATURE_JIT_PITCHING)
+        else
+        {
+            SavePitchingCandidate(this, sizeOfCode);
+        }
 #endif
+    }
 
-            if (fIsILStub)
-            {
-                // we race with other threads to JIT the code for an IL stub and the
-                // IL header is released once one of the threads completes.  As a result
-                // we must be inside the lock to reliably get the IL header for the
-                // stub.
+#ifdef HAVE_GCCOVER
+    if (GCStress<cfg_instr_jit>::IsEnabled())
+    {
+        SetupGcCoverage(this, (BYTE*)pCode);
+    }
+#endif // HAVE_GCCOVER
 
-                ILStubResolver* pResolver = AsDynamicMethodDesc()->GetILStubResolver();
-                ILHeader = pResolver->GetILHeader();
-            }
+    // We succeeded in jitting the code, and our jitted code is the one that's going to run now.
+    pEntry->m_hrResultCode = S_OK;
+
+    notifyInfo.flags = flags;
+    notifyInfo.pCode = pCode;
+    notifyInfo.sizeOfCode = sizeOfCode;
+    notifyInfo.compilationErrorHR = pEntry->m_hrResultCode;
+    EmitJitFinishedNotifications(&notifyInfo);
+
+    return pCode;
+}
+
+void MethodDesc::EmitJitStartingNotifications(JitNotificationInfo* pJitNotificationInfo)
+{
+    STANDARD_VM_CONTRACT;
 
 #ifdef MDA_SUPPORTED 
-            MdaJitCompilationStart* pProbe = MDA_GET_ASSISTANT(JitCompilationStart);
-            if (pProbe)
-                pProbe->NowCompiling(this);
+    MdaJitCompilationStart* pProbe = MDA_GET_ASSISTANT(JitCompilationStart);
+    if (pProbe)
+        pProbe->NowCompiling(this);
 #endif // MDA_SUPPORTED
 
 #ifdef PROFILING_SUPPORTED 
             // If profiling, need to give a chance for a tool to examine and modify
             // the IL before it gets to the JIT.  This allows one to add probe calls for
             // things like code coverage, performance, or whatever.
+    {
+        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
+        {
+            if (!IsNoMetadata())
             {
-                BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
+                g_profControlBlock.pProfInterface->JITCompilationStarted((FunctionID)this, TRUE);
 
-#ifdef FEATURE_MULTICOREJIT
-                // Multicore JIT should be disabled when CORProfilerTrackJITInfo is on
-                // But there could be corner case in which profiler is attached when multicore background thread is calling MakeJitWorker
-                // Disable this block when calling from multicore JIT background thread
-                if (!fBackgroundThread)
-#endif
-                {
-                    if (!IsNoMetadata())
-                    {
-                        g_profControlBlock.pProfInterface->JITCompilationStarted((FunctionID) this, TRUE);
-                        // The profiler may have changed the code on the callback.  Need to
-                        // pick up the new code.  Note that you have to be fully trusted in
-                        // this mode and the code will not be verified.
-                        COR_ILMETHOD *pilHeader = GetILHeader(TRUE);
-                        new (ILHeader) COR_ILMETHOD_DECODER(pilHeader, GetMDImport(), NULL);
-                    }
-                    else
-                    {
-                        unsigned int ilSize, unused;
-                        CorInfoOptions corOptions;
-                        LPCBYTE ilHeaderPointer = this->AsDynamicMethodDesc()->GetResolver()->GetCodeInfo(&ilSize, &unused, &corOptions, &unused);
-
-                        g_profControlBlock.pProfInterface->DynamicMethodJITCompilationStarted((FunctionID) this, TRUE, ilHeaderPointer, ilSize);
-                    }
-                }
-                END_PIN_PROFILER();
             }
+            else
+            {
+                unsigned int ilSize, unused;
+                CorInfoOptions corOptions;
+                LPCBYTE ilHeaderPointer = this->AsDynamicMethodDesc()->GetResolver()->GetCodeInfo(&ilSize, &unused, &corOptions, &unused);
+
+                g_profControlBlock.pProfInterface->DynamicMethodJITCompilationStarted((FunctionID)this, TRUE, ilHeaderPointer, ilSize);
+            }
+        }
+        END_PIN_PROFILER();
+    }
+
+
 #endif // PROFILING_SUPPORTED
-            // Fire an ETW event to mark the beginning of JIT'ing
-            ETW::MethodLog::MethodJitting(this, &namespaceOrClassName, &methodName, &methodSignature);
+
+    // Methods that may be interpreted defer this notification until it is certain
+    // we are jitting and not interpreting in CompileMethodWithEtwWrapper.
+    // Some further refactoring could consolidate the notification to always
+    // occur at the point the interpreter does it, but it might even better
+    // to fix the issues that cause us to avoid generating jit notifications
+    // for interpreted methods in the first place. The interpreter does generate
+    // a small stub of native code but no native-IL mapping.
+#ifndef FEATURE_INTERPRETER
+    ETW::MethodLog::MethodJitting(this,
+        pJitNotificationInfo->pNamespaceOrClassName,
+        pJitNotificationInfo->pMethodName,
+        pJitNotificationInfo->pMethodSignature);
+#endif
+
+}
+
+
+void MethodDesc::EmitJitFinishedNotifications(JitNotificationInfo* pJitNotificationInfo)
+{
+    STANDARD_VM_CONTRACT;
 
 #ifdef FEATURE_STACK_SAMPLING
-#ifdef FEATURE_MULTICOREJIT
-            if (!fBackgroundThread)
-#endif // FEATURE_MULTICOREJIT
-            {
-                StackSampler::RecordJittingInfo(this, flags);
-            }
+    StackSampler::RecordJittingInfo(this, pJitNotificationInfo->flags);
 #endif // FEATURE_STACK_SAMPLING
 
-            EX_TRY
-            {
-                pCode = UnsafeJitFunction(this, ILHeader, flags, &sizeOfCode);
-            }
-            EX_CATCH
-            {
-                // If the current thread threw an exception, but a competing thread
-                // somehow succeeded at JITting the same function (e.g., out of memory
-                // encountered on current thread but not competing thread), then go ahead
-                // and swallow this current thread's exception, since we somehow managed
-                // to successfully JIT the code on the other thread.
-                // 
-                // Note that if a deadlock cycle is broken, that does not result in an
-                // exception--the thread would just pass through the lock and JIT the
-                // function in competition with the other thread (with the winner of the
-                // race decided later on when we do SetNativeCodeInterlocked). This
-                // try/catch is purely to deal with the (unusual) case where a competing
-                // thread succeeded where we aborted.
-                
-                pOtherCode = GetNativeCode();
-                
-                if (pOtherCode == NULL)
-                {
-                    pEntry->m_hrResultCode = E_FAIL;
-                    EX_RETHROW;
-                }
-            }
-            EX_END_CATCH(RethrowTerminalExceptions)
+#ifdef PROFILING_SUPPORTED
 
-            if (pOtherCode != NULL)
-            {
-                // Somebody finished jitting recursively while we were jitting the method.
-                // Just use their method & leak the one we finished. (Normally we hope
-                // not to finish our JIT in this case, as we will abort early if we notice
-                // a reentrant jit has occurred.  But we may not catch every place so we
-                // do a definitive final check here.
-                pCode = pOtherCode;
-                goto Done;
-            }
-
-            _ASSERTE(pCode != NULL);
-
-#ifdef HAVE_GCCOVER
-            if (GCStress<cfg_instr_jit>::IsEnabled())
-            {
-                SetupGcCoverage(this, (BYTE*) pCode);
-            }
-#endif // HAVE_GCCOVER
-
-
-#ifdef FEATURE_MULTICOREJIT
-
-            // If called from multi-core JIT background thread, store code under lock, delay patching until code is queried from application threads
-            if (fBackgroundThread)
-            {
-                // Fire an ETW event to mark the end of JIT'ing
-                ETW::MethodLog::MethodJitted(this, &namespaceOrClassName, &methodName, &methodSignature, pCode, 0 /* ReJITID */);
-
-#ifdef FEATURE_PERFMAP
-                // Save the JIT'd method information so that perf can resolve JIT'd call frames.
-                PerfMap::LogJITCompiledMethod(this, pCode, sizeOfCode);
-#endif
-                
-                mcJitManager.GetMulticoreJitCodeStorage().StoreMethodCode(this, pCode);
-                
-                goto Done;
-            }
-
-GotNewCode:
-#endif
-            // If this function had already been requested for rejit (before its original
-            // code was jitted), then give the rejit manager a chance to jump-stamp the
-            // code we just compiled so the first thread entering the function will jump
-            // to the prestub and trigger the rejit. Note that the PublishMethodHolder takes
-            // a lock to avoid a particular kind of rejit race. See
-            // code:ReJitManager::PublishMethodHolder::PublishMethodHolder#PublishCode for
-            // details on the rejit race.
-            // 
-            // Aside from rejit, performing a SetNativeCodeInterlocked at this point
-            // generally ensures that there is only one winning version of the native
-            // code. This also avoid races with profiler overriding ngened code (see
-            // matching SetNativeCodeInterlocked done after
-            // JITCachedFunctionSearchStarted)
-            {
-                ReJitPublishMethodHolder publishWorker(this, pCode);
-                if (!SetNativeCodeInterlocked(pCode
-                    ))
-                {
-                    // Another thread beat us to publishing its copy of the JITted code.
-                    pCode = GetNativeCode();
-                    goto Done;
-                }
-#if defined(FEATURE_JIT_PITCHING)
-                else
-                {
-                    SavePitchingCandidate(this, sizeOfCode);
-                }
-#endif
-            }
-
-
-            // We succeeded in jitting the code, and our jitted code is the one that's going to run now.
-            pEntry->m_hrResultCode = S_OK;
-
- #ifdef PROFILING_SUPPORTED 
-            // Notify the profiler that JIT completed.
-            // Must do this after the address has been set.
-            // @ToDo: Why must we set the address before notifying the profiler ??
-            //        Note that if IsInterceptedForDeclSecurity is set no one should access the jitted code address anyway.
-            {
-                BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
-                if (!IsNoMetadata())
-                {
-                    g_profControlBlock.pProfInterface->
-                        JITCompilationFinished((FunctionID) this,
-                                                pEntry->m_hrResultCode, 
-                                                TRUE);
-                }
-                else
-                {
-                    g_profControlBlock.pProfInterface->DynamicMethodJITCompilationFinished((FunctionID) this, pEntry->m_hrResultCode, TRUE);
-                }
-                END_PIN_PROFILER();
-            }
+    // Notify the profiler that JIT completed.
+    // Must do this after the address has been set.
+    // @ToDo: Why must we set the address before notifying the profiler ??
+    //        Note that if IsInterceptedForDeclSecurity is set no one should access the jitted code address anyway.
+    {
+        BEGIN_PIN_PROFILER(CORProfilerTrackJITInfo());
+        if (!IsNoMetadata())
+        {
+            g_profControlBlock.pProfInterface->
+                JITCompilationFinished((FunctionID)this,
+                    pJitNotificationInfo->compilationErrorHR,
+                    TRUE);
+        }
+        else
+        {
+            g_profControlBlock.pProfInterface->DynamicMethodJITCompilationFinished((FunctionID)this, pJitNotificationInfo->compilationErrorHR, TRUE);
+        }
+        END_PIN_PROFILER();
+    }
 #endif // PROFILING_SUPPORTED
 
-#ifdef FEATURE_MULTICOREJIT
-            if (! fCompiledInBackground)
+    // Interpretted methods skip this notification
+#ifdef FEATURE_INTERPRETER
+    if (Interpreter::InterpretationStubToMethodInfo(pJitNotificationInfo->pCode) == NULL)
 #endif
-            {
-                // Fire an ETW event to mark the end of JIT'ing
-                ETW::MethodLog::MethodJitted(this, &namespaceOrClassName, &methodName, &methodSignature, pCode, 0 /* ReJITID */);
+    {
+        // Fire an ETW event to mark the end of JIT'ing
+        ETW::MethodLog::MethodJitted(this,
+            pJitNotificationInfo->pNamespaceOrClassName,
+            pJitNotificationInfo->pMethodName,
+            pJitNotificationInfo->pMethodSignature,
+            pJitNotificationInfo->pCode,
+            pJitNotificationInfo->pConfig->GetCodeVersion().GetVersionId());
 
 #ifdef FEATURE_PERFMAP
-                // Save the JIT'd method information so that perf can resolve JIT'd call frames.
-                PerfMap::LogJITCompiledMethod(this, pCode, sizeOfCode);
+        // Save the JIT'd method information so that perf can resolve JIT'd call frames.
+        PerfMap::LogJITCompiledMethod(this, pJitNotificationInfo->pCode, pJitNotificationInfo->sizeOfCode);
 #endif
-            }
- 
+    }
+
 
 #ifdef FEATURE_MULTICOREJIT
-
-            // If not called from multi-core JIT thread, not got code from storage, quick check before calling out of line function
-            if (! fBackgroundThread && ! fCompiledInBackground && mcJitManager.IsRecorderActive())
+    // Non-initial code versions and multicore jit initial compilation all skip this
+    if (pJitNotificationInfo->pConfig->NeedsMulticoreJitNotification())
+    {
+        MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
+        if (mcJitManager.IsRecorderActive())
+        {
+            if (MulticoreJitManager::IsMethodSupported(this))
             {
-                if (MulticoreJitManager::IsMethodSupported(this))
-                {
-                    mcJitManager.RecordMethodJit(this); // Tell multi-core JIT manager to record method on successful JITting
-                }
-            }
-#endif
-
-            if (!fIsILStub)
-            {
-                // The notification will only occur if someone has registered for this method.
-                DACNotifyCompilationFinished(this);
+                mcJitManager.RecordMethodJit(this); // Tell multi-core JIT manager to record method on successful JITting
             }
         }
     }
+#endif
 
-Done:
+    // The notification will only occur if someone has registered for this method.
+    DACNotifyCompilationFinished(this);
+}
 
-    // We must have a code by now.
-    _ASSERTE(pCode != NULL);
+PrepareCodeConfig::PrepareCodeConfig() {}
 
-    LOG((LF_CORDB, LL_EVERYTHING, "MethodDesc::MakeJitWorker finished. Stub is" FMT_ADDR "\n",
-         DBG_ADDR(pCode)));
+PrepareCodeConfig::PrepareCodeConfig(NativeCodeVersion codeVersion) :
+    m_nativeCodeVersion(codeVersion) 
+{
+    LIMITED_METHOD_CONTRACT;
 
-    return pCode;
+#ifdef FEATURE_CODE_VERSIONING
+    _ASSERTE(m_nativeCodeVersion.IsDefaultVersion() || GetMethodDesc()->GetCodeVersionManager()->LockOwnedByCurrentThread());
+#endif
+    m_ilCodeVersion = m_nativeCodeVersion.GetILCodeVersion();
+}
+
+
+
+#endif
+
+MethodDesc* PrepareCodeConfig::GetMethodDesc()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_nativeCodeVersion.GetMethodDesc();
+}
+
+BOOL PrepareCodeConfig::IsJitCancellationRequested(PCODE * ppCodeToUse)
+{
+    LIMITED_METHOD_CONTRACT;
+    *ppCodeToUse = m_nativeCodeVersion.GetNativeCode();
+    return (*ppCodeToUse != NULL);
+}
+
+BOOL PrepareCodeConfig::NeedsMulticoreJitNotification()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_nativeCodeVersion.IsDefaultVersion();
+}
+
+NativeCodeVersion PrepareCodeConfig::GetCodeVersion()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_nativeCodeVersion;
+}
+
+ILCodeVersion PrepareCodeConfig::GetILCodeVersion()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_ilCodeVersion;
+}
+
+BOOL PrepareCodeConfig::SetNativeCode(PCODE pCode, PCODE * ppAlternateCodeToUse)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    // If this function had already been requested for rejit (before its original
+    // code was jitted), then give the CodeVersionManager a chance to jump-stamp the
+    // code we just compiled so the first thread entering the function will jump
+    // to the prestub and trigger the rejit. Note that the PublishMethodHolder takes
+    // a lock to avoid a particular kind of rejit race. See
+    // code:CodeVersionManager::PublishMethodHolder::PublishMethodHolder#PublishCode for
+    // details on the rejit race.
+    // 
+    PublishMethodHolder publishWorker(GetMethodDesc(), pCode);
+    if (m_nativeCodeVersion.SetNativeCodeInterlocked(pCode, NULL))
+    {
+        return TRUE;
+    }
+    else
+    {
+        *ppAlternateCodeToUse = m_nativeCodeVersion.GetNativeCode();
+        return FALSE;
+    }
+}
+
+COR_ILMETHOD* PrepareCodeConfig::GetILHeader()
+{
+    STANDARD_VM_CONTRACT;
+    return m_ilCodeVersion.GetIL();
+}
+
+CORJIT_FLAGS PrepareCodeConfig::GetJitCompilationFlags()
+{
+    STANDARD_VM_CONTRACT;
+    CORJIT_FLAGS flags;
+
+
+    MethodDesc* pMethod = GetMethodDesc();
+    if (pMethod->IsILStub())
+    {
+        ILStubResolver* pResolver = pMethod->AsDynamicMethodDesc()->GetILStubResolver();
+        flags.Add(pResolver->GetJitFlags());
+    }
+    return flags;
+}
+
+BOOL PrepareCodeConfig::MayUsePrecompiledCode()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_nativeCodeVersion.IsDefaultVersion();
 }
 
 #ifdef FEATURE_STUBS_AS_IL
@@ -1307,11 +1639,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 #endif
         RETURN DoBackpatch(pMT, pDispatchingMT, TRUE);
     }
-
-    // record if remoting needs to intercept this call
-    BOOL  fRemotingIntercepted = IsRemotingInterceptedViaPrestub();
-
-    BOOL  fReportCompilationFinished = FALSE;
     
     /**************************   CODE CREATION  *************************/
     if (IsUnboxingStub())
@@ -1326,174 +1653,11 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 #endif // defined(FEATURE_SHARE_GENERIC_CODE)
     else if (IsIL() || IsNoMetadata())
     {
-        // remember if we need to backpatch the MethodTable slot
-        BOOL  fBackpatch = !fRemotingIntercepted
-                            && IsNativeCodeStableAfterInit();
-
-#ifdef FEATURE_PREJIT 
-        //
-        // See if we have any prejitted code to use.
-        //
-
-        pCode = GetPreImplementedCode();
-
-#ifdef PROFILING_SUPPORTED
-        if (pCode != NULL)
+        if (!IsNativeCodeStableAfterInit())
         {
-            BOOL fShouldSearchCache = TRUE;
-
-            {
-                BEGIN_PIN_PROFILER(CORProfilerTrackCacheSearches());
-                g_profControlBlock.pProfInterface->
-                    JITCachedFunctionSearchStarted((FunctionID) this,
-                                                   &fShouldSearchCache);
-                END_PIN_PROFILER();
-            }
-
-            if (!fShouldSearchCache)
-            {
-                SetNativeCodeInterlocked(NULL, pCode);
-                _ASSERTE(!IsPreImplemented());
-                pCode = NULL;
-            }
+            GetOrCreatePrecode();
         }
-#endif // PROFILING_SUPPORTED
-
-        if (pCode != NULL)
-        {
-            LOG((LF_ZAP, LL_INFO10000,
-                "ZAP: Using code" FMT_ADDR "for %s.%s sig=\"%s\" (token %x).\n",
-                    DBG_ADDR(pCode),
-                    m_pszDebugClassName,
-                    m_pszDebugMethodName,
-                    m_pszDebugMethodSignature,
-                    GetMemberDef()));
-
-            TADDR pFixupList = GetFixupList();
-            if (pFixupList != NULL)
-            {
-                Module *pZapModule = GetZapModule();
-                _ASSERTE(pZapModule != NULL);
-                if (!pZapModule->FixupDelayList(pFixupList))
-                {
-                    _ASSERTE(!"FixupDelayList failed");
-                    ThrowHR(COR_E_BADIMAGEFORMAT);
-                }
-            }
-
-#ifdef HAVE_GCCOVER
-            if (GCStress<cfg_instr_ngen>::IsEnabled())
-                SetupGcCoverage(this, (BYTE*) pCode);
-#endif // HAVE_GCCOVER
-
-#ifdef PROFILING_SUPPORTED 
-            /*
-                * This notifies the profiler that a search to find a
-                * cached jitted function has been made.
-                */
-            {
-                BEGIN_PIN_PROFILER(CORProfilerTrackCacheSearches());
-                g_profControlBlock.pProfInterface->
-                    JITCachedFunctionSearchFinished((FunctionID) this, COR_PRF_CACHED_FUNCTION_FOUND);
-                END_PIN_PROFILER();
-            }
-#endif // PROFILING_SUPPORTED
-        }
-
-        //
-        // If not, try to jit it
-        //
-
-#endif // FEATURE_PREJIT
-
-#ifdef FEATURE_READYTORUN
-        if (pCode == NULL)
-        {
-            Module * pModule = GetModule();
-            if (pModule->IsReadyToRun())
-            {
-                pCode = pModule->GetReadyToRunInfo()->GetEntryPoint(this);
-                if (pCode != NULL)
-                    fReportCompilationFinished = TRUE;
-            }
-        }
-#endif // FEATURE_READYTORUN
-
-        if (pCode == NULL)
-        {
-            NewHolder<COR_ILMETHOD_DECODER> pHeader(NULL);
-            // Get the information on the method
-            if (!IsNoMetadata())
-            {
-                COR_ILMETHOD* ilHeader = GetILHeader(TRUE);
-                if(ilHeader == NULL)
-                {
-#ifdef FEATURE_COMINTEROP
-                    // Abstract methods can be called through WinRT derivation if the deriving type
-                    // is not implemented in managed code, and calls through the CCW to the abstract
-                    // method. Throw a sensible exception in that case.
-                    if (pMT->IsExportedToWinRT() && IsAbstract())
-                    {
-                        COMPlusThrowHR(E_NOTIMPL);
-                    }
-#endif // FEATURE_COMINTEROP
-
-                    COMPlusThrowHR(COR_E_BADIMAGEFORMAT, BFA_BAD_IL);
-                }
-
-                COR_ILMETHOD_DECODER::DecoderStatus status = COR_ILMETHOD_DECODER::FORMAT_ERROR;
-
-                {
-                    // Decoder ctor can AV on a malformed method header
-                    AVInRuntimeImplOkayHolder AVOkay;
-                    pHeader = new COR_ILMETHOD_DECODER(ilHeader, GetMDImport(), &status);
-                    if(pHeader == NULL)
-                        status = COR_ILMETHOD_DECODER::FORMAT_ERROR;
-                }
-
-                if (status == COR_ILMETHOD_DECODER::VERIFICATION_ERROR &&
-                    Security::CanSkipVerification(GetModule()->GetDomainAssembly()))
-                {
-                    status = COR_ILMETHOD_DECODER::SUCCESS;
-                }
-
-                if (status != COR_ILMETHOD_DECODER::SUCCESS)
-                {
-                    if (status == COR_ILMETHOD_DECODER::VERIFICATION_ERROR)
-                    {
-                        // Throw a verification HR
-                        COMPlusThrowHR(COR_E_VERIFICATION);
-                    }
-                    else
-                    {
-                        COMPlusThrowHR(COR_E_BADIMAGEFORMAT, BFA_BAD_IL);
-                    }
-                }
-
-#ifdef _VER_EE_VERIFICATION_ENABLED 
-                static ConfigDWORD peVerify;
-
-                if (peVerify.val(CLRConfig::EXTERNAL_PEVerify))
-                    Verify(pHeader, TRUE, FALSE);   // Throws a VerifierException if verification fails
-#endif // _VER_EE_VERIFICATION_ENABLED
-            } // end if (!IsNoMetadata())
-
-            // JIT it
-            LOG((LF_CLASSLOADER, LL_INFO1000000,
-                    "    In PreStubWorker, calling MakeJitWorker\n"));
-
-            // Create the precode eagerly if it is going to be needed later.
-            if (!fBackpatch)
-            {
-                GetOrCreatePrecode();
-            }
-
-            // Mark the code as hot in case the method ends up in the native image
-            g_IBCLogger.LogMethodCodeAccess(this);
-
-            pCode = MakeJitWorker(pHeader, CORJIT_FLAGS());
-
-        } // end if (pCode == NULL)
+        pCode = PrepareInitialCode();
     } // end else if (IsIL() || IsNoMetadata())
     else if (IsNDirect())
     {
@@ -1579,14 +1743,10 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         if (HasPrecode())
             GetPrecode()->SetTargetInterlocked(pCode);
         else
-        if (!HasStableEntryPoint())
-        {
-            // Is the result an interpreter stub?
+            if (!HasStableEntryPoint())
             {
-                ReJitPublishMethodHolder publishWorker(this, pCode);
                 SetStableEntryPointInterlocked(pCode);
             }
-        }
     }
     else
     {
@@ -1605,9 +1765,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     _ASSERTE(!IsPointingToPrestub());
     _ASSERTE(HasStableEntryPoint());
-
-    if (fReportCompilationFinished)
-        DACNotifyCompilationFinished(this);
 
     RETURN DoBackpatch(pMT, pDispatchingMT, FALSE);
 }
