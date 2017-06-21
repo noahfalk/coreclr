@@ -4,9 +4,29 @@ This is information that I hope is useful to reviewers while feature work is in 
 
 ## Progress so far ##
 
-The current PR is incomplete so I wouldn't bother pointing out bug level issues or obvious gaps in functionality as long as you don't forsee significant issues in filling them. Hopefully it gives an idea where I am going, primarily for issue #2 in the design doc "There is no mechanism to record the aggregate configuration settings which generated a code body". Please do point out any issues you anticipate with the broader design. I'm trying to balance enough concrete info so that you can see some usage patterns and relation to other code while not doing so much work that I've wasted major effort if we need to make a course correction. I'm going to continue coding under the optimistic assumption no major course correction will be needed.
+I re-created a rough commit history as a set of incremental steps that should be reasonably understandable in isolation. Hopefully it will be easier to conclude the result is correct when viewing it as a series of deltas from current state, though even some of the individual deltas are still sizable.
 
-Because the change is going to be large in aggregate I'm attempting to structure as a set of incremental steps that should be reasonably understandable in isolation. I think it will be easier to conclude the result is correct when viewing it as a series of deltas from current state.
+I did a variety of testing intermixed with fixes and cleanup near the end. Its possible I've regressed things during the cleanup, but there will be at least one more round of final testing to detect that if so. At the time a tested it results were:
+
+
+
+- CoreCLR test run with tiered jitting OFF: 0 failures
+- CoreCLR test run with tiered jitting ON: 6 failures (all jit specific tests that appear to be testing inlining on what are now non-inlined initial code bodies)
+- Manual smoke test interpreter + tiered compilation: working
+- Manual smoke test MulticoreJit, tiered jitting OFF: working
+- Profiler and debugger tests, tiered jitting OFF: 0 failures (not counting baseline failures)
+- Profiler tests, tiered jitting ON, test fixes applied to mitigate product breaking changes: a few failures (I was re-running chunks of tests against a changing product baseline so I don't have an exact number for all tests on the identical product build yet)
+- Initial performance analysis, tiered jitting OFF: At worst a small regression, but inconclusive without some further analysis/matching pogo data/larger sample sizes. I ran music store app on a .Net Core official daily build vs ret build on my machine without updated Pogo data. Official build vs my build both jit 18259+-3 methods (source of variance uninvestigated)
+	- Average total time in Prestub:              1141ms(baseline) vs. 1182ms(my build)
+		- Largest difference in time was inside UnsafeJitFunction, but I don't believe my change should have had any significant impact within UnsafeJitFunction.
+	- Average total time in Prestub excluding UnsafeJitFunction/ETW events: 14ms(baseline) vs. 16ms(my build)
+		- All the heavy lifting in my changes should have shown up here if they were going to.
+
+- Performance analysis, tiered jitting ON: Not yet investigated
+
+
+### Commit Notes ###
+
 
 The first commit is a relatively uninteresting minor refactor and the 2nd commit just lays down some boilerplate infrastructure for a code versioning feature. The 3rd commit is where it starts getting interesting...
 
@@ -27,25 +47,27 @@ You should be able to see a pretty clear parallel between the new data structure
 
 5. NativeCodeVersion doesn't track the state of the JumpStamp within each instance as ReJitInfo used to do. If you consider the set of ReJitInfo's that all map to the same MethodDesc instantiation, all but one of them is always in the state m\_dwInternalFlags = kJumpNone. Likewise all but one of them has a zero-filled m\_rgSavedCode. Conceptually there is only method entry point that can be patched so only one set of these fields is needed per entrypoint. I created MethodDescVersioningState to directly track that data rather than cloning it in every NativeCodeVersion. The choice of which ReJitInfo had the flag  set different than none is interesting data - it represented which version was currently active. However we can efficiently mark it with a single bit per NativeCodeVersion or single pointer in MethodDescVersioningState, not the 12 bytes per ReJitInfo it used before.
 
+After commit #3 I did a little better job breaking things up and putting notes in the commit history itself so I won't reiterate them here.
+
 ## Work still to come ##
 
 Assuming no major course correction, this is where I anticipate things will go (not necessarily in this order):
 
-1. The NativeCodeVersion/ILCodeVersion only support the explicitly backed node case. For the case where these structures represent the default version there will be no node and the code needs to bifurcate and fetch the data from other runtime data structures. So far rejit doesn't really need that because it mostly avoids manipulating a default version, but a consolidated prestub codepath will certainly be referencing default code versions.
+1. Functional testing mentioned above with tiered jitting OFF needs to be iterated again before checkin to catch issues introduced during final cleanup and PR/CI updates that are inevitably coming.
 
-2. The special case jitting paths in ReJitManager::DoReJitIfNecessary will get merged with the general case jitting paths.
+2. More perf investigation to ensure there is no regression with tiered jitting OFF
 
-3. The low level interaction ReJit currently has with jump-stamping will get raised to an abstraction level where it just indicates to the code version manager which IL version of the code should be active.
+3. Update feature doc to be more concrete/explanatory based on work done.
 
-4. The code version manager will automatically use FixupPrecode updates instead of JumpStamps whenever the method being versioned can support a fixup precode. With tiered compilation on, all methods jitted at runtime will support a fixup precode.
+4. Get feedback from profiler authors on the prefered form of breaking changes when tiered jitting is ON / mitigations for those changes.
 
-5. Tiered compilation will get embedded into this scheme with new NativeCodeVersion nodes being generated when the tiered compilation manager wants to shift from tier0 (initial default code) to tier1 (more optimized code). Whenever rejit creates a new IL version the tier will reset back to 0 for that IL versioning branch, then upgrade to tier1 after a given number of invocations.
+5. Stress testing
 
-6. Using the hash tables to enumerate NativeCodeVersions for the same MethodDesc or ILCodeVersions for the same Module/metadata token doesn't appear space efficient. I'm thinking to add a linked list of all NativeCodeVersions for a MethodDesc hanging off MethodDescVersioningState, and then introduce a similar ILVersioningState with linked list of ILCodeVersions. 
+6. Perf investigation to assess where we are with tiered jitting ON
 
-7. A variety of functional and stress testing needs to be done. 
+7. Diagnostics interactions with ETW, SOS, and the debugger need some updates with tiered compilation enabled.
 
-8. Diagnostics interactions with ETW, SOS, and the debugger need some updates with tiered compilation enabled.
+8. Fix some remaining known issues when tiered jitting is ON
 
 
 ## Checkin bar ##
@@ -56,4 +78,4 @@ I don't anticipate completing all the above work before checkin. I think the rea
 2. Code reviewers are happy with the chunk of code being submitted + overall direction
 3. The changes don't interfere with anyone else doing work around the same area.
 
-We can discuss exactly how much of the above changes that will be in each checkin, but tentatively I'm thinking next checkin might include a good portion, perhaps (1), (2), (3), (5), and some of (7)
+We can discuss exactly how much of the above changes that will be in each checkin, but tentatively I'm thinking next checkin would include only (1) and (2) above.
