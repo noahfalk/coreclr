@@ -664,4 +664,12 @@ inline CodeVersionManager * Module::GetCodeVersionManager()
 }
 #endif // FEATURE_CODE_VERSIONING
 
+#ifdef FEATURE_TIERED_COMPILATION
+inline CallCounter * Module::GetCallCounter()
+{
+    LIMITED_METHOD_CONTRACT;
+    return GetDomain()->GetCallCounter();
+}
+#endif // FEATURE_TIERED_COMPILATION
+
 #endif  // CEELOAD_INL_

@@ -1560,6 +1560,14 @@ public:
     CodeVersionManager* GetCodeVersionManager() { return &m_codeVersionManager; }
 #endif //FEATURE_CODE_VERSIONING
 
+#ifdef FEATURE_TIERED_COMPILATION
+private:
+    CallCounter m_callCounter;
+
+public:
+    CallCounter* GetCallCounter() { return &m_callCounter; }
+#endif
+
 #ifdef DACCESS_COMPILE
 public:
     virtual void EnumMemoryRegions(CLRDataEnumMemoryFlags flags,
@@ -3829,15 +3837,6 @@ public:
 private:
     TieredCompilationManager m_tieredCompilationManager;
 
-public:
-    CallCounter * GetCallCounter()
-    {
-        LIMITED_METHOD_CONTRACT;
-        return &m_callCounter;
-    }
-
-private:
-    CallCounter m_callCounter;
 #endif
 
 #ifdef FEATURE_COMINTEROP

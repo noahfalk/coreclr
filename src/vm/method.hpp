@@ -509,6 +509,9 @@ public:
 #ifdef FEATURE_CODE_VERSIONING
     CodeVersionManager* GetCodeVersionManager();
 #endif
+#ifdef FEATURE_TIERED_COMPILATION
+    CallCounter* GetCallCounter();
+#endif
 
     PTR_LoaderAllocator GetLoaderAllocator();
 
@@ -1346,16 +1349,17 @@ public:
 
         // This policy will need to change some more before tiered compilation feature
         // can be properly supported across a broad range of scenarios. For instance it 
-        // wouldn't interact correctly debugging or profiling at the moment because we 
-        // enable it too aggresively and it conflicts with the operations of those features.
+        // wouldn't interact correctly with debugging at the moment because we enable
+        // it too aggresively and it conflicts with the operations of those features.
 
-        //Keep in-sync with MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
-        //In the future we might want mutable vtable slots too, but that would require
-        //more work around the runtime to prevent those mutable pointers from leaking
+        // Keep in-sync with MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
+        // to ensure native slots are available where needed.
         return g_pConfig->TieredCompilation() &&
-            !GetModule()->HasNativeOrReadyToRunImage() &&
+            !IsZapped() &&
             !IsEnCMethod() &&
             HasNativeCodeSlot();
+
+        // We should add an exclusion for modules with debuggable code gen flags
 
     }
 #endif

@@ -80,6 +80,8 @@ struct MethodContextElement;
 class TypeHandleList;
 class ProfileEmitter;
 class CodeVersionManager;
+class CallCounter;
+class TieredCompilationManager;
 class TrackingMap;
 struct MethodInModule;
 class PersistentInlineTrackingMapNGen;
@@ -1786,6 +1788,9 @@ protected:
     PTR_BaseDomain GetDomain();
 #ifdef FEATURE_CODE_VERSIONING
     CodeVersionManager * GetCodeVersionManager();
+#endif
+#ifdef FEATURE_TIERED_COMPILATION
+    CallCounter * GetCallCounter();
 #endif
 
     mdFile GetModuleRef()

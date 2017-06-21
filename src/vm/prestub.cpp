@@ -1011,6 +1011,10 @@ CORJIT_FLAGS PrepareCodeConfig::GetJitCompilationFlags()
     flags.Add(ReJitManager::JitFlagsFromProfCodegenFlags(profilerFlags));
 #endif
 
+#ifdef FEATURE_TIERED_COMPILATION
+    flags.Add(TieredCompilationManager::GetJitFlags(m_nativeCodeVersion));
+#endif
+
     MethodDesc* pMethod = GetMethodDesc();
     if (pMethod->IsILStub())
     {
@@ -1647,6 +1651,22 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         pMT->CheckRunClassInitThrowing();
     }
 
+
+    /***************************   CALL COUNTER    ***********************/
+    // If we are counting calls for tiered compilation, leave the prestub
+    // in place so that we can continue intercepting method invocations.
+    // When the TieredCompilationManager has received enough call notifications
+    // for this method only then do we back-patch it.
+    BOOL fCanBackpatchPrestub = TRUE;
+#ifdef FEATURE_TIERED_COMPILATION
+    BOOL fEligibleForTieredCompilation = IsEligibleForTieredCompilation();
+    if (fEligibleForTieredCompilation)
+    {
+        CallCounter * pCallCounter = GetCallCounter();
+        fCanBackpatchPrestub = pCallCounter->OnMethodCalled(this);
+    }
+#endif
+
     /***************************  VERSIONABLE CODE    *********************/
 
 #ifdef FEATURE_CODE_VERSIONING
@@ -1660,28 +1680,21 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     // See if the addr of code has changed from the pre-stub
     if (!IsPointingToPrestub())
     {
-        // If we are counting calls for tiered compilation, leave the prestub
-        // in place so that we can continue intercepting method invocations.
-        // When the TieredCompilationManager has received enough call notifications
-        // for this method only then do we back-patch it.
-#ifdef FEATURE_TIERED_COMPILATION
-        PCODE pNativeCode = GetNativeCode();
-        if (pNativeCode && IsEligibleForTieredCompilation())
-        {
-            CallCounter * pCallCounter = GetAppDomain()->GetCallCounter();
-            BOOL doBackPatch = pCallCounter->OnMethodCalled(this);
-            if (!doBackPatch)
-            {
-                return pNativeCode;
-            }
-        }
-#endif
         LOG((LF_CLASSLOADER, LL_INFO10000,
                 "    In PreStubWorker, method already jitted, backpatching call point\n"));
 #if defined(FEATURE_JIT_PITCHING)
         MarkMethodNotPitchingCandidate(this);
 #endif
         RETURN DoBackpatch(pMT, pDispatchingMT, TRUE);
+    }
+    
+    if (pCode)
+    {
+        // The only reason we are still pointing to prestub is because the call counter
+        // prevented it. We should still short circuit and return the code without
+        // backpatching.
+        _ASSERTE(!fCanBackpatchPrestub);
+        RETURN pCode;
     }
     
     /**************************   CODE CREATION  *************************/
@@ -1764,22 +1777,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     // causing grief. We will try to avoid the race by executing an extra memory barrier.
     //
     MemoryBarrier();
-#endif
-
-    // If we are counting calls for tiered compilation, leave the prestub
-    // in place so that we can continue intercepting method invocations.
-    // When the TieredCompilationManager has received enough call notifications
-    // for this method only then do we back-patch it.
-#ifdef FEATURE_TIERED_COMPILATION
-    if (pCode && IsEligibleForTieredCompilation())
-    {
-        CallCounter * pCallCounter = GetAppDomain()->GetCallCounter();
-        BOOL doBackPatch = pCallCounter->OnMethodCalled(this);
-        if (!doBackPatch)
-        {
-            return pCode;
-        }
-    }
 #endif
 
     if (pCode != NULL)
