@@ -9370,11 +9370,8 @@ void MethodTable::SetSlot(UINT32 slotNumber, PCODE slotCode)
         if (fSharedVtableChunk)
         {
             MethodDesc* pMD = GetMethodDescForSlotAddress(slotCode);
-#ifndef FEATURE_INTERPRETER
-            // TBD: Make this take a "stable" debug arg, determining whether to make these assertions.
             _ASSERTE(pMD->HasStableEntryPoint());
             _ASSERTE(pMD->GetStableEntryPoint() == slotCode);
-#endif // FEATURE_INTERPRETER
         }
     }
 #endif

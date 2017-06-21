@@ -78,17 +78,11 @@ PCODE MethodDesc::DoBackpatch(MethodTable * pMT, MethodTable *pDispatchingMT, BO
     {
         STANDARD_VM_CHECK;
         PRECONDITION(!ContainsGenericVariables());
-#ifndef FEATURE_INTERPRETER
         PRECONDITION(HasStableEntryPoint());
-#endif // FEATURE_INTERPRETER
         PRECONDITION(pMT == GetMethodTable());
     }
     CONTRACTL_END;
-#ifdef FEATURE_INTERPRETER
-    PCODE pTarget = GetMethodEntryPoint();
-#else
     PCODE pTarget = GetStableEntryPoint();
-#endif
 
     if (!HasTemporaryEntryPoint())
         return pTarget;
@@ -287,13 +281,6 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
     PCODE pCode = NULL;
     ULONG sizeOfCode = 0;
-#if defined(FEATURE_INTERPRETER) || defined(FEATURE_TIERED_COMPILATION)
-    BOOL fStable = TRUE;  // True iff the new code address (to be stored in pCode), is a stable entry point.
-#endif
-#ifdef FEATURE_INTERPRETER
-    PCODE pPreviousInterpStub = NULL;
-    BOOL fInterpreted = FALSE;
-#endif
 
 #ifdef FEATURE_MULTICOREJIT
     MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
@@ -323,13 +310,6 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
         pCode = GetNativeCode();
         if (pCode != NULL)
         {
-#ifdef FEATURE_INTERPRETER
-            if (Interpreter::InterpretationStubToMethodInfo(pCode) == this)
-            {
-                pPreviousInterpStub = pCode;
-            }
-            else
-#endif // FEATURE_INTERPRETER
             goto Done;
         }
 
@@ -385,11 +365,7 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
 
             // It is possible that another thread stepped in before we entered the lock.
             pCode = GetNativeCode();
-#ifdef FEATURE_INTERPRETER
-            if (pCode != NULL && (pCode != pPreviousInterpStub))
-#else
             if (pCode != NULL)
-#endif // FEATURE_INTERPRETER
             {
                 goto Done;
             }
@@ -485,13 +461,8 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
                 END_PIN_PROFILER();
             }
 #endif // PROFILING_SUPPORTED
-#ifdef FEATURE_INTERPRETER
-            // We move the ETW event for start of JITting inward, after we make the decision
-            // to JIT rather than interpret.
-#else  // FEATURE_INTERPRETER
             // Fire an ETW event to mark the beginning of JIT'ing
             ETW::MethodLog::MethodJitting(this, &namespaceOrClassName, &methodName, &methodSignature);
-#endif  // FEATURE_INTERPRETER
 
 #ifdef FEATURE_STACK_SAMPLING
 #ifdef FEATURE_MULTICOREJIT
@@ -551,11 +522,6 @@ PCODE MethodDesc::MakeJitWorker(COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS fla
             }
 #endif // HAVE_GCCOVER
 
-#ifdef FEATURE_INTERPRETER
-            // Determine whether the new code address is "stable"...= is not an interpreter stub.
-            fInterpreted = (Interpreter::InterpretationStubToMethodInfo(pCode) == this);
-            fStable = !fInterpreted;
-#endif // FEATURE_INTERPRETER
 
 #ifdef FEATURE_MULTICOREJIT
 
@@ -590,16 +556,9 @@ GotNewCode:
             // code. This also avoid races with profiler overriding ngened code (see
             // matching SetNativeCodeInterlocked done after
             // JITCachedFunctionSearchStarted)
-#ifdef FEATURE_INTERPRETER
-            PCODE pExpected = pPreviousInterpStub;
-            if (pExpected == NULL) pExpected = GetTemporaryEntryPoint();
-#endif
             {
                 ReJitPublishMethodHolder publishWorker(this, pCode);
                 if (!SetNativeCodeInterlocked(pCode
-#ifdef FEATURE_INTERPRETER
-                    , pExpected, fStable
-#endif
                     ))
                 {
                     // Another thread beat us to publishing its copy of the JITted code.
@@ -614,14 +573,6 @@ GotNewCode:
 #endif
             }
 
-#ifdef FEATURE_INTERPRETER
-            // State for dynamic methods cannot be freed if the method was ever interpreted,
-            // since there is no way to ensure that it is not in use at the moment.
-            if (IsDynamicMethod() && !fInterpreted && (pPreviousInterpStub == NULL))
-            {
-                AsDynamicMethodDesc()->GetResolver()->FreeCompileTimeState();
-            }
-#endif // FEATURE_INTERPRETER
 
             // We succeeded in jitting the code, and our jitted code is the one that's going to run now.
             pEntry->m_hrResultCode = S_OK;
@@ -651,10 +602,6 @@ GotNewCode:
 #ifdef FEATURE_MULTICOREJIT
             if (! fCompiledInBackground)
 #endif
-#ifdef FEATURE_INTERPRETER
-            // If we didn't JIT, but rather, created an interpreter stub (i.e., fStable is false), don't tell ETW that we did.
-            if (fStable)
-#endif // FEATURE_INTERPRETER
             {
                 // Fire an ETW event to mark the end of JIT'ing
                 ETW::MethodLog::MethodJitted(this, &namespaceOrClassName, &methodName, &methodSignature, pCode, 0 /* ReJITID */);
@@ -1335,11 +1282,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     /**************************   BACKPATCHING   *************************/
     // See if the addr of code has changed from the pre-stub
-#ifdef FEATURE_INTERPRETER
-    if (!IsReallyPointingToPrestub())
-#else
     if (!IsPointingToPrestub())
-#endif
     {
         // If we are counting calls for tiered compilation, leave the prestub
         // in place so that we can continue intercepting method invocations.
@@ -1409,11 +1352,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
             if (!fShouldSearchCache)
             {
-#ifdef FEATURE_INTERPRETER
-                SetNativeCodeInterlocked(NULL, pCode, FALSE);
-#else
                 SetNativeCodeInterlocked(NULL, pCode);
-#endif
                 _ASSERTE(!IsPreImplemented());
                 pCode = NULL;
             }
@@ -1554,37 +1493,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
             pCode = MakeJitWorker(pHeader, CORJIT_FLAGS());
 
-#ifdef FEATURE_INTERPRETER
-            if ((pCode != NULL) && !HasStableEntryPoint())
-            {
-                // We don't yet have a stable entry point, so don't do backpatching yet.
-                // But we do have to handle some extra cases that occur in backpatching.
-                // (Perhaps I *should* get to the backpatching code, but in a mode where we know
-                // we're not dealing with the stable entry point...)
-                if (HasNativeCodeSlot())
-                {
-                    // We called "SetNativeCodeInterlocked" in MakeJitWorker, which updated the native
-                    // code slot, but I think we also want to update the regular slot...
-                    PCODE tmpEntry = GetTemporaryEntryPoint();
-                    PCODE pFound = FastInterlockCompareExchangePointer(GetAddrOfSlot(), pCode, tmpEntry);
-                    // Doesn't matter if we failed -- if we did, it's because somebody else made progress.
-                    if (pFound != tmpEntry) pCode = pFound;
-                }
-
-                // Now we handle the case of a FuncPtrPrecode.  
-                FuncPtrStubs * pFuncPtrStubs = GetLoaderAllocator()->GetFuncPtrStubsNoCreate();
-                if (pFuncPtrStubs != NULL)
-                {
-                    Precode* pFuncPtrPrecode = pFuncPtrStubs->Lookup(this);
-                    if (pFuncPtrPrecode != NULL)
-                    {
-                        // If there is a funcptr precode to patch, attempt to patch it.  If we lose, that's OK,
-                        // somebody else made progress.
-                        pFuncPtrPrecode->SetTargetInterlocked(pCode);
-                    }
-                }
-            }
-#endif // FEATURE_INTERPRETER
         } // end if (pCode == NULL)
     } // end else if (IsIL() || IsNoMetadata())
     else if (IsNDirect())
@@ -1621,13 +1529,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     }
 
     /**************************   POSTJIT *************************/
-#ifndef FEATURE_INTERPRETER
     _ASSERTE(pCode == NULL || GetNativeCode() == NULL || pCode == GetNativeCode());
-#else // FEATURE_INTERPRETER
-    // Interpreter adds a new possiblity == someone else beat us to installing an intepreter stub.
-    _ASSERTE(pCode == NULL || GetNativeCode() == NULL || pCode == GetNativeCode()
-             || Interpreter::InterpretationStubToMethodInfo(pCode) == this);
-#endif // FEATURE_INTERPRETER
 
     // At this point we must have either a pointer to managed code or to a stub. All of the above code
     // should have thrown an exception if it couldn't make a stub.
@@ -1680,13 +1582,6 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         if (!HasStableEntryPoint())
         {
             // Is the result an interpreter stub?
-#ifdef FEATURE_INTERPRETER
-            if (Interpreter::InterpretationStubToMethodInfo(pCode) == this)
-            {
-                SetEntryPointInterlocked(pCode);
-            }
-            else
-#endif // FEATURE_INTERPRETER
             {
                 ReJitPublishMethodHolder publishWorker(this, pCode);
                 SetStableEntryPointInterlocked(pCode);
@@ -1708,12 +1603,8 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
         }
     }
 
-#ifdef FEATURE_INTERPRETER
-    _ASSERTE(!IsReallyPointingToPrestub());
-#else // FEATURE_INTERPRETER
     _ASSERTE(!IsPointingToPrestub());
     _ASSERTE(HasStableEntryPoint());
-#endif // FEATURE_INTERPRETER
 
     if (fReportCompilationFinished)
         DACNotifyCompilationFinished(this);

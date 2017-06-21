@@ -269,10 +269,6 @@ public:
 
     BOOL SetStableEntryPointInterlocked(PCODE addr);
 
-#ifdef FEATURE_INTERPRETER
-    BOOL SetEntryPointInterlocked(PCODE addr);
-#endif // FEATURE_INTERPRETER
-
     BOOL HasTemporaryEntryPoint();
     PCODE GetTemporaryEntryPoint();
 
@@ -1283,9 +1279,6 @@ public:
     void SetChunkIndex(MethodDescChunk *pChunk);
 
     BOOL IsPointingToPrestub();
-#ifdef FEATURE_INTERPRETER
-    BOOL IsReallyPointingToPrestub();
-#endif // FEATURE_INTERPRETER
 
 public:
 
@@ -1374,11 +1367,7 @@ public:
         return GetNativeCode() != NULL;
     }
 
-#ifdef FEATURE_INTERPRETER
-    BOOL SetNativeCodeInterlocked(PCODE addr, PCODE pExpected, BOOL fStable);
-#else  // FEATURE_INTERPRETER
     BOOL SetNativeCodeInterlocked(PCODE addr, PCODE pExpected = NULL);
-#endif // FEATURE_INTERPRETER
 
     TADDR GetAddrOfNativeCodeSlot();
 
