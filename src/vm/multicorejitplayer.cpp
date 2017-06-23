@@ -554,7 +554,8 @@ bool MulticoreJitProfilePlayer::CompileMethodDesc(Module * pModule, MethodDesc *
         ThreadStateNCStackHolder holder(-1, Thread::TSNC_CallingManagedCodeDisabled);
 
         // PrepareCode calls back to MulticoreJitCodeStorage::StoreMethodCode under MethodDesc lock
-        pMD->PrepareCode(&MulticoreJitPrepareCodeConfig(pMD));
+        MulticoreJitPrepareCodeConfig config(pMD);
+        pMD->PrepareCode(&config);
 
         return true;
     }

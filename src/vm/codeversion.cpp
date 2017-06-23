@@ -62,11 +62,11 @@ bool ILCodeVersion::operator!=(const ILCodeVersion & rhs) const { return m_pMeth
 
 #ifndef DACCESS_COMPILE
 NativeCodeVersionNode::NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethodDesc, ReJITID parentId) :
-    m_id(id),
+    m_pNativeCode(NULL),
     m_pMethodDesc(pMethodDesc),
     m_parentId(parentId),
     m_pNextMethodDescSibling(NULL),
-    m_pNativeCode(NULL),
+    m_id(id),
     m_optTier(NativeCodeVersion::OptimizationTier0),
     m_flags(0)
 {}
@@ -154,10 +154,17 @@ NativeCodeVersion::NativeCodeVersion() :
 {}
 
 NativeCodeVersion::NativeCodeVersion(const NativeCodeVersion & rhs) :
-    m_storageKind(rhs.m_storageKind),
-    m_pVersionNode(rhs.m_pVersionNode),
-    m_synthetic(rhs.m_synthetic)
-{}
+    m_storageKind(rhs.m_storageKind)
+{
+    if(m_storageKind == StorageKind::Explicit)
+    {
+        m_pVersionNode = rhs.m_pVersionNode; 
+    }
+    else if(m_storageKind == StorageKind::Synthetic)
+    {
+        m_synthetic = rhs.m_synthetic;
+    }
+}
 
 NativeCodeVersion::NativeCodeVersion(PTR_NativeCodeVersionNode pVersionNode) :
     m_storageKind(pVersionNode != NULL ? StorageKind::Explicit : StorageKind::Unknown),
@@ -403,7 +410,7 @@ NativeCodeVersionIterator NativeCodeVersionCollection::End()
 NativeCodeVersionIterator::NativeCodeVersionIterator(NativeCodeVersionCollection* pNativeCodeVersionCollection) :
     m_stage(IterationStage::Initial),
     m_pCollection(pNativeCodeVersionCollection),
-    m_pLinkedListCur(dac_cast<PTR_NativeCodeVersionNode>(NULL))
+    m_pLinkedListCur(dac_cast<PTR_NativeCodeVersionNode>(nullptr))
 {
     LIMITED_METHOD_DAC_CONTRACT;
     First();
@@ -488,12 +495,12 @@ bool NativeCodeVersionIterator::Equal(const NativeCodeVersionIterator &i) const
 }
 
 ILCodeVersionNode::ILCodeVersionNode() :
-    m_pModule((TADDR)NULL),
+    m_pModule(dac_cast<PTR_Module>(nullptr)),
     m_methodDef(0),
     m_rejitId(0),
-    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL)),
+    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(nullptr)),
     m_rejitState(ILCodeVersion::kStateRequested),
-    m_pIL((TADDR)NULL),
+    m_pIL(dac_cast<PTR_COR_ILMETHOD>(nullptr)),
     m_jitFlags(0)
 {}
 
@@ -502,9 +509,9 @@ ILCodeVersionNode::ILCodeVersionNode(Module* pModule, mdMethodDef methodDef, ReJ
     m_pModule(pModule),
     m_methodDef(methodDef),
     m_rejitId(id),
-    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL)),
+    m_pNextILVersionNode(dac_cast<PTR_ILCodeVersionNode>(nullptr)),
     m_rejitState(ILCodeVersion::kStateRequested),
-    m_pIL(NULL),
+    m_pIL(nullptr),
     m_jitFlags(0)
 {}
 #endif
@@ -594,10 +601,17 @@ ILCodeVersion::ILCodeVersion() :
 {}
 
 ILCodeVersion::ILCodeVersion(const ILCodeVersion & ilCodeVersion) :
-    m_storageKind(ilCodeVersion.m_storageKind),
-    m_pVersionNode(ilCodeVersion.m_pVersionNode),
-    m_synthetic(ilCodeVersion.m_synthetic)
-{}
+    m_storageKind(ilCodeVersion.m_storageKind)
+{
+    if(m_storageKind == StorageKind::Explicit)
+    {
+        m_pVersionNode = ilCodeVersion.m_pVersionNode;
+    }
+    else if(m_storageKind == StorageKind::Synthetic)
+    {
+        m_synthetic = ilCodeVersion.m_synthetic;
+    }
+}
 
 ILCodeVersion::ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode) :
     m_storageKind(pILCodeVersionNode != NULL ? StorageKind::Explicit : StorageKind::Unknown),
@@ -885,15 +899,15 @@ ILCodeVersionIterator ILCodeVersionCollection::End()
 
 ILCodeVersionIterator::ILCodeVersionIterator(const ILCodeVersionIterator & iter) :
     m_stage(iter.m_stage),
-    m_pCollection(iter.m_pCollection),
+    m_cur(iter.m_cur),
     m_pLinkedListCur(iter.m_pLinkedListCur),
-    m_cur(iter.m_cur)
+    m_pCollection(iter.m_pCollection)
 {}
 
 ILCodeVersionIterator::ILCodeVersionIterator(ILCodeVersionCollection* pCollection) :
     m_stage(pCollection != NULL ? IterationStage::Initial : IterationStage::End),
-    m_pCollection(pCollection),
-    m_pLinkedListCur(dac_cast<PTR_ILCodeVersionNode>(NULL))
+    m_pLinkedListCur(dac_cast<PTR_ILCodeVersionNode>(nullptr)),
+    m_pCollection(pCollection)
 {
     LIMITED_METHOD_DAC_CONTRACT;
     First();
@@ -964,9 +978,9 @@ bool ILCodeVersionIterator::Equal(const ILCodeVersionIterator &i) const
 
 MethodDescVersioningState::MethodDescVersioningState(PTR_MethodDesc pMethodDesc) :
     m_pMethodDesc(pMethodDesc),
-    m_nextId(1),
     m_flags(IsDefaultVersionActiveChildFlag),
-    m_pFirstVersionNode()
+    m_nextId(1),
+    m_pFirstVersionNode(dac_cast<PTR_NativeCodeVersionNode>(nullptr))
 {
     LIMITED_METHOD_DAC_CONTRACT;
     ZeroMemory(m_rgSavedCode, JumpStubSize);
@@ -1569,15 +1583,15 @@ void MethodDescVersioningState::LinkNativeCodeVersionNode(NativeCodeVersionNode*
 #endif
 
 ILCodeVersioningState::ILCodeVersioningState(PTR_Module pModule, mdMethodDef methodDef) :
-    m_pModule(pModule),
-    m_methodDef(methodDef),
     m_activeVersion(ILCodeVersion(pModule,methodDef)),
-    m_pFirstVersionNode(dac_cast<PTR_ILCodeVersionNode>(NULL))
+    m_pFirstVersionNode(dac_cast<PTR_ILCodeVersionNode>(nullptr)),
+    m_pModule(pModule),
+    m_methodDef(methodDef)
 {}
 
 
 ILCodeVersioningState::Key::Key() :
-    m_pModule(dac_cast<PTR_Module>(NULL)),
+    m_pModule(dac_cast<PTR_Module>(nullptr)),
     m_methodDef(0)
 {}
 

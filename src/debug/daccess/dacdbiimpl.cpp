@@ -7178,7 +7178,7 @@ HRESULT DacDbiInterfaceImpl::GetActiveRejitILCodeVersionNode(VMPTR_Module vmModu
     }
 #else
     _ASSERTE(!"You shouldn't be calling this - rejit is not supported in this build");
-    pvmReJitInfo->SetDacTargetPtr(0);
+    pVmILCodeVersionNode->SetDacTargetPtr(0);
 #endif
     return S_OK;
 }

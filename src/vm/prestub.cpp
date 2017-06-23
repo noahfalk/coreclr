@@ -313,7 +313,7 @@ PCODE MethodDesc::GetPrecompiledCode(PrepareCodeConfig* pConfig)
 
 #ifdef FEATURE_PREJIT 
     pCode = GetPrecompiledNgenCode();
-#endif FEATURE_PREJIT
+#endif
 
 #ifdef FEATURE_READYTORUN
     if (pCode == NULL)
@@ -427,7 +427,7 @@ PCODE MethodDesc::GetPrecompiledR2RCode()
     {
         pCode = pModule->GetReadyToRunInfo()->GetEntryPoint(this);
     }
-#endif FEATURE_READYTORUN
+#endif
     return pCode;
 }
 
@@ -446,7 +446,7 @@ PCODE MethodDesc::GetMulticoreJitCode()
             pCode = mcJitManager.RequestMethodCode(this); // Query multi-core JIT manager for compiled code
         }
     }
-#endif;
+#endif
     return pCode;
 }
 

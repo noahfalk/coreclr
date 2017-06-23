@@ -30,6 +30,10 @@ template < typename ELEMENT >
 class ListLockEntryBase
 {
     friend class ListLockBase<ELEMENT>;
+    typedef ListLockEntryBase<ELEMENT> Entry_t;
+    typedef ListLockBase<ELEMENT> List_t;
+    typedef typename List_t::LockHolder ListLockHolder;
+    
 
 public:
 #ifdef _DEBUG
@@ -42,11 +46,11 @@ public:
 #endif // DEBUG
 
     DeadlockAwareLock       m_deadlock;
-    ListLockBase<ELEMENT> * m_pList;
+    List_t *                m_pList;
     ELEMENT                 m_data;
     Crst                    m_Crst;
     const char *            m_pszDescription;
-    ListLockEntryBase<ELEMENT> * m_pNext;
+    Entry_t *               m_pNext;
     DWORD                   m_dwRefCount;
     HRESULT                 m_hrResultCode;
     LOADERHANDLE            m_hInitException;
@@ -56,7 +60,7 @@ public:
     CorruptionSeverity      m_CorruptionSeverity;
 #endif // FEATURE_CORRUPTING_EXCEPTIONS
 
-    ListLockEntryBase(ListLockBase<ELEMENT> *pList, ELEMENT data, const char *description = NULL)
+    ListLockEntryBase(List_t *pList, ELEMENT data, const char *description = NULL)
     : m_deadlock(description),
         m_pList(pList),
         m_data(data),
@@ -67,7 +71,7 @@ public:
         m_dwRefCount(1),
         m_hrResultCode(S_FALSE),
         m_hInitException(NULL),
-        m_pLoaderAllocator(NULL)
+        m_pLoaderAllocator(dac_cast<PTR_LoaderAllocator>(nullptr))
 #ifdef FEATURE_CORRUPTING_EXCEPTIONS
         ,
         m_CorruptionSeverity(NotCorrupting)
@@ -122,7 +126,7 @@ public:
         m_Crst.Leave();
     }
 
-    static ListLockEntryBase<ELEMENT> *Find(ListLockBase<ELEMENT>* pLock, ELEMENT data, const char *description = NULL)
+    static Entry_t *Find(List_t* pLock, ELEMENT data, const char *description = NULL)
     {
         CONTRACTL
         {
@@ -134,10 +138,10 @@ public:
 
         _ASSERTE(pLock->HasLock());
 
-        ListLockEntryBase<ELEMENT> *pEntry = pLock->Find(data);
+        Entry_t *pEntry = pLock->Find(data);
         if (pEntry == NULL)
         {
-            pEntry = new ListLockEntryBase<ELEMENT>(pLock, data, description);
+            pEntry = new Entry_t(pLock, data, description);
             pLock->AddElement(pEntry);
         }
         else
@@ -172,7 +176,7 @@ public:
         }
         CONTRACTL_END;
 
-        ListLockBase<ELEMENT>::LockHolder lock(m_pList);
+        ListLockHolder lock(m_pList);
 
         if (FastInterlockDecrement((LONG*)&m_dwRefCount) == 0)
         {
@@ -192,14 +196,14 @@ public:
 
     // LockHolder holds the lock of the element, not the element itself
 
-    DEBUG_NOINLINE static void LockHolderEnter(ListLockEntryBase<ELEMENT> *pThis) PUB
+    DEBUG_NOINLINE static void LockHolderEnter(Entry_t *pThis) PUB
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Enter();
     }
 
-    DEBUG_NOINLINE static void LockHolderLeave(ListLockEntryBase<ELEMENT> *pThis) PUB
+    DEBUG_NOINLINE static void LockHolderLeave(Entry_t *pThis) PUB
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
@@ -214,7 +218,7 @@ public:
         m_deadlock.EndEnterLock();
     }
 
-    typedef Wrapper<ListLockEntryBase<ELEMENT> *, ListLockEntryBase<ELEMENT>::LockHolderEnter, ListLockEntryBase<ELEMENT>::LockHolderLeave> LockHolderBase;
+    typedef Wrapper<Entry_t *, LockHolderEnter, LockHolderLeave> LockHolderBase;
 
     class LockHolder : public LockHolderBase
     {
@@ -225,19 +229,19 @@ public:
         {
         }
 
-        LockHolder(ListLockEntryBase<ELEMENT> *value, BOOL take = TRUE) 
+        LockHolder(Entry_t *value, BOOL take = TRUE) 
           : LockHolderBase(value, take)
         {
         }
 
         BOOL DeadlockAwareAcquire()
         {
-            if (!m_acquired && m_value != NULL)
+            if (!this->m_acquired && this->m_value != NULL)
             {
-                if (!m_value->m_deadlock.TryBeginEnterLock())
+                if (!this->m_value->m_deadlock.TryBeginEnterLock())
                     return FALSE;
-                m_value->FinishDeadlockAwareEnter();
-                m_acquired = TRUE;
+                this->m_value->FinishDeadlockAwareEnter();
+                this->m_acquired = TRUE;
             }
             return TRUE;
         }
@@ -247,11 +251,14 @@ public:
 template < typename ELEMENT >
 class ListLockBase
 {
+    typedef ListLockBase<ELEMENT> List_t;
+    typedef ListLockEntryBase<ELEMENT> Entry_t;
+
  protected:
     CrstStatic          m_Crst;
     BOOL                m_fInited;
     BOOL                m_fHostBreakable;        // Lock can be broken by a host for deadlock detection
-    ListLockEntryBase<ELEMENT> * m_pHead;
+    Entry_t *           m_pHead;
 
  public:
 
@@ -295,7 +302,7 @@ class ListLockBase
         return m_fHostBreakable;
     }
 
-    void AddElement(ListLockEntryBase<ELEMENT>* pElement)
+    void AddElement(Entry_t* pElement)
     {
         WRAPPER_NO_CONTRACT;
         pElement->m_pNext = m_pHead;
@@ -333,7 +340,7 @@ class ListLockBase
 
     // Must own the lock before calling this or is ok if the debugger has
     // all threads stopped
-    inline ListLockEntryBase<ELEMENT> *Find(ELEMENT data)
+    inline Entry_t *Find(ELEMENT data)
     {
         CONTRACTL
         {
@@ -342,7 +349,10 @@ class ListLockBase
         PRECONDITION(CheckPointer(this));
 #ifdef DEBUGGING_SUPPORTED
         PRECONDITION(m_Crst.OwnedByCurrentThread() ||
-            CORDebuggerAttached() && g_pDebugInterface->IsStopped());
+            CORDebuggerAttached() 
+            //This condition should be true, but it is awkward to assert it because adding dbginterface.h creates lots of cycles in the includes
+            //It didn't seem valuable enough to refactor out a wrapper just to preserve it
+            /*&& g_pDebugInterface->IsStopped()*/);
 #else
         PRECONDITION(m_Crst.OwnedByCurrentThread());
 #endif // DEBUGGING_SUPPORTED
@@ -350,7 +360,7 @@ class ListLockBase
         }
         CONTRACTL_END;
 
-        ListLockEntryBase<ELEMENT> *pSearch;
+        Entry_t *pSearch;
 
         for (pSearch = m_pHead; pSearch != NULL; pSearch = pSearch->m_pNext)
         {
@@ -362,7 +372,7 @@ class ListLockBase
     }
 
     // Must own the lock before calling this!
-    ListLockEntryBase<ELEMENT>* Pop(BOOL unloading = FALSE) 
+    Entry_t* Pop(BOOL unloading = FALSE) 
     {
         LIMITED_METHOD_CONTRACT;
 #ifdef _DEBUG
@@ -371,13 +381,13 @@ class ListLockBase
 #endif
 
         if(m_pHead == NULL) return NULL;
-        ListLockEntryBase<ELEMENT>* pEntry = m_pHead;
+        Entry_t* pEntry = m_pHead;
         m_pHead = m_pHead->m_pNext;
         return pEntry;
     }
 
     // Must own the lock before calling this!
-    ListLockEntryBase<ELEMENT>* Peek() 
+    Entry_t* Peek() 
     {
 		LIMITED_METHOD_CONTRACT;
         _ASSERTE(m_Crst.OwnedByCurrentThread());
@@ -385,12 +395,12 @@ class ListLockBase
     }
 
     // Must own the lock before calling this!
-    BOOL Unlink(ListLockEntryBase<ELEMENT> *pItem)
+    BOOL Unlink(Entry_t *pItem)
     {
 		LIMITED_METHOD_CONTRACT;
         _ASSERTE(m_Crst.OwnedByCurrentThread());
-        ListLockEntryBase<ELEMENT> *pSearch;
-        ListLockEntryBase<ELEMENT> *pPrev;
+        Entry_t *pSearch;
+        Entry_t *pPrev;
 
         pPrev = NULL;
 
@@ -422,21 +432,21 @@ class ListLockBase
     }
 #endif
 
-    DEBUG_NOINLINE static void HolderEnter(ListLockBase<ELEMENT> *pThis)
+    DEBUG_NOINLINE static void HolderEnter(List_t *pThis)
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Enter();
     }
 
-    DEBUG_NOINLINE static void HolderLeave(ListLockBase<ELEMENT> *pThis)
+    DEBUG_NOINLINE static void HolderLeave(List_t *pThis)
     {
         WRAPPER_NO_CONTRACT;
         ANNOTATION_SPECIAL_HOLDER_CALLER_NEEDS_DYNAMIC_CONTRACT;
         pThis->Leave();
     }
 
-    typedef Wrapper<ListLockBase<ELEMENT>*, ListLockBase<ELEMENT>::HolderEnter, ListLockBase<ELEMENT>::HolderLeave> LockHolder;
+    typedef Wrapper<List_t*, List_t::HolderEnter, List_t::HolderLeave> LockHolder;
 };
 
 class WaitingThreadListElement
