@@ -399,13 +399,14 @@ class MethodDescVersioningState
 {
 public:
     // The size of the code used to jump stamp the prolog
+#ifdef FEATURE_JUMPSTAMP
     static const size_t JumpStubSize =
 #if defined(_X86_) || defined(_AMD64_)
         5;
 #else
-#error "Need to define size of rejit jump-stamp for this platform"
-        1;
+#error "Need to define size of jump-stamp for this platform"
 #endif
+#endif // FEATURE_JUMPSTAMP
 
     MethodDescVersioningState(PTR_MethodDesc pMethodDesc);
     PTR_MethodDesc GetMethodDesc() const;
@@ -413,13 +414,16 @@ public:
     PTR_NativeCodeVersionNode GetFirstVersionNode() const;
 
 #ifndef DACCESS_COMPILE
+#ifdef FEATURE_JUMPSTAMP
     HRESULT SyncJumpStamp(NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);
     HRESULT UpdateJumpTarget(BOOL fEESuspended, PCODE pRejittedCode);
     HRESULT UndoJumpStampNativeCode(BOOL fEESuspended);
     HRESULT JumpStampNativeCode(PCODE pCode = NULL);
+#endif // FEATURE_JUMPSTAMP
     void LinkNativeCodeVersionNode(NativeCodeVersionNode* pNativeCodeVersionNode);
-#endif
+#endif // DACCESS_COMPILE
 
+#ifdef FEATURE_JUMPSTAMP
     enum JumpStampFlags
     {
         // There is no jump stamp in place on this method (Either because
@@ -437,6 +441,7 @@ public:
 
     JumpStampFlags GetJumpStampState();
     void SetJumpStampState(JumpStampFlags newState);
+#endif // FEATURE_JUMPSTAMP
 
     //read-write data for the default native code version
     BOOL IsDefaultVersionActiveChild() const;
@@ -445,8 +450,8 @@ public:
 #endif
 
 private:
+#if !defined(DACCESS_COMPILE) && defined(FEATURE_JUMPSTAMP)
     INDEBUG(BOOL CodeIsSaved();)
-#ifndef DACCESS_COMPILE
     HRESULT UpdateJumpStampHelper(BYTE* pbCode, INT64 i64OldValue, INT64 i64NewValue, BOOL fContentionPossible);
 #endif
     PTR_MethodDesc m_pMethodDesc;
@@ -460,8 +465,11 @@ private:
     NativeCodeVersionId m_nextId;
     PTR_NativeCodeVersionNode m_pFirstVersionNode;
 
+
     // The originally JITted code that was overwritten with the jmp stamp.
+#ifdef FEATURE_JUMPSTAMP
     BYTE m_rgSavedCode[JumpStubSize];
+#endif
 };
 
 class MethodDescVersioningStateHashTraits : public NoRemoveSHashTraits<DefaultSHashTraits<PTR_MethodDescVersioningState>>

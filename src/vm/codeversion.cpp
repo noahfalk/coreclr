@@ -983,7 +983,9 @@ MethodDescVersioningState::MethodDescVersioningState(PTR_MethodDesc pMethodDesc)
     m_pFirstVersionNode(dac_cast<PTR_NativeCodeVersionNode>(nullptr))
 {
     LIMITED_METHOD_DAC_CONTRACT;
+#ifdef FEATURE_JUMPSTAMP
     ZeroMemory(m_rgSavedCode, JumpStubSize);
+#endif
 }
 
 PTR_MethodDesc MethodDescVersioningState::GetMethodDesc() const
@@ -1006,6 +1008,7 @@ PTR_NativeCodeVersionNode MethodDescVersioningState::GetFirstVersionNode() const
     return m_pFirstVersionNode;
 }
 
+#ifdef FEATURE_JUMPSTAMP
 MethodDescVersioningState::JumpStampFlags MethodDescVersioningState::GetJumpStampState()
 {
     LIMITED_METHOD_DAC_CONTRACT;
@@ -1018,7 +1021,7 @@ void MethodDescVersioningState::SetJumpStampState(JumpStampFlags newState)
     LIMITED_METHOD_CONTRACT;
     m_flags = (m_flags & ~JumpStampMask) | (BYTE)newState;
 }
-#endif
+#endif // DACCESS_COMPILE
 
 #ifndef DACCESS_COMPILE
 HRESULT MethodDescVersioningState::SyncJumpStamp(NativeCodeVersion nativeCodeVersion, BOOL fEESuspended)
@@ -1058,7 +1061,7 @@ HRESULT MethodDescVersioningState::SyncJumpStamp(NativeCodeVersion nativeCodeVer
         }
     }
 }
-#endif
+#endif // DACCESS_COMPILE
 
 //---------------------------------------------------------------------------------------
 //
@@ -1106,6 +1109,7 @@ LPBYTE FirstCodeByteAddr(LPBYTE pbCode, DebuggerControllerPatch * dbgpatch)
 
 
 #ifdef _DEBUG
+#ifndef DACCESS_COMPILE
 BOOL MethodDescVersioningState::CodeIsSaved()
 {
     LIMITED_METHOD_CONTRACT;
@@ -1117,6 +1121,7 @@ BOOL MethodDescVersioningState::CodeIsSaved()
     }
     return FALSE;
 }
+#endif //DACCESS_COMPILE
 #endif //_DEBUG
 
 //---------------------------------------------------------------------------------------
@@ -1554,6 +1559,7 @@ HRESULT MethodDescVersioningState::UpdateJumpStampHelper(BYTE* pbCode, INT64 i64
 #endif // _X86_ || _AMD64_
 }
 #endif
+#endif // FEATURE_JUMPSTAMP
 
 BOOL MethodDescVersioningState::IsDefaultVersionActiveChild() const
 {
@@ -1835,7 +1841,7 @@ ILCodeVersion CodeVersionManager::GetILCodeVersion(PTR_MethodDesc pMethod, ReJIT
     return ILCodeVersion();
 #else // FEATURE_REJIT
     _ASSERTE(rejitId == 0);
-    return ILCodeVersion(pModule, methodDef);
+    return ILCodeVersion(dac_cast<PTR_Module>(pMethod->GetModule()), pMethod->GetMemberDef());
 #endif // FEATURE_REJIT
 }
 
@@ -2181,6 +2187,11 @@ HRESULT CodeVersionManager::PublishNativeCodeVersion(MethodDesc* pMethod, Native
     }
     else
     {
+#ifndef FEATURE_JUMPSTAMP
+        _ASSERTE(!"This platform doesn't support JumpStamp but this method doesn't version with Precode,"
+            " this method can't be updated");
+        return E_FAIL;
+#else
         MethodDescVersioningState* pVersioningState;
         if (FAILED(hr = GetOrCreateMethodDescVersioningState(pMethod, &pVersioningState)))
         {
@@ -2188,6 +2199,7 @@ HRESULT CodeVersionManager::PublishNativeCodeVersion(MethodDesc* pMethod, Native
             return hr;
         }
         return pVersioningState->SyncJumpStamp(nativeCodeVersion, fEESuspended);
+#endif
     }
 }
 
@@ -2456,6 +2468,10 @@ HRESULT CodeVersionManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
         return GetNonVersionableError(pMD);
     }
 
+#ifndef FEATURE_JUMPSTAMP
+    _ASSERTE(!"How did we get here? IsVersionableWithJumpStamp() should have been FALSE above");
+    return S_OK;
+#else
     MethodDescVersioningState* pVersioningState;
     if (FAILED(hr = GetOrCreateMethodDescVersioningState(pMD, &pVersioningState)))
     {
@@ -2468,6 +2484,8 @@ HRESULT CodeVersionManager::DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode)
         return S_OK;
     }
     return pVersioningState->JumpStampNativeCode(pCode);
+#endif // FEATURE_JUMPSTAMP
+
 }
 #endif // DACCESS_COMPILE
 

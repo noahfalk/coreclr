@@ -1286,7 +1286,7 @@ public:
 public:
 
     // TRUE iff it is possible to change the code this method will run using
-    // the MethodCodeVersioningManager.
+    // the CodeVersionManager.
     // Note: EnC currently returns FALSE here because it uses its own seperate
     // scheme to manage versionability. We will likely want to converge them
     // at some point.
@@ -1302,8 +1302,14 @@ public:
         if (IsUnboxingStub() || IsInstantiatingStub())
             return FALSE;
 
-        return TRUE;
+#ifndef FEATURE_JUMPSTAMP
+        // if we don't support jumpstamps then only the methods that support precodes are versionable
+        if (!IsVersionableWithPrecode())
+            return FALSE;
 #endif
+
+        return TRUE;
+#endif // FEATURE_CODE_VERSIONING
     }
 
     // Of the methods where IsVersionable() == TRUE, these methods switch between
@@ -1333,7 +1339,7 @@ public:
     // If IsVersionable() == FALSE, undefined
     BOOL IsVersionableWithJumpStamp()
     {
-#ifdef FEATURE_CODE_VERSIONING
+#if defined(FEATURE_CODE_VERSIONING) && defined(FEATURE_JUMPSTAMP)
         return !IsVersionableWithPrecode();
 #else
         return FALSE;

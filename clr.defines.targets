@@ -17,6 +17,7 @@
         <DefineConstants Condition="'$(FeatureHosting)' == 'true'">$(DefineConstants);FEATURE_HOSTING</DefineConstants>
         <DefineConstants Condition="'$(FeatureImplicitLongPath)' == 'true'">$(DefineConstants);FEATURE_IMPLICIT_LONGPATH</DefineConstants>
         <DefineConstants Condition="'$(FeatureIsolatedStorageQuotaEnforcement)' == 'true'">$(DefineConstants);FEATURE_ISOLATED_STORAGE_QUOTA_ENFORCEMENT</DefineConstants>
+        <DefineConstants Condition="'$(FeatureJumpStamp)' == 'true'">$(DefineConstants);FEATURE_JUMPSTAMP</DefineConstants>
         <DefineConstants Condition="'$(FeatureMacl)' == 'true'">$(DefineConstants);FEATURE_MACL</DefineConstants>
         <DefineConstants Condition="'$(FeatureManagedEtw)' == 'true'">$(DefineConstants);FEATURE_MANAGED_ETW</DefineConstants>
         <DefineConstants Condition="'$(FeatureManagedEtwChannels)' == 'true'">$(DefineConstants);FEATURE_MANAGED_ETW_CHANNELS</DefineConstants>

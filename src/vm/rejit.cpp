@@ -1060,10 +1060,6 @@ HRESULT ReJitManager::RequestRevert(
     return E_NOTIMPL;
 }
 
-void ReJitManager::PreInit(BOOL fSharedDomain)
-{
-}
-
 ReJITID ReJitManager::GetReJitId(PTR_MethodDesc pMD, PCODE pCodeStart)
 {
     return 0;
