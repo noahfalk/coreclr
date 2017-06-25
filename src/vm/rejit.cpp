@@ -706,7 +706,7 @@ HRESULT ReJitManager::BindILVersion(
         // twice in a row, without us having a chance to jmp-stamp the code yet OR
         // while iterating through instantiations of a generic, the iterator found
         // duplicate entries for the same instantiation.)
-        _ASSERTE(ilCodeVersion.GetIL() == NULL);
+        _ASSERTE(ilCodeVersion.GetILNoThrow() == NULL);
 
         *pILCodeVersion = ilCodeVersion;
         return S_FALSE;

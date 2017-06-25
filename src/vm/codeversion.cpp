@@ -45,6 +45,7 @@ BOOL ILCodeVersion::IsNull() const { return m_pMethod == NULL }
 PTR_Module ILCodeVersion::GetModule() { return m_pMethod->GetModule() }
 mdMethodDef ILCodeVersion::GetMethodDef() { return m_pMethod->GetMethodDef(); }
 PTR_COR_ILMETHOD ILCodeVersion::GetIL() const { return m_pMethod->GetILHeader(TRUE); }
+PTR_COR_ILMETHOD ILCodeVersion::GetILNoThrow() const { EX_TRY{ return GetIL(); } EX_CATCH{ return NULL; }EX_END_CATCH(RethrowTerminalExceptions);}
 DWORD ILCodeVersion::GetJitFlags() const { return 0; }
 bool ILCodeVersion::operator==(const ILCodeVersion & rhs) const { return m_pMethod == rhs.m_pMethod; }
 bool ILCodeVersion::operator!=(const ILCodeVersion & rhs) const { return m_pMethod != rhs.m_pMethod; }
@@ -758,6 +759,20 @@ PTR_COR_ILMETHOD ILCodeVersion::GetIL() const
             return dac_cast<PTR_COR_ILMETHOD>(pMethodDesc->GetILHeader(TRUE));
         }
     }
+}
+
+PTR_COR_ILMETHOD ILCodeVersion::GetILNoThrow() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    EX_TRY
+    {
+        return GetIL();
+    }
+    EX_CATCH
+    {
+        return NULL;
+    }
+    EX_END_CATCH(RethrowTerminalExceptions);
 }
 
 DWORD ILCodeVersion::GetJitFlags() const
@@ -2215,7 +2230,7 @@ HRESULT CodeVersionManager::EnumerateClosedMethodDescs(
         GC_NOTRIGGER;
         MODE_PREEMPTIVE;
         CAN_TAKE_LOCK;
-        PRECONDITION(CheckPointer(pMD));
+        PRECONDITION(CheckPointer(pMD, NULL_OK));
         PRECONDITION(CheckPointer(pClosedMethodDescs));
         PRECONDITION(CheckPointer(pUnsupportedMethodErrors));
     }
@@ -2227,7 +2242,7 @@ HRESULT CodeVersionManager::EnumerateClosedMethodDescs(
         return S_OK;
     }
 
-    if (!pMD->HasClassOrMethodInstantiation() && pMD->HasNativeCode())
+    if (!pMD->HasClassOrMethodInstantiation())
     {
         // We have a JITted non-generic.
         MethodDesc ** ppMD = pClosedMethodDescs->Append();
