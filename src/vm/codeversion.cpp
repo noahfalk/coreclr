@@ -45,7 +45,6 @@ BOOL ILCodeVersion::IsNull() const { return m_pMethod == NULL }
 PTR_Module ILCodeVersion::GetModule() { return m_pMethod->GetModule() }
 mdMethodDef ILCodeVersion::GetMethodDef() { return m_pMethod->GetMethodDef(); }
 PTR_COR_ILMETHOD ILCodeVersion::GetIL() const { return m_pMethod->GetILHeader(TRUE); }
-PTR_COR_ILMETHOD ILCodeVersion::GetILNoThrow() const { EX_TRY{ return GetIL(); } EX_CATCH{ return NULL; }EX_END_CATCH(RethrowTerminalExceptions);}
 DWORD ILCodeVersion::GetJitFlags() const { return 0; }
 bool ILCodeVersion::operator==(const ILCodeVersion & rhs) const { return m_pMethod == rhs.m_pMethod; }
 bool ILCodeVersion::operator!=(const ILCodeVersion & rhs) const { return m_pMethod != rhs.m_pMethod; }
@@ -764,15 +763,17 @@ PTR_COR_ILMETHOD ILCodeVersion::GetIL() const
 PTR_COR_ILMETHOD ILCodeVersion::GetILNoThrow() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+    PTR_COR_ILMETHOD ret;
     EX_TRY
     {
-        return GetIL();
+        ret = GetIL();
     }
     EX_CATCH
     {
-        return NULL;
+        ret = NULL;
     }
     EX_END_CATCH(RethrowTerminalExceptions);
+    return ret;
 }
 
 DWORD ILCodeVersion::GetJitFlags() const

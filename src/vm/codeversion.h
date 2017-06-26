@@ -143,7 +143,9 @@ public:
     NativeCodeVersion GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc) const;
 #endif // FEATURE_CODE_VERSIONING
     PTR_COR_ILMETHOD GetIL() const;
+#ifdef FEATURE_CODE_VERSIONING
     PTR_COR_ILMETHOD GetILNoThrow() const;
+#endif
     DWORD GetJitFlags() const;
     const InstrumentedILOffsetMapping* GetInstrumentedILMap() const;
 
