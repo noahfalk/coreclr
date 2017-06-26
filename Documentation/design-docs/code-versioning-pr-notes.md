@@ -15,14 +15,15 @@ I did a variety of testing intermixed with fixes and cleanup near the end. Its p
 - Manual smoke test interpreter + tiered compilation: working
 - Manual smoke test MulticoreJit, tiered jitting OFF: working
 - Profiler and debugger tests, tiered jitting OFF: 0 failures (not counting baseline failures)
-- Profiler tests, tiered jitting ON, test fixes applied to mitigate product breaking changes: a few failures (I was re-running chunks of tests against a changing product baseline so I don't have an exact number for all tests on the identical product build yet)
+- Profiler tests, tiered jitting ON, some test fixes applied to mitigate product breaking changes: 1 failure (test is testing inlining on what is now a non-inlined initial code body)
 - Initial performance analysis, tiered jitting OFF: At worst a small regression, but inconclusive without some further analysis/matching pogo data/larger sample sizes. I ran music store app on a .Net Core official daily build vs ret build on my machine without updated Pogo data. Official build vs my build both jit 18259+-3 methods (source of variance uninvestigated)
 	- Average total time in Prestub:              1141ms(baseline) vs. 1182ms(my build)
 		- Largest difference in time was inside UnsafeJitFunction, but I don't believe my change should have had any significant impact within UnsafeJitFunction.
 	- Average total time in Prestub excluding UnsafeJitFunction/ETW events: 14ms(baseline) vs. 16ms(my build)
 		- All the heavy lifting in my changes should have shown up here if they were going to.
 
-- Performance analysis, tiered jitting ON: Not yet investigated
+- Performance analysis, tiered jitting ON: Using ASP.Net Music store on my local machine with all the framework assemblies AOT compiled (S.P.C.dll is NGEN, the rest are R2R) but no ASP.Net assemblies R2R compiled startup is tiered jitting enabled startup/baseline startup = ~0.81.
+
 
 
 ### Commit Notes ###
@@ -53,21 +54,23 @@ After commit #3 I did a little better job breaking things up and putting notes i
 
 Assuming no major course correction, this is where I anticipate things will go (not necessarily in this order):
 
-1. Functional testing mentioned above with tiered jitting OFF needs to be iterated again before checkin to catch issues introduced during final cleanup and PR/CI updates that are inevitably coming.
+1. Functional testing mentioned above with tiered jitting OFF needs to be iterated again before checkin to catch issues introduced during final cleanup and PR feedback updates that are inevitably coming.
 
 2. More perf investigation to ensure there is no regression with tiered jitting OFF
 
-3. Update feature doc to be more concrete/explanatory based on work done.
+3. There are some unsafe lock-free reads of the versioned information in MethodDesc::PrepareCode path that should be fixed.
 
-4. Get feedback from profiler authors on the prefered form of breaking changes when tiered jitting is ON / mitigations for those changes.
+4. Update feature doc to be more concrete/explanatory based on work done.
 
-5. Stress testing
+5. Get feedback from profiler authors on the prefered form of breaking changes when tiered jitting is ON / mitigations for those changes.
 
-6. Perf investigation to assess where we are with tiered jitting ON
+6. Stress testing
 
-7. Diagnostics interactions with ETW, SOS, and the debugger need some updates with tiered compilation enabled.
+7. Perf investigation to assess where we are with tiered jitting ON
 
-8. Fix some remaining known issues when tiered jitting is ON
+8. Diagnostics interactions with ETW, SOS, and the debugger need some updates with tiered compilation enabled.
+
+9. Fix some remaining known test issues when tiered jitting is ON
 
 
 ## Checkin bar ##
@@ -78,4 +81,4 @@ I don't anticipate completing all the above work before checkin. I think the rea
 2. Code reviewers are happy with the chunk of code being submitted + overall direction
 3. The changes don't interfere with anyone else doing work around the same area.
 
-We can discuss exactly how much of the above changes that will be in each checkin, but tentatively I'm thinking next checkin would include only (1) and (2) above.
+We can discuss exactly how much of the above changes that will be in each checkin, but tentatively I'm thinking next checkin would include only (1), (2), and (3) above.
