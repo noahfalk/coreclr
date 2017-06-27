@@ -119,7 +119,7 @@ The ***default code version*** for an entrypoint is version of code that is prod
 
 ## The code versioning tree ##
 
-The CodeVersionManager mostly consists of maintaining a ***code versioning tree*** for each method. This tree represents a set of code versions for a particular method. Each path from root to leaf represents one code version. Every level of the tree maps to a stage in the build pipeline. The nodes on level N represent partial code versions with at most the configuration information from the first N stages of the build pipeline. It possible for the nodes to have less information if a given stage only produces its configuration information on demand when the final code version is being created. Here is an example tree.
+The CodeVersionManager mostly consists of maintaining a ***code versioning tree*** for each method. This tree represents a set of code versions for a particular method. Each path from root to leaf represents one code version. Every level of the tree maps to a stage in the build pipeline. The nodes on level N represent partial code versions with at most the configuration information from the first N stages of the build pipeline. It is possible for the nodes to have less information if a given stage only produces its configuration information on demand when the final code version is being created. Here is an example tree.
 
 ![Figure 1](../code-versioning-ideal-tree.png)
 
@@ -287,14 +287,99 @@ Another interesting consideration is that in the future I anticipate having some
 Thus if the current implementation doesn't appear ideal partly this may be because I wasn't sufficiently clever, but the other part is that I was optimizing for future conditions.
 
 ###Domains###
-TODO - Discuss the per-domain nature of the CodeVersionManager
+There is one CodeVersionManager per AppDomain, and one for the SharedDomain. Versioning for a given method always looks up the appropriate CodeVersionManager by traversing from MethodDef token -> Module that defines that token -> Domain that loaded that module -> CodeVersionManager. In code this is either:
+
+```
+Module* pModule;
+pModule->GetDomain()->GetCodeVersionManager()
+MethodDesc* pMethod;
+pMethod->GetModule()->GetDomain()->GetCodeVersionManager()
+```
+
+Some shortcut accessors are defined to make these lookups simpler:
+
+```
+pModule->GetCodeVersionManager()
+pMethod->GetCodeVersionManager()
+```
+
+Generics can cause methods in domain-neutral modules to refer to types in domain-specific modules. The rules above dictate that these code versions still reside in the domain-neutral CodeVersionManager. The AppDomain specific CodeVersionManagers will never contain code versions with a domain-neutral type in their instantiation.
+
+CoreCLR is largely moving away from multiple AppDomains but I left the domain distinctions in place for a few reasons:
+
+1. Pragmatically the feature is a partial refactoring of ReJitManager and this is what ReJitManager did. Diverging from ReJitManager's design incurs extra time and risk of new issues.
+2. Maybe someday we will want to migrate similar functionality back to the desktop .Net SKU. Desktop supports multiple AppDomains so per-AppDomain handling would be required in that context.
+
+AppDomain unloading however has not been handled. If CoreCLR supports proper AppDomain unload at some point or the code moves back to desktop runtime we will need to handle this gap.
 
 ###Code activation and publishing###
-TODO - Discuss our two code body swapping techniques, the FixupPrecode and JumpStamp
-Discuss the update algorithm
+
+The CodeVersionManager abstracts selecting the active code versions and publishing them behind the APIs that individual build stages use to manipulate the versioning tree. For example a build stage would call either:
+
+```
+CodeVersionManager::SetActiveILCodeVersions(...)
+ILCodeVersion::SetActiveNativeCodeVersion(...)
+```
+
+to update the active child at either of those levels (ReJIT uses SetActiveILCodeVersions, Tiered Compilation uses SetActiveNativeCodeVersion). Once this occurs the CodeVersionManager needs to do these things:
+
+1. Determine which entrypoints may need updates.
+2. Recalculate the active code version for each entrypoint
+3. Update the published code version for each entrypoint to match the active code version
+
+In order to do step 3 the CodeVersionManager relies on one of two different mechanisms, either a FixupPrecode or a JumpStamp. Both techniques roughly involve using a jmp instruction as the method entrypoint and then updating that jmp to point at whatever code version should be published. In the FixupPrecode case this is memory that was allocated dynamically for the explicit purpose of being the method entrypoint. In the JumpStamp this is memory that was initially used as the prolog of the default code version and then repurposed. JumpStamp is required for AOT compiled images that use direct calls from method to method, however changing between prolog instructions and a jmp instruction requires EE suspension to ensure that threads have been evacuated from the region. FixupPrecode can be updated with only an Interlocked operation which offers lower overhead updates when it can be used.
+
+All methods have been classified to use at most one of the techniques, based on:
+
+```
+MethodDesc::IsVersionableWithPrecode()
+MethodDesc::IsVersionableWithJumpStamp()
+```
 
 ###Thread-safety###
-TODO - Discuss the locks, which read/writes require them, and which can be done locklessly
+CodeVersionManager is designed for use in a free-threaded environment, in many cases by requiring the caller to acquire a lock before calling. This lock can be acquired by constructing an instance of the
 
-###Ambient vs. explicit configuration stages###
-TODO - Discuss why some stages explicitly record configuration data into the code version whereas others take effect but aren't recorded. Discuss expectations for when build stages can change their configuration and expect the change to be applied in a consistent way.
+```
+CodeVersionManager::TableLockHolder(CodeVersionManager*)
+```
+
+in some scope for the CodeVersionManager being operated on. CodeVersionManagers from different domains should not have their locks taken by the same thread with one exception, it is OK to take the shared domain  manager lock and one AppDomain manager lock in that order. The lock is required to change the shape of the tree or traverse it but not to read/write configuration properties from each node. A few special cases:
+
+- CodeVersionManager::SetActiveILCodeVersions needs to operate partially inside and partially outside the lock. The caller should not acquire the lock beforehand.
+- NativeCodeVersion::GetILCodeVersion() does not require the lock if the caller first guarantees it is operating on the default code version.
+
+APIs that require the lock is held/not held should ASSERT the lock state in debug builds. APIs with no ASSERT can be used with or without the lock.
+
+###Ambient/unrecorded/explicit version configuration###
+
+The example build pipeline in the design section has many stages, but the implemented versioning tree only tracks a few specific chunks of configuration information:
+
+1. Profiler ReJIT can specify an IL body, IL remaping table, and a few jit flags.
+2. The runtime can specify any number of generic instantiations
+3. Tiered compilation can specify an optimization level
+
+All other information such as Edit and Continue IL modifications, or a profiler disabling inlining via the JIT time callback aren't recorded in NativeCodeVersion/ILCodeVersion. The code generation pipeline implementation still takes these other configuration options into account when generating the code so how do we square that with the conceptual model that code version captured all configuration? Our implementation classifies all configuration settings into one of three categories. (These classification names aren't used much in the code, but you can use them to reason about it)
+
+- **Explicit** - These are configuration options that are encoded directly into the version tree data structures so they can be trivially read back at any time. Profiler ReJIT, generic instantiation, and tiered compilation settings are all explicit.
+- **Ambient** - These are configuration values that are immutable once set and apply to all code versions of the same method. This can be treated the same as if the build stage gave an explicit configuration result for each generated code version, but the policy in that build stage always returns the same answer. Then as a memory footprint optimization rather than save N copies of the same answer in N different versions, the runtime stores the answer once and knows that it applies to all code versions. For example the debugger can set a debuggable codegen flag that causes all methods in a module to jit differently. The runtime stores that flag in the module for efficiency, but we can map it back to the code version concept as if every code version had that flag in it and it happens to be the same for all versions.
+- **Unrecorded** - The final case are configuration options that do change per code version, but they aren't recorded in the NativeCodeVersion/ILCodeVersion data structures. Logically this configuration is part of the code version regardless of the runtime's ability trivially access it/compute it on demand. For example a .Net profiler can control whether a particular jitting of a method has Profiler Enter/Leave/Tailcall probes in it based on its response to the FunctionIDMapper2 callback during JIT code generation. If there was already a version of this function generated without ELT and the profiler wanted a new version that does have ELT then the profiler needs to create a new code version. The only technique it has available to create new code versions is to use ReJIT, but ELT isn't part of explicit configuration that ReJIT collects for the new code version. Instead the profiler records in its own data structures that the new ReJIT version should have a certain ELT configuration setting. Whenever code jits that corresponds to this version the runtime will query the profiler and then the profiler will respond with the appropriate ELT setting. In this way the ELT has logically become part of the profiler ReJIT stage configuration even though the runtime has no explicit record of it. Generalizing from this example, the runtime expects that all unrecorded code version configuration can be treated as a hidden portion of the configuration that is supplied by one of the explicitly configured build stages.
+
+The runtime's current classification is:
+
+- **Explicit** - ReJIT IL, IL mapping, jit flags, generic instantiation, optimization tier, versioning ids
+-  **Ambient** - Profiler IL from SetILFunctionBody, Profiler metadata updates, runtime inlining policy, profiler NGEN search policy
+-  **Unrecorded** - Profiler inlining policy, Profiler ELT configuration 
+
+
+Future roadmap possibilities
+============================
+
+A few (completely uncommited) thoughts on how this area of the code might evolve in the future, in no particular order:
+
+- Make the debugger configuration for EnC another explicit build pipeline stage. This seems most interesting to allow diagnostic tools that use profiler instrumentation to coexist with a live debugging session that is rewriting code using EnC.
+- Add code version collection to save memory when certain code versions are no longer being used.
+- On stack replacement requires that publication not only redirect new method invocations to a new version, but also continued execution of existing method invocations must redirect to a new version.
+- Performance improvements that utilize more memory / cpu efficient data structures.
+- Add new build pipeline stage accessible from managed code APIs to do self-modifying code.
+- Add new build pipeline stage accesible from out-of-process or maybe runtime managed that could handle hot-patching app deployment scenarios.
+- Allow for an extensible set of stages rather than the current hard-coded set, perhaps to allow N profilers to all collaboratively edit. Some form of multi-profiler collaboration has long been requested and this seems a fairly powerful (and potentially way too complicated) form.
