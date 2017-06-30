@@ -1295,26 +1295,14 @@ public:
 #ifndef FEATURE_CODE_VERSIONING
         return FALSE;
 #else
-        if (!(IsIL() || IsNoMetadata()))
-            return FALSE;
-        if (GetLoaderAllocator()->IsCollectible())
-            return FALSE;
-        if (IsUnboxingStub() || IsInstantiatingStub())
-            return FALSE;
-
-#ifndef FEATURE_JUMPSTAMP
-        // if we don't support jumpstamps then only the methods that support precodes are versionable
-        if (!IsVersionableWithPrecode())
-            return FALSE;
+        return IsVersionableWithPrecode() || IsVersionableWithJumpStamp();
 #endif
-
-        return TRUE;
-#endif // FEATURE_CODE_VERSIONING
     }
 
-    // Of the methods where IsVersionable() == TRUE, these methods switch between
-    // different code versions by updating the target of the precode.
-    // If IsVersionable() == FALSE, undefined
+    // If true, these methods version using the CodeVersionManager and
+    // switch between different code versions by updating the target of the precode.
+    // Note: EnC returns FALSE - even though it uses precode updates it does not
+    // use the CodeVersionManager right now
     BOOL IsVersionableWithPrecode()
     {
 #ifdef FEATURE_CODE_VERSIONING
@@ -1333,14 +1321,29 @@ public:
 #endif
     }
 
-    // Of the methods where IsVersionable() == TRUE, these methods switch between 
+    // If true, these methods version using the CodeVersionManager and switch between
     // different code versions by overwriting the first bytes of the method's initial
     // native code with a jmp instruction.
-    // If IsVersionable() == FALSE, undefined
     BOOL IsVersionableWithJumpStamp()
     {
 #if defined(FEATURE_CODE_VERSIONING) && defined(FEATURE_JUMPSTAMP)
-        return !IsVersionableWithPrecode();
+        return
+            // for native image code this is policy, but for jitted code it is a functional requirement
+            // to ensure the prolog is sufficiently large
+            ReJitManager::IsReJITEnabled() &&
+
+            // functional requirement - the runtime doesn't expect both options to be possible
+            !IsVersionableWithPrecode() &&
+
+            // functional requirement - we must be able to evacuate the prolog and the prolog must be big
+            // enough, both of which are only designed to work on jitted code
+            (IsIL() || IsNoMetadata()) &&
+            !IsUnboxingStub() &&
+            !IsInstantiatingStub() &&
+
+            // functional requirement - code version manager can't handle what would happen if the code
+            // was collected
+            !GetLoaderAllocator()->IsCollectible();
 #else
         return FALSE;
 #endif
@@ -2035,26 +2038,12 @@ private:
     PCODE GetPrecompiledNgenCode();
     PCODE GetPrecompiledR2RCode();
     PCODE GetMulticoreJitCode();
-    COR_ILMETHOD_DECODER* GetAndVerifyILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & holder);
-    COR_ILMETHOD_DECODER* GetAndVerifyMetadataILHeader(PrepareCodeConfig* pConfig, NewHolder<COR_ILMETHOD_DECODER> & holder);
+    COR_ILMETHOD_DECODER* GetAndVerifyILHeader(PrepareCodeConfig* pConfig, COR_ILMETHOD_DECODER* pIlDecoderMemory);
+    COR_ILMETHOD_DECODER* GetAndVerifyMetadataILHeader(PrepareCodeConfig* pConfig, COR_ILMETHOD_DECODER* pIlDecoderMemory);
     COR_ILMETHOD_DECODER* GetAndVerifyNoMetadataILHeader();
     PCODE JitCompileCode(PrepareCodeConfig* pConfig);
-    PCODE JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pLockEntry);
-    struct JitNotificationInfo
-    {
-        // jit started info
-        PrepareCodeConfig* pConfig;
-        SString* pNamespaceOrClassName;
-        SString* pMethodName;
-        SString* pMethodSignature;
-        // additional jit finished info
-        CORJIT_FLAGS flags;
-        PCODE pCode;
-        ULONG sizeOfCode;
-        HRESULT compilationErrorHR;
-    };
-    void EmitJitStartingNotifications(JitNotificationInfo* pJitNotificationInfo);
-    void EmitJitFinishedNotifications(JitNotificationInfo* pJitNotificationInfo);
+    PCODE JitCompileCodeLockedEventWrapper(PrepareCodeConfig* pConfig, JitListLockEntry* pEntry);
+    PCODE JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pLockEntry, ULONG* pSizeOfCode, CORJIT_FLAGS* pFlags);
 #endif // DACCESS_COMPILE
 };
 
@@ -2063,21 +2052,38 @@ class PrepareCodeConfig
 {
 public:
     PrepareCodeConfig();
-    PrepareCodeConfig(NativeCodeVersion codeVersion);
-    HRESULT FinishConfiguration();
+    PrepareCodeConfig(NativeCodeVersion nativeCodeVersion, BOOL needsMulticoreJitNotification, BOOL mayUsePrecompiledCode);
     MethodDesc* GetMethodDesc();
     NativeCodeVersion GetCodeVersion();
-    ILCodeVersion GetILCodeVersion();
-    virtual BOOL IsJitCancellationRequested(PCODE * ppCodeToUse);
+    BOOL NeedsMulticoreJitNotification();
+    BOOL MayUsePrecompiledCode();
+    virtual PCODE IsJitCancellationRequested();
     virtual BOOL SetNativeCode(PCODE pCode, PCODE * ppAlternateCodeToUse);
-    virtual BOOL NeedsMulticoreJitNotification();
     virtual COR_ILMETHOD* GetILHeader();
     virtual CORJIT_FLAGS GetJitCompilationFlags();
-    virtual BOOL MayUsePrecompiledCode();
-private:
+    
+protected:
+    MethodDesc* m_pMethodDesc;
     NativeCodeVersion m_nativeCodeVersion;
+    BOOL m_needsMulticoreJitNotification;
+    BOOL m_mayUsePrecompiledCode;
+};
+
+#ifdef FEATURE_CODE_VERSIONING
+class VersionedPrepareCodeConfig : public PrepareCodeConfig
+{
+public:
+    VersionedPrepareCodeConfig();
+    VersionedPrepareCodeConfig(NativeCodeVersion codeVersion);
+    HRESULT FinishConfiguration();
+    virtual PCODE IsJitCancellationRequested();
+    virtual BOOL SetNativeCode(PCODE pCode, PCODE * ppAlternateCodeToUse);
+    virtual COR_ILMETHOD* GetILHeader();
+    virtual CORJIT_FLAGS GetJitCompilationFlags();
+private:
     ILCodeVersion m_ilCodeVersion;
 };
+#endif // FEATURE_CODE_VERSIONING
 #endif // DACCESS_COMPILE
 
 /******************************************************************/

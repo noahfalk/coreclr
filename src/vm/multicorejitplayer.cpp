@@ -511,7 +511,7 @@ class MulticoreJitPrepareCodeConfig : public PrepareCodeConfig
 {
 public:
     MulticoreJitPrepareCodeConfig(MethodDesc* pMethod) :
-        PrepareCodeConfig(NativeCodeVersion(pMethod))
+        PrepareCodeConfig(NativeCodeVersion(pMethod), FALSE, FALSE)
     {}
     
     virtual BOOL SetNativeCode(PCODE pCode, PCODE * ppAlternateCodeToUse)
@@ -519,14 +519,6 @@ public:
         MulticoreJitManager & mcJitManager = GetAppDomain()->GetMulticoreJitManager();
         mcJitManager.GetMulticoreJitCodeStorage().StoreMethodCode(GetMethodDesc(), pCode);
         return TRUE;
-    }
-    virtual BOOL NeedsMulticoreJitNotification()
-    {
-        return FALSE;
-    }
-    virtual BOOL MayUsePrecompiledCode()
-    {
-        return FALSE;
     }
 };
 #endif

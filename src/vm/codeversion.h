@@ -60,6 +60,7 @@ public:
     BOOL IsDefaultVersion() const;
     PCODE GetNativeCode() const;
     ILCodeVersion GetILCodeVersion() const;
+    ReJITID GetILCodeVersionId() const;
 #ifndef DACCESS_COMPILE
     BOOL SetNativeCodeInterlocked(PCODE pCode, PCODE pExpected = NULL);
 #endif
@@ -116,21 +117,22 @@ private:
 #endif // FEATURE_CODE_VERSIONING
 };
 
+
+
+#ifdef FEATURE_CODE_VERSIONING
+
+
+
 class ILCodeVersion
 {
-#ifdef FEATURE_CODE_VERSIONING
     friend class NativeCodeVersionIterator;
-#endif
 
 public:
     ILCodeVersion();
     ILCodeVersion(const ILCodeVersion & ilCodeVersion);
-#ifdef FEATURE_CODE_VERSIONING
     ILCodeVersion(PTR_ILCodeVersionNode pILCodeVersionNode);
     ILCodeVersion(PTR_Module pModule, mdMethodDef methodDef);
-#else
-    ILCodeVersion(PTR_MethodDesc);
-#endif
+
     bool operator==(const ILCodeVersion & rhs) const;
     bool operator!=(const ILCodeVersion & rhs) const;
     BOOL IsNull() const;
@@ -138,18 +140,13 @@ public:
     PTR_Module GetModule() const;
     mdMethodDef GetMethodDef() const;
     ReJITID GetVersionId() const;
-#ifdef FEATURE_CODE_VERSIONING
     NativeCodeVersionCollection GetNativeCodeVersions(PTR_MethodDesc pClosedMethodDesc) const;
     NativeCodeVersion GetActiveNativeCodeVersion(PTR_MethodDesc pClosedMethodDesc) const;
-#endif // FEATURE_CODE_VERSIONING
     PTR_COR_ILMETHOD GetIL() const;
-#ifdef FEATURE_CODE_VERSIONING
     PTR_COR_ILMETHOD GetILNoThrow() const;
-#endif
     DWORD GetJitFlags() const;
     const InstrumentedILOffsetMapping* GetInstrumentedILMap() const;
 
-#ifdef FEATURE_CODE_VERSIONING
 #ifndef DACCESS_COMPILE
     void SetIL(COR_ILMETHOD* pIL);
     void SetJitFlags(DWORD flags);
@@ -190,14 +187,9 @@ public:
     // The DAC is privy to the backing node abstraction
     PTR_ILCodeVersionNode AsNode() const;
 #endif
-#endif // FEATURE_CODE_VERSIONING
 
 private:
 
-#ifndef FEATURE_CODE_VERSIONING
-    MethodDesc* m_pMethod;
-
-#else // FEATURE_CODE_VERSIONING
 #ifndef DACCESS_COMPILE
     PTR_ILCodeVersionNode AsNode();
     PTR_ILCodeVersionNode AsNode() const;
@@ -220,12 +212,7 @@ private:
             mdMethodDef m_methodDef;
         } m_synthetic;
     };
-#endif // FEATURE_CODE_VERSIONING
 };
-
-
-#ifdef FEATURE_CODE_VERSIONING
-
 
 
 class NativeCodeVersionNode
