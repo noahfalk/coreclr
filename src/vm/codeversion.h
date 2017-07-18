@@ -224,6 +224,9 @@ public:
 #ifndef DACCESS_COMPILE
     NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethod, ReJITID parentId);
 #endif
+#ifdef DEBUG
+    BOOL LockOwnedByCurrentThread() const;
+#endif
     PTR_MethodDesc GetMethodDesc() const;
     NativeCodeVersionId GetVersionId() const;
     PCODE GetNativeCode() const;
@@ -252,7 +255,7 @@ private:
     PTR_NativeCodeVersionNode m_pNextMethodDescSibling;
     NativeCodeVersionId m_id;
 #ifdef FEATURE_TIERED_COMPILATION
-    NativeCodeVersion::OptimizationTier m_optTier;
+    Volatile<NativeCodeVersion::OptimizationTier> m_optTier;
 #endif
 
     enum NativeCodeVersionNodeFlags
@@ -312,6 +315,9 @@ public:
 #ifndef DACCESS_COMPILE
     ILCodeVersionNode(Module* pModule, mdMethodDef methodDef, ReJITID id);
 #endif
+#ifdef DEBUG
+    BOOL LockOwnedByCurrentThread() const;
+#endif //DEBUG
     PTR_Module GetModule() const;
     mdMethodDef GetMethodDef() const;
     ReJITID GetVersionId() const;
@@ -333,9 +339,9 @@ private:
     mdMethodDef m_methodDef;
     ReJITID m_rejitId;
     PTR_ILCodeVersionNode m_pNextILVersionNode;
-    ILCodeVersion::RejitFlags m_rejitState;
-    PTR_COR_ILMETHOD m_pIL;
-    DWORD m_jitFlags;
+    Volatile<ILCodeVersion::RejitFlags> m_rejitState;
+    VolatilePtr<COR_ILMETHOD> m_pIL;
+    Volatile<DWORD> m_jitFlags;
     InstrumentedILOffsetMapping m_instrumentedILMap;
 };
 

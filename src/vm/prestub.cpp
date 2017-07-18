@@ -1044,7 +1044,8 @@ BOOL VersionedPrepareCodeConfig::SetNativeCode(PCODE pCode, PCODE * ppAlternateC
 {
     LIMITED_METHOD_CONTRACT;
 
-    _ASSERTE(!m_pMethodDesc->IsVersionableWithJumpStamp());
+    //This isn't the default version so jumpstamp is never needed
+    _ASSERTE(!m_nativeCodeVersion.IsDefaultVersion());
     if (m_nativeCodeVersion.SetNativeCodeInterlocked(pCode, NULL))
     {
         return TRUE;

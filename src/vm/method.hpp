@@ -1366,7 +1366,9 @@ public:
         return g_pConfig->TieredCompilation() &&
             !IsZapped() &&
             !IsEnCMethod() &&
-            HasNativeCodeSlot();
+            HasNativeCodeSlot() &&
+            !IsUnboxingStub() &&
+            !IsInstantiatingStub();
 
         // We should add an exclusion for modules with debuggable code gen flags
 

@@ -61,6 +61,14 @@ NativeCodeVersionNode::NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc*
 {}
 #endif
 
+#ifdef DEBUG
+BOOL NativeCodeVersionNode::LockOwnedByCurrentThread() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return GetMethodDesc()->GetCodeVersionManager()->LockOwnedByCurrentThread();
+}
+#endif //DEBUG
+
 PTR_MethodDesc NativeCodeVersionNode::GetMethodDesc() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
@@ -82,6 +90,12 @@ ReJITID NativeCodeVersionNode::GetILVersionId() const
 ILCodeVersion NativeCodeVersionNode::GetILCodeVersion() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+#ifdef DEBUG
+    if (GetILVersionId() != 0)
+    {
+        _ASSERTE(LockOwnedByCurrentThread());
+    }
+#endif
     PTR_MethodDesc pMD = GetMethodDesc();
     return pMD->GetCodeVersionManager()->GetILCodeVersion(pMD, GetILVersionId());
 }
@@ -104,6 +118,7 @@ BOOL NativeCodeVersionNode::SetNativeCodeInterlocked(PCODE pCode, PCODE pExpecte
 BOOL NativeCodeVersionNode::IsActiveChildVersion() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     return (m_flags & IsActiveChildFlag) != 0;
 }
 
@@ -111,6 +126,7 @@ BOOL NativeCodeVersionNode::IsActiveChildVersion() const
 void NativeCodeVersionNode::SetActiveChildFlag(BOOL isActive)
 {
     LIMITED_METHOD_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     if (isActive)
     {
         m_flags |= IsActiveChildFlag;
@@ -127,13 +143,13 @@ void NativeCodeVersionNode::SetActiveChildFlag(BOOL isActive)
 NativeCodeVersion::OptimizationTier NativeCodeVersionNode::GetOptimizationTier() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    return m_optTier;
+    return m_optTier.Load();
 }
 #ifndef DACCESS_COMPILE
 void NativeCodeVersionNode::SetOptimizationTier(NativeCodeVersion::OptimizationTier tier)
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    m_optTier = tier;
+    m_optTier.Store(tier);
 }
 #endif
 #endif // FEATURE_TIERED_COMPILATION
@@ -518,6 +534,14 @@ ILCodeVersionNode::ILCodeVersionNode(Module* pModule, mdMethodDef methodDef, ReJ
 {}
 #endif
 
+#ifdef DEBUG
+BOOL ILCodeVersionNode::LockOwnedByCurrentThread() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return GetModule()->GetCodeVersionManager()->LockOwnedByCurrentThread();
+}
+#endif //DEBUG
+
 PTR_Module ILCodeVersionNode::GetModule() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
@@ -539,30 +563,32 @@ ReJITID ILCodeVersionNode::GetVersionId() const
 ILCodeVersion::RejitFlags ILCodeVersionNode::GetRejitState() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    return m_rejitState;
+    return m_rejitState.Load();
 }
 
 PTR_COR_ILMETHOD ILCodeVersionNode::GetIL() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    return m_pIL;
+    return dac_cast<PTR_COR_ILMETHOD>(m_pIL.Load());
 }
 
 DWORD ILCodeVersionNode::GetJitFlags() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    return m_jitFlags;
+    return m_jitFlags.Load();
 }
 
 const InstrumentedILOffsetMapping* ILCodeVersionNode::GetInstrumentedILMap() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     return &m_instrumentedILMap;
 }
 
 PTR_ILCodeVersionNode ILCodeVersionNode::GetNextILVersionNode() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     return m_pNextILVersionNode;
 }
 
@@ -570,30 +596,32 @@ PTR_ILCodeVersionNode ILCodeVersionNode::GetNextILVersionNode() const
 void ILCodeVersionNode::SetRejitState(ILCodeVersion::RejitFlags newState)
 {
     LIMITED_METHOD_CONTRACT;
-    m_rejitState = newState;
+    m_rejitState.Store(newState);
 }
 
 void ILCodeVersionNode::SetIL(COR_ILMETHOD* pIL)
 {
     LIMITED_METHOD_CONTRACT;
-    m_pIL = pIL;
+    m_pIL.Store(pIL);
 }
 
 void ILCodeVersionNode::SetJitFlags(DWORD flags)
 {
     LIMITED_METHOD_CONTRACT;
-    m_jitFlags = flags;
+    m_jitFlags.Store(flags);
 }
 
 void ILCodeVersionNode::SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap)
 {
     LIMITED_METHOD_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     m_instrumentedILMap.SetMappingInfo(cMap, rgMap);
 }
 
 void ILCodeVersionNode::SetNextILVersionNode(ILCodeVersionNode* pNextILVersionNode)
 {
     LIMITED_METHOD_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
     m_pNextILVersionNode = pNextILVersionNode;
 }
 #endif
@@ -1719,7 +1747,11 @@ void CodeVersionManager::LeaveLock()
 BOOL CodeVersionManager::LockOwnedByCurrentThread() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
+#ifdef DACCESS_COMPILE
+    return TRUE;
+#else
     return const_cast<CrstExplicitInit &>(m_crstTable).OwnedByCurrentThread();
+#endif
 }
 #endif
 
