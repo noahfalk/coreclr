@@ -121,7 +121,7 @@ The ***default code version*** for an entrypoint is version of code that is prod
 
 The CodeVersionManager mostly consists of maintaining a ***code versioning tree*** for each method. This tree represents a set of code versions for a particular method. Each path from root to leaf represents one code version. Every level of the tree maps to a stage in the build pipeline. The nodes on level N represent partial code versions with at most the configuration information from the first N stages of the build pipeline. It is possible for the nodes to have less information if a given stage only produces its configuration information on demand when the final code version is being created. Here is an example tree.
 
-![Figure 1](../code-versioning-ideal-tree.png)
+![Figure 1](./code-versioning-ideal-tree.png)
 
 Figure 1 shows an example tree for the List<T\>.Add method. This tree has 3 stages, ReJIT configuration setting the IL code body, then generic instantiation determining the type of T, and finally tiered compilation determining the JIT optimization level.
 
@@ -134,7 +134,7 @@ At any given time only one version of the code can execute when an entrypoint is
 
 The active code version for an entrypoint is determined by following a path from the root of the versioning tree down to a particular leaf. At each node one of the child nodes is designated the ***active child*** and the edge to that child should be selected. One exception to this rule occurs when traversing to the generic instantiation stage. On this stage only, the next node is selected based on the desired entrypoint. Another example tree:
 
-![Figure 2](../code-versioning-ideal-tree-active.png)
+![Figure 2](./code-versioning-ideal-tree-active.png)
 
 Figure 2 shows an example versioning tree with edges to the active child in thick green.
 
@@ -144,7 +144,7 @@ Each build pipeline stage controls which of their nodes are the active child nod
 
 Hypothetically in the example tree above what would happen if the profiler used the ReJIT API to revert the change to the IL? In this case the ReJIT stage would designate the left child of the root as the new active child and the leftmost code version would become active for the List<int\>(int item) entrypoint. For List<string\>(string item) entrypoint a new branch of the tree would be constructed with a single child at every level down to the leaves.
 
-![Figure 3](../code-versioning-ideal-tree-update.png)
+![Figure 3](./code-versioning-ideal-tree-update.png)
 
 Figure 3 shows the example tree after an update
 

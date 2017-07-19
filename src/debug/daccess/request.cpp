@@ -960,6 +960,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                 // of scenarios we need to consider how this change goes all the way up to the UI - probably exposing the
                 // entire set of methods.
                 CopyNativeCodeVersionToReJitData(*iter, activeChild, &methodDescData->rejitDataCurrent);
+                break;
             }
 
             // Requested ReJitInfo
@@ -1032,6 +1033,7 @@ HRESULT ClrDataAccess::GetMethodDescData(
                                 // of scenarios we need to consider how this change goes all the way up to the UI - probably exposing the
                                 // entire set of methods.
                                 CopyNativeCodeVersionToReJitData(*iter, activeChild, &rgRevertedRejitData[iRejitDataReverted]);
+                                break;
                             }
                             iRejitDataReverted++;
                         }

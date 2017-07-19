@@ -327,13 +327,6 @@ class SHash : public TRAITS
         count_t m_tableSize;
         count_t m_index;
 
-        Index()
-        : m_table(dac_cast<PTR_element_t>(NULL)),
-            m_tableSize(0),
-            m_index(0)
-        {
-            LIMITED_METHOD_CONTRACT;
-        }
 
         Index(const SHash *hash, BOOL begin)
         : m_table(hash->m_table),
@@ -394,10 +387,6 @@ class SHash : public TRAITS
         friend class SHash;
 
       public:
-        Iterator()
-        {
-        }
-
         Iterator(const SHash *hash, BOOL begin)
           : Index(hash, begin)
         {
@@ -421,13 +410,6 @@ class SHash : public TRAITS
       protected:
         key_t       m_key;
         count_t     m_increment;
-
-        KeyIndex() :
-            Index(),
-            m_increment(0)
-        {
-            LIMITED_METHOD_CONTRACT;
-        }
 
         KeyIndex(const SHash *hash, BOOL begin)
         : Index(hash, begin),
@@ -496,10 +478,6 @@ class SHash : public TRAITS
         operator const Iterator &()
         {
             return *(const Iterator*)this;
-        }
-
-        KeyIterator()
-        {
         }
 
         KeyIterator(const SHash *hash, BOOL begin)

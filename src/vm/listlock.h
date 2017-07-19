@@ -345,14 +345,14 @@ class ListLockBase
         CONTRACTL
         {
             NOTHROW;
-        GC_NOTRIGGER;
-        PRECONDITION(CheckPointer(this));
+            GC_NOTRIGGER;
+            PRECONDITION(CheckPointer(this));
 #ifdef DEBUGGING_SUPPORTED
-        PRECONDITION(m_Crst.OwnedByCurrentThread() ||
-            CORDebuggerAttached() 
-            //This condition should be true, but it is awkward to assert it because adding dbginterface.h creates lots of cycles in the includes
-            //It didn't seem valuable enough to refactor out a wrapper just to preserve it
-            /*&& g_pDebugInterface->IsStopped()*/);
+            PRECONDITION(m_Crst.OwnedByCurrentThread() ||
+                CORDebuggerAttached() 
+                // This condition should be true, but it is awkward to assert it because adding dbginterface.h creates lots of cycles in the includes
+                // It didn't seem valuable enough to refactor out a wrapper just to preserve it
+                /* && g_pDebugInterface->IsStopped() */);
 #else
         PRECONDITION(m_Crst.OwnedByCurrentThread());
 #endif // DEBUGGING_SUPPORTED

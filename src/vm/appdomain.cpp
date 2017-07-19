@@ -8144,13 +8144,13 @@ void AppDomain::Exit(BOOL fRunFinalizers, BOOL fAsyncExit)
     LOG((LF_APPDOMAIN | LF_CORDB, LL_INFO10, "AppDomain::Domain [%d] %#08x %ls is exited.\n",
          GetId().m_dwId, this, GetFriendlyNameForLogging()));
 
-    CodeVersionManager::OnAppDomainExit(this);
-
     // Send ETW events for this domain's unload and potentially iterate through this
     // domain's modules & assemblies to send events for their unloads as well.  This
     // needs to occur before STAGE_FINALIZED (to ensure everything is there), so we do
     // this before any finalization occurs at all.
     ETW::LoaderLog::DomainUnload(this);
+
+    CodeVersionManager::OnAppDomainExit(this);
 
     //
     // Spin running finalizers until we flush them all.  We need to make multiple passes

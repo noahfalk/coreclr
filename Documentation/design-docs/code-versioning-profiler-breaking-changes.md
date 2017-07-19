@@ -9,14 +9,14 @@ Code versioning, and in particular its use for tiered compilation means that the
 ## Likely ways you will see behavior change ##
 
 1. There will be more JITCompilation events, and potentially more ReJIT compilation events than there were before.
-  - **Question:** When an IL code body that has been instrumented by the profiler using RequestReJIT is jitted multiple times by the runtime, precedence suggests the first JIT compilation should emit ReJITCompilationStarted/ReJITCompilationFinished. However when the same instrumented IL code body is jitted again by the runtime should the runtime emit JITCompilation events, ReJITCompilation events, or something else? The easiest/fastest performing option within the runtime is to generate ReJITCompilation events.
-  - **Question 2:** Same thing, but for methods that have not been instrumented by RequestReJIT. When these methods are jitted multiple times the easiest/most performant runtime option would be to emit more JITCompilation events, but would some other event type be preferred?
 
-2. These JIT events may originate from a background worker thread that may different from the thread which ulimately runs the jitted code. 
+2. These JIT events may originate from a background worker thread that may be different from the thread which ultimately runs the jitted code. 
 
-3. Calls to ICorProfiler4::GetCodeInfo3 will only return information about the first jitted code body for a given FunctionID,rejitID pair. If profiler scenarios require an enumeration of every jitted code body a new API will need to be created and consumed.
+3. Calls to ICorProfilerInfo4::GetCodeInfo3 will only return information about the first jitted code body for a given FunctionID,rejitID pair. We'll need to create a new API to handle code bodies after the first.
 
-4. A by-product of the current runtime changes is that IL supplied during the JITCompilationStarted callback is now verified the same as if you had provided it during ModuleLoadFinished. This verification might be beneficial, but if there was a useful reason to continue not verifying it I could restore the original no-verification behavior.
+4. Calls to ICorProfilerInfo4::GetILToNativeMapping2 will only return information about the first jitted code body for a given FunctionID,rejitID pair. We'll need to create a new API to handle code bodies after the first.
+
+5. IL supplied during the JITCompilationStarted callback is now verified the same as if you had provided it during ModuleLoadFinished.
 
 
 ## Obscure ways you might see behavior change ##
