@@ -586,7 +586,7 @@ PCODE MethodDesc::JitCompileCode(PrepareCodeConfig* pConfig)
         JitListLock::LockHolder pJitLock(GetDomain()->GetJitLock());
 
         // It is possible that another thread stepped in before we entered the global lock for the first time.
-        if (pCode = pConfig->IsJitCancellationRequested())
+        if ((pCode = pConfig->IsJitCancellationRequested()))
         {
             return pCode;
         }
@@ -642,7 +642,7 @@ PCODE MethodDesc::JitCompileCode(PrepareCodeConfig* pConfig)
             }
 
             // It is possible that another thread stepped in before we entered the lock.
-            if (pCode = pConfig->IsJitCancellationRequested())
+            if ((pCode = pConfig->IsJitCancellationRequested()))
             {
                 return pCode;
             }
