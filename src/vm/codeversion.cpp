@@ -822,7 +822,14 @@ DWORD ILCodeVersion::GetJitFlags() const
 const InstrumentedILOffsetMapping* ILCodeVersion::GetInstrumentedILMap() const
 {
     LIMITED_METHOD_DAC_CONTRACT;
-    return AsNode()->GetInstrumentedILMap();
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetInstrumentedILMap();
+    }
+    else
+    {
+        return NULL;
+    }
 }
 
 #ifndef DACCESS_COMPILE

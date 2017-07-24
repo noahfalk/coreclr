@@ -910,7 +910,8 @@ void DacDbiInterfaceImpl::ComposeMapping(const InstrumentedILOffsetMapping * pPr
     // directly accesses the debug info, which stores the instrumented IL offsets.
 
     ULONG32 entryCount = *pEntryCount;
-    if (!pProfilerILMap->IsNull())
+    // The map pointer could be NULL or there could be no entries in the map, in either case no work to do
+    if (pProfilerILMap && !pProfilerILMap->IsNull())
     {
         // If we did instrument, then we can't have any sequence points that
         // are "in-between" the old-->new map that the profiler gave us.
@@ -7243,8 +7244,17 @@ HRESULT DacDbiInterfaceImpl::GetILCodeVersionNodeData(VMPTR_ILCodeVersionNode vm
     pData->m_state = pILCodeVersionNode->GetRejitState();
     pData->m_pbIL = PTR_TO_CORDB_ADDRESS(dac_cast<ULONG_PTR>(pILCodeVersionNode->GetIL()));
     pData->m_dwCodegenFlags = pILCodeVersionNode->GetJitFlags();
-    pData->m_cInstrumentedMapEntries = (ULONG)pILCodeVersionNode->GetInstrumentedILMap()->GetCount();
-    pData->m_rgInstrumentedMapEntries = PTR_TO_CORDB_ADDRESS(dac_cast<ULONG_PTR>(pILCodeVersionNode->GetInstrumentedILMap()->GetOffsets()));
+    const InstrumentedILOffsetMapping* pMapping = pILCodeVersionNode->GetInstrumentedILMap();
+    if (pMapping)
+    {
+        pData->m_cInstrumentedMapEntries = (ULONG)pMapping->GetCount();
+        pData->m_rgInstrumentedMapEntries = PTR_TO_CORDB_ADDRESS(dac_cast<ULONG_PTR>(pMapping->GetOffsets()));
+    }
+    else
+    {
+        pData->m_cInstrumentedMapEntries = 0;
+        pData->m_rgInstrumentedMapEntries = 0;
+    }
 #else
     _ASSERTE(!"You shouldn't be calling this - rejit isn't supported in this build");
 #endif
