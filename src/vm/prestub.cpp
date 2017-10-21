@@ -695,11 +695,22 @@ PCODE MethodDesc::JitCompileCodeLockedEventWrapper(PrepareCodeConfig* pConfig, J
     }
 #endif // PROFILING_SUPPORTED
 
+    // Historically the runtime only produces one set of jit completion events for any given
+    // jitting. Even though multiple threads could produce duplicate start events only the
+    // winning thread in the race emits the completion events. Its not clear this is actually
+    // the easiest to handle policy for the event consumers but we shouldn't change it without
+    // thinking through the implications.
+    BOOL jittedOnThisThread = FALSE;
+
     if (!ETW_TRACING_CATEGORY_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER_Context,
         TRACE_LEVEL_VERBOSE,
         CLR_JIT_KEYWORD))
     {
-        pCode = JitCompileCodeLocked(pConfig, pEntry, &sizeOfCode, &flags);
+        pCode = JitCompileCodeLocked(pConfig, pEntry, &sizeOfCode, &flags, &jittedOnThisThread);
+        if (!jittedOnThisThread)
+        {
+            return pCode;
+        }
     }
     else
     {
@@ -719,7 +730,11 @@ PCODE MethodDesc::JitCompileCodeLockedEventWrapper(PrepareCodeConfig* pConfig, J
             &methodSignature);
 #endif
 
-        pCode = JitCompileCodeLocked(pConfig, pEntry, &sizeOfCode, &flags);
+        pCode = JitCompileCodeLocked(pConfig, pEntry, &sizeOfCode, &flags, &jittedOnThisThread);
+        if (!jittedOnThisThread)
+        {
+            return pCode;
+        }
 
         // Interpretted methods skip this notification
 #ifdef FEATURE_INTERPRETER
@@ -819,11 +834,12 @@ PCODE MethodDesc::JitCompileCodeLockedEventWrapper(PrepareCodeConfig* pConfig, J
     return pCode;
 }
 
-PCODE MethodDesc::JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pEntry, ULONG* pSizeOfCode, CORJIT_FLAGS* pFlags)
+PCODE MethodDesc::JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEntry* pEntry, ULONG* pSizeOfCode, CORJIT_FLAGS* pFlags, BOOL* wasJittedOnThisThread)
 {
     STANDARD_VM_CONTRACT;
 
     PCODE pCode = NULL;
+    *wasJittedOnThisThread = FALSE;
 
     // The profiler may have changed the code on the callback.  Need to
     // pick up the new code. 
@@ -898,7 +914,7 @@ PCODE MethodDesc::JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEn
 
     // We succeeded in jitting the code, and our jitted code is the one that's going to run now.
     pEntry->m_hrResultCode = S_OK;
-
+    *wasJittedOnThisThread = TRUE;
     return pCode;
 }
 
