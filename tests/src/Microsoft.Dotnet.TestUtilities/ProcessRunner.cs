@@ -121,6 +121,21 @@ namespace Microsoft.Dotnet.TestUtilities
             return this;
         }
 
+        public ProcessRunner WithEnvironment(IDictionary<string,string> environmentVariables)
+        {
+            lock (_lock)
+            {
+                if(environmentVariables != null)
+                {
+                    foreach (KeyValuePair<string, string> kv in environmentVariables)
+                    {
+                        _p.StartInfo.Environment[kv.Key] = kv.Value;
+                    }    
+                }
+            }
+            return this;
+        }
+
         public ProcessRunner WithWorkingDirectory(string workingDirectory)
         {
             lock (_lock)

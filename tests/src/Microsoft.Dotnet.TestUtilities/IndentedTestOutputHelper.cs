@@ -17,7 +17,12 @@ namespace Microsoft.Dotnet.TestUtilities
         readonly ITestOutputHelper _output;
         readonly string _closingBrace;
 
-        public IndentedTestOutputHelper(string header, ITestOutputHelper innerOutput, string indentText = "    ", string openingBrace = "{", string closingBrace = "}")
+        public IndentedTestOutputHelper(string header, ITestOutputHelper innerOutput) :
+            this(header, innerOutput, "    ", "{", "}" + Environment.NewLine)
+        {
+        }
+
+        public IndentedTestOutputHelper(string header, ITestOutputHelper innerOutput, string indentText, string openingBrace, string closingBrace)
         {
             _output = innerOutput;
             _indentText = indentText;

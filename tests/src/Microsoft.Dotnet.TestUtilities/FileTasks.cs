@@ -43,7 +43,6 @@ namespace Microsoft.Dotnet.TestUtilities
                     localZipStream.Write(buffer, 0, read);
                     bytesLeft -= read;
                 }
-                output.WriteLine("Downloading finished");
             }
         }
 
@@ -142,6 +141,35 @@ namespace Microsoft.Dotnet.TestUtilities
                    WithLog(output).
                    WithExpectedExitCode(0).
                    Run();
+        }
+
+        public static void DirectoryCopy(string sourceDir, string destDir, ITestOutputHelper output = null, bool overwrite = true)
+        {
+            if(output != null)
+            {
+                output.WriteLine("Copying " + sourceDir + " -> " + destDir);
+            }
+            
+            DirectoryInfo dir = new DirectoryInfo(sourceDir);
+
+            DirectoryInfo[] dirs = dir.GetDirectories();
+            if (!Directory.Exists(destDir))
+            {
+                Directory.CreateDirectory(destDir);
+            }
+
+            FileInfo[] files = dir.GetFiles();
+            foreach (FileInfo file in files)
+            {
+                string temppath = Path.Combine(destDir, file.Name);
+                file.CopyTo(temppath, overwrite);
+            }
+
+            foreach (DirectoryInfo subdir in dirs)
+            {
+                string temppath = Path.Combine(destDir, subdir.Name);
+                DirectoryCopy(subdir.FullName, temppath, null, overwrite);
+            }
         }
     }
 }

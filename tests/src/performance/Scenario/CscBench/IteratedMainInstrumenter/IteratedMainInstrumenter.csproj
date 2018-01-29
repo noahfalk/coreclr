@@ -6,7 +6,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Microsoft.Dotnet.TestUtilities\Microsoft.Dotnet.TestUtilities.csproj" />
+    <PackageReference Include="Mono.Cecil" Version="0.10.0-beta7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CscRefAssembly\CscRefAssembly.csproj" />
   </ItemGroup>
 
 </Project>

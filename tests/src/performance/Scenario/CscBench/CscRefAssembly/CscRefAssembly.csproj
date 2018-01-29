@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.0</TargetFramework>
+    <AssemblyName>csc</AssemblyName>
+    <ApplicationIcon />
+    <OutputType>Exe</OutputType>
+    <StartupObject />
+    <AssemblyVersion>2.3.2.61921</AssemblyVersion>
+    <FileVersion>2.3.2.61921</FileVersion>
+  </PropertyGroup>
+
+</Project>
