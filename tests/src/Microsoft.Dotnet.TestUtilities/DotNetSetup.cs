@@ -89,7 +89,22 @@ namespace Microsoft.Dotnet.TestUtilities
                 if(remoteRuntimePath != null)
                 {
                     await FileTasks.DownloadAndUnzip(remoteRuntimePath, DotNetDirPath, acquireOutput);
+
+                    // the SDK may have included another runtime version, but to help prevent mistakes
+                    // where a test might run against a different version than we intended all other
+                    // versions will be deleted.
+                    string mnappDirPath = Path.Combine(DotNetDirPath, "shared", "Microsoft.NETCore.App");
+                    foreach (string dir in Directory.GetDirectories(mnappDirPath))
+                    {
+                        string versionDir = Path.GetFileName(dir);
+                        if (versionDir != RuntimeVersion)
+                        {
+                            Directory.Delete(dir, true);
+                        }
+                    }
                 }
+
+                
 
                 DotNetSetupResult result = new DotNetSetupResult();
                 result.DotNetDirPath = DotNetDirPath;

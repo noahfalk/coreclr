@@ -32,6 +32,11 @@ namespace CscBench
                 Iterations = 10
             };
 
+            if(options.IntermediateOutputDirectory != null)
+            {
+                run.IntermediateOutputDirPath = options.IntermediateOutputDirectory;
+            }
+
             if(options.CoreCLRBinaryDir != null)
             {
                 if(!Directory.Exists(options.CoreCLRBinaryDir))
@@ -121,6 +126,8 @@ namespace CscBench
         static IEnumerable<Benchmark> GetBenchmarks(CommandLineOptions options)
         {
             yield return new CscRoslynSourceBenchmark();
+            yield return new CscHelloWorldBenchmark();
+            yield return new BuildHelloWorldBenchmark();
         }
 
         static IEnumerable<BenchmarkConfiguration> GetBenchmarkConfigurations(CommandLineOptions options)

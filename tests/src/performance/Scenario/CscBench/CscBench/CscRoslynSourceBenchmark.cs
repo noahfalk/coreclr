@@ -14,7 +14,7 @@ namespace CscBench
         {
         }
 
-        protected override async Task SetupSourceToCompile(string intermediateOutputDir, ITestOutputHelper output)
+        protected override async Task SetupSourceToCompile(string intermediateOutputDir, string runtimeDirPath, ITestOutputHelper output)
         {
             string cscSourceDownloadLink = "https://roslyninfra.blob.core.windows.net/perf-artifacts/CodeAnalysisRepro" +
                     (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".zip" : ".tar.gz");

@@ -59,7 +59,7 @@ namespace CscBench
         void DisplayBenchmarkResults(ITestOutputHelper output)
         {
             StringBuilder columnHeader = new StringBuilder();
-            columnHeader.Append("Benchmark           ");
+            columnHeader.Append("Benchmark                ");
             foreach(BenchmarkConfiguration config in Configurations)
             {
                 columnHeader.AppendFormat("{0,15}", config.Name);
@@ -68,7 +68,7 @@ namespace CscBench
             foreach(Benchmark benchmark in Benchmarks)
             {
                 StringBuilder row = new StringBuilder();
-                row.AppendFormat("{0,20}", benchmark.Name);
+                row.AppendFormat("{0,-25}", benchmark.Name);
                 foreach(BenchmarkConfiguration config in Configurations)
                 {
                     int[] timings = benchmark.IterationTimings[config];
