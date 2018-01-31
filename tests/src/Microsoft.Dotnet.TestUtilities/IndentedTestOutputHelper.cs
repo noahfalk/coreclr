@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using Xunit.Abstractions;
 
 namespace Microsoft.Dotnet.TestUtilities
 {
@@ -39,11 +38,6 @@ namespace Microsoft.Dotnet.TestUtilities
         public void WriteLine(string message)
         {
             _output.WriteLine(_indentText + message);
-        }
-
-        public void WriteLine(string format, params object[] args)
-        {
-            _output.WriteLine(_indentText + format, args);
         }
     }
 }

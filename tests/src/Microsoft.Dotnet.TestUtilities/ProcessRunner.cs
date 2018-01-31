@@ -5,7 +5,6 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Xunit.Abstractions;
 
 namespace Microsoft.Dotnet.TestUtilities
 {
@@ -443,8 +442,8 @@ namespace Microsoft.Dotnet.TestUtilities
             {
                 if (_traceOutput != null)
                 {
-                    string message = string.Format(format, args);
-                    _traceOutput.WriteLine("TRACE: {0}", message);
+                    string message = string.Format("TRACE: " + format, args);
+                    _traceOutput.WriteLine(message);
                 }
             }
         }

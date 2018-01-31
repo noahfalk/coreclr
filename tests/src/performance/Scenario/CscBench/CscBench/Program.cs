@@ -1,17 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics.Tracing;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Diagnostics.Tracing;
-using Microsoft.Diagnostics.Tracing.Parsers;
-using Microsoft.Diagnostics.Tracing.Session;
 using Microsoft.Dotnet.TestUtilities;
-using Mono.Cecil;
-using Mono.Cecil.Cil;
-using Xunit.Abstractions;
 
 namespace CscBench
 {
@@ -25,122 +18,140 @@ namespace CscBench
         public static async Task AsyncMain(string[] args)
         {
             ConsoleTestOutputHelper output = new ConsoleTestOutputHelper();
-            CscTestSetup setup = await PrepareSetup(output);
-            CscTestConfiguration[] configs = DetermineTestConfigurations(setup);
+            CommandLineOptions options = CommandLineOptions.Parse(args);
+            TestRun testRun = ConfigureTestRun(options, output);
+            await testRun.Run(output);
+        }
 
-            foreach(var config in configs)
+        static TestRun ConfigureTestRun(CommandLineOptions options, ITestOutputHelper output)
+        {
+            TestRun run = new TestRun()
             {
-                await MeasureCscIterations(config, output);
-            }
-            
-            ExportResults(configs, output);
-        }
-
-        public class CscTestConfiguration
-        {
-            public string Name { get; set; }
-            public CscTestSetup Setup { get; set; }
-            public Dictionary<string, string> Environment { get; set; }
-            public int[] IterationTimings { get; set; }
-        }
-
-        public class CscTestSetup
-        {
-            public string DotnetExePath { get; set; }
-            public string CscBinaryPath { get; set; }
-            public string CscWorkingDirPath { get; set; }
-            public string CscCommandLineArgs { get; set; }
-        }
-
-        static async Task<CscTestSetup> PrepareSetup(ITestOutputHelper output)
-        {
-            using (IndentedTestOutputHelper setupOutput = new IndentedTestOutputHelper("Setup", output))
-            {
-                string workingDirectory = Path.Combine(Directory.GetCurrentDirectory(), @"bin\Debug\netcoreapp2.0");
-
-                //acquire dotnet
-                var downloadWork = AcquireDotNetWorkItem.DownloadSDK("2.0.0", RuntimeInformation.OSArchitecture, Path.Combine(workingDirectory, ".dotnet"));
-                //await downloadWork.Run(setupOutput);
-
-                //acquire csc source
-                string cscSourceDownloadLink = "https://roslyninfra.blob.core.windows.net/perf-artifacts/CodeAnalysisRepro" +
-                    (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".zip" : ".tar.gz");
-                string localCscSourceDir = Path.Combine(workingDirectory, "cscSource");
-                //await FileTasks.DownloadAndUnzip(cscSourceDownloadLink, localCscSourceDir, output);
-                string dotnetPath = downloadWork.LocalDotNetPath;
-                string cscSourceDir = Path.Combine(localCscSourceDir, "CodeAnalysisRepro");
-
-                // acquire csc binary
-                // TODO: rewrite runtineconfig.json as needed
-                string cscBinaryDirPath = Path.Combine(Path.GetDirectoryName(downloadWork.LocalDotNetPath), @"sdk\2.0.0\Roslyn");
-                string localCscDir = Path.Combine(workingDirectory, "csc");
-                //FileTasks.DirectoryCopy(cscBinaryDirPath, localCscDir, setupOutput);
-                string cscPath = Path.Combine(localCscDir, "csc.exe");
-
-                return new CscTestSetup()
-                {
-                    DotnetExePath = downloadWork.LocalDotNetPath,
-                    CscBinaryPath = cscPath,
-                    CscWorkingDirPath = cscSourceDir,
-                    CscCommandLineArgs = "@repro.rsp"
-                };
-            }
-        }
-
-        public static CscTestConfiguration[] DetermineTestConfigurations(CscTestSetup setup)
-        {
-            Func<string, string, Dictionary<string, string>> EnvDictionary = (k, v) => {
-                Dictionary<string, string> dict = new Dictionary<string, string>();
-                dict.Add(k, v);
-                return dict;
+                IntermediateOutputDirPath = Directory.GetCurrentDirectory(),
+                DotnetFrameworkVersion = TieredJitBench.VersioningConstants.MicrosoftNetCoreAppPackageVersion,
+                Iterations = 10
             };
-            return new CscTestConfiguration[]
-            {
-                new CscTestConfiguration()
-                {
-                    Name = "Baseline",
-                    Setup = setup
-                },
-                new CscTestConfiguration()
-                {
-                    Name = "Tiered",
-                    Setup = setup,
-                    Environment = EnvDictionary("COMPLUS_EXPERIMENTAL_TieredCompilation", "1")
-                }
-            };
-        }
 
-        static async Task MeasureCscIterations(CscTestConfiguration config, ITestOutputHelper output)
-        {
-            using (var runCscOutput = new IndentedTestOutputHelper("Run " + config.Name + " Csc Iterations", output))
+            if(options.CoreCLRBinaryDir != null)
             {
-                config.IterationTimings = new int[10];
-                for (int i = 0; i < config.IterationTimings.Length; i++)
+                if(!Directory.Exists(options.CoreCLRBinaryDir))
                 {
-                    var cscProcess = new ProcessRunner(config.Setup.DotnetExePath, config.Setup.CscBinaryPath + " " + config.Setup.CscCommandLineArgs).
-                          WithWorkingDirectory(config.Setup.CscWorkingDirPath).
-                          WithEnvironment(config.Environment).
-                          WithLog(runCscOutput);
-                    await cscProcess.Run();
-                    config.IterationTimings[i] = (int)(DateTime.Now - cscProcess.StartTime).TotalMilliseconds;
+                    throw new Exception("coreclr-bin-dir directory " + options.CoreCLRBinaryDir + " does not exist");
                 }
+                run.PrivateCoreCLRBinDirPath = options.CoreCLRBinaryDir;
             }
-        }
-
-        static void ExportResults(CscTestConfiguration[] configs, ITestOutputHelper output)
-        {
-            using (var resultsOutput = new IndentedTestOutputHelper("Results", output))
+            else
             {
-                foreach(CscTestConfiguration config in configs)
+                string coreRootEnv = Environment.GetEnvironmentVariable("CORE_ROOT");
+                if (coreRootEnv != null)
                 {
-                    using (var configOutput = new IndentedTestOutputHelper(config.Name, resultsOutput))
+                    if (!Directory.Exists(coreRootEnv))
                     {
-                        for (int i = 0; i < config.IterationTimings.Length; i++)
-                        {
-                            configOutput.WriteLine(string.Format("Iteration {0,2}: {1,5}", i, config.IterationTimings[i]));
-                        }
+                        throw new Exception("CORE_ROOT directory " + coreRootEnv + " does not exist");
+                    }
+                    run.PrivateCoreCLRBinDirPath = coreRootEnv;
+                }
+                else
+                {
+                    //maybe we've got private coreclr binaries in our current directory? Use those if so.
+                    string currentDirectory = Directory.GetCurrentDirectory();
+                    if(File.Exists(Path.Combine(currentDirectory, "System.Private.CoreLib.dll")))
+                    {
+                        run.PrivateCoreCLRBinDirPath = currentDirectory;
+                    }
+                    else
+                    {
+                        // don't use private CoreCLR binaries
                     }
                 }
+            }
+
+            if(options.DotnetFrameworkVersion != null)
+            {
+                run.DotnetFrameworkVersion = options.DotnetFrameworkVersion;
+            }
+
+            if(options.DotnetSdkVersion != null)
+            {
+                run.DotnetSdkVersion = options.DotnetSdkVersion;
+            }
+            run.DotnetSdkVersion = DotNetSetup.GetCompatibleDefaultSDKVersionForRuntimeVersion(run.DotnetFrameworkVersion);
+
+            if(options.TargetArchitecture != null)
+            {
+                if(options.TargetArchitecture.Equals("x64", StringComparison.OrdinalIgnoreCase))
+                {
+                    run.Architecture = Architecture.X64;
+                }
+                else if(options.TargetArchitecture.Equals("x86", StringComparison.OrdinalIgnoreCase))
+                {
+                    run.Architecture = Architecture.X86;
+                }
+                else
+                {
+                    throw new Exception("Unrecognized architecture " + options.TargetArchitecture);
+                }
+            }
+            else
+            {
+                run.Architecture = RuntimeInformation.ProcessArchitecture;
+            }
+
+            if(options.Iterations > 0)
+            {
+                run.Iterations = (int)options.Iterations;
+            }
+
+            run.Benchmarks.AddRange(GetBenchmarks(options));
+            run.Configurations.AddRange(GetBenchmarkConfigurations(options));
+
+            using (var runConfigSection = new IndentedTestOutputHelper("Test Run Configuration", output))
+            {
+                runConfigSection.WriteLine("DotnetFrameworkVersion:    " + run.DotnetFrameworkVersion);
+                runConfigSection.WriteLine("DotnetSdkVersion:          " + run.DotnetSdkVersion);
+                runConfigSection.WriteLine("PrivateCoreCLRBinDirPath:  " + run.PrivateCoreCLRBinDirPath);
+                runConfigSection.WriteLine("Architecture:              " + run.Architecture);
+                runConfigSection.WriteLine("IntermediateOutputDirPath: " + run.IntermediateOutputDirPath);
+                runConfigSection.WriteLine("Iterations:                " + run.Iterations);
+            }
+
+            return run;
+        }
+
+        static IEnumerable<Benchmark> GetBenchmarks(CommandLineOptions options)
+        {
+            yield return new CscRoslynSourceBenchmark();
+        }
+
+        static IEnumerable<BenchmarkConfiguration> GetBenchmarkConfigurations(CommandLineOptions options)
+        {
+            if(options.EnableTiering || options.Minopts || options.DisableR2R || options.DisableNgen)
+            {
+                BenchmarkConfiguration config = new BenchmarkConfiguration();
+                if(options.EnableTiering)
+                {
+                    config.WithTiering();
+                }
+                if(options.Minopts)
+                {
+                    config.WithMinOpts();
+                }
+                if(options.DisableR2R)
+                {
+                    config.WithNoR2R();
+                }
+                if(options.DisableNgen)
+                {
+                    config.WithNoNgen();
+                }
+                yield return config;
+            }
+            else
+            {
+                yield return new BenchmarkConfiguration();
+                yield return new BenchmarkConfiguration().WithTiering();
+                yield return new BenchmarkConfiguration().WithMinOpts();
+                yield return new BenchmarkConfiguration().WithNoR2R();
             }
         }
     }

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Xml;
-using Xunit.Abstractions;
 
 namespace Microsoft.Dotnet.TestUtilities
 {
