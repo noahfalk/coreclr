@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "CscBench": {
+      "commandName": "Project",
+      "commandLineArgs": "--coreclr-bin-dir F:\\github\\coreclr\\bin\\Product\\Windows_NT.x64.Release --iterations 2"
+    }
+  }
+}
