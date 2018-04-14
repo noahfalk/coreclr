@@ -24,15 +24,23 @@ namespace JitBench
         public static void Download(string remotePath, string localPath, ITestOutputHelper output)
         {
             output.WriteLine("Downloading: " + remotePath + " -> " + localPath);
-            Directory.CreateDirectory(Path.GetDirectoryName(localPath));
-            using (var client = new HttpClient())
+            try
             {
-                using (FileStream localStream = File.Create(localPath))
+                Directory.CreateDirectory(Path.GetDirectoryName(localPath));
+                using (var client = new HttpClient())
                 {
-                    using (Stream stream = client.GetStreamAsync(remotePath).Result)
-                        stream.CopyTo(localStream);
-                    localStream.Flush();
+                    using (FileStream localStream = File.Create(localPath))
+                    {
+                        using (Stream stream = client.GetStreamAsync(remotePath).Result)
+                            stream.CopyTo(localStream);
+                        localStream.Flush();
+                    }
                 }
+            }
+            catch(Exception e)
+            {
+                output.WriteLine("Error: " + e.ToString());
+                throw;
             }
         }
 

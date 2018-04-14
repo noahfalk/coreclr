@@ -14,8 +14,8 @@ namespace JitBench
         {
             using (var setupSection = new IndentedTestOutputHelper("Setup " + Name, output))
             {
-                SetupCscBinDir(dotNetInstall.SdkDir, dotNetInstall.FrameworkVersion, intermediateOutputDir, useExistingSetup, setupSection);
-                await SetupSourceToCompile(intermediateOutputDir, dotNetInstall.FrameworkDir, useExistingSetup, setupSection);
+                SetupCscBinDir(dotNetInstall.SdkDir, dotNetInstall.MicrosoftNetCoreAppVersion, intermediateOutputDir, useExistingSetup, setupSection);
+                await SetupSourceToCompile(intermediateOutputDir, dotNetInstall.MicrosoftNetCoreAppDir, useExistingSetup, setupSection);
             }
         }
 

@@ -22,6 +22,7 @@ namespace JitBench
         public bool UseExistingSetup { get; set; }
         public string DotnetFrameworkVersion { get; set; }
         public string DotnetSdkVersion { get; set; }
+        public string AspNetCoreVersion { get; set; }
         public string PrivateCoreCLRBinDir { get; set; }
         public Architecture Architecture { get; set; }
         public string OutputDir { get; set; }
@@ -108,6 +109,7 @@ namespace JitBench
             output.WriteLine("");
             output.WriteLine("DotnetFrameworkVersion: " + DotnetFrameworkVersion);
             output.WriteLine("DotnetSdkVersion:       " + DotnetSdkVersion);
+            output.WriteLine("AspNetCoreVersion:      " + AspNetCoreVersion);
             output.WriteLine("PrivateCoreCLRBinDir:   " + PrivateCoreCLRBinDir);
             output.WriteLine("Architecture:           " + Architecture);
             output.WriteLine("OutputDir:              " + OutputDir);
@@ -142,17 +144,21 @@ namespace JitBench
                                 .WithArchitecture(Architecture);
                 if(DotnetFrameworkVersion != "use-sdk")
                 {
-                    setup.WithFrameworkVersion(DotnetFrameworkVersion);
+                    setup.MicrosoftNetCoreAppVersion = DotnetFrameworkVersion;
+                }
+                if(AspNetCoreVersion != "use-sdk")
+                {
+                    setup.MicrosoftAspNetCoreVersion = AspNetCoreVersion;
                 }
                 if (PrivateCoreCLRBinDir != null)
                 {
-                    setup.WithPrivateRuntimeBinaryOverlay(PrivateCoreCLRBinDir);
+                    setup.PrivateRuntimeBinaryDirPath = PrivateCoreCLRBinDir;
                 }
                 DotNetInstallation = await setup.Run(output);
             }
             else
             {
-                DotNetInstallation = new DotNetInstallation(Path.Combine(OutputDir, ".dotnet"), DotnetFrameworkVersion, DotnetSdkVersion, Architecture);
+                DotNetInstallation = new DotNetInstallation(Path.Combine(OutputDir, ".dotnet"), DotnetFrameworkVersion, DotnetSdkVersion, AspNetCoreVersion, Architecture);
             }
         }
 

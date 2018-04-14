@@ -42,7 +42,7 @@ namespace JitBench
                     await DownloadAndExtractTextCorpus(dotNetInstall, outputDir, setupSection);
                 }
             }
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
+            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.MicrosoftNetCoreAppVersion);
             WorkingDirPath = GetWord2VecNetPublishDirectory(dotNetInstall, outputDir, tfm);
         }
 
@@ -71,7 +71,7 @@ namespace JitBench
         {
             // If the file already exists, exit
             string word2VecNetRepoRootDir = GetWord2VecNetRepoRootDir(outputDir);
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
+            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.MicrosoftNetCoreAppVersion);
             string word2VecNetPublishDir = GetWord2VecNetPublishDirectory(dotNetInstall, outputDir, tfm);
 
             // Download the corpus of text. This is a zip file that contains a text file of 100M of text from Wikipedia
@@ -84,7 +84,7 @@ namespace JitBench
 
         private async Task<string> Publish(DotNetInstallation dotNetInstall, string outputDir, ITestOutputHelper output)
         {
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
+            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.MicrosoftNetCoreAppVersion);
             string publishDir = GetWord2VecNetPublishDirectory(dotNetInstall, outputDir, tfm);
             if (publishDir != null)
             {
@@ -94,7 +94,7 @@ namespace JitBench
             await new ProcessRunner(dotNetExePath, $"publish -c Release -f {tfm}")
                 .WithWorkingDirectory(GetWord2VecNetSrcDirectory(outputDir))
                 .WithEnvironmentVariable("DOTNET_MULTILEVEL_LOOKUP", "0")
-                .WithEnvironmentVariable("WORD2VEC_FRAMEWORK_VERSION", dotNetInstall.FrameworkVersion)
+                .WithEnvironmentVariable("WORD2VEC_FRAMEWORK_VERSION", dotNetInstall.MicrosoftNetCoreAppVersion)
                 .WithEnvironmentVariable("UseSharedCompilation", "false")
                 .WithLog(output)
                 .Run();

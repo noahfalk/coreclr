@@ -53,14 +53,19 @@ namespace JitBench
                 using (var setupSection = new IndentedTestOutputHelper("Setup " + Name, output))
                 {
                     await CloneAspNetJitBenchRepo(outputDir, setupSection);
-                    await CreateStore(dotNetInstall, outputDir, setupSection);
+
+                    //we need aspnetcore-dev feed to install asp.net daily builds. We could push this change upstream into the JitBench repo
+                    //but it was logistically easier to just overwrite NuGet.config for now.
+                    if(dotNetInstall.MicrosoftAspNetCoreVersion.Contains("preview"))
+                    {
+                        OverwriteNuGetConfig(outputDir, setupSection);
+                    }
                     await Publish(dotNetInstall, outputDir, setupSection);
                 }
             }
 
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
+            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.MicrosoftNetCoreAppVersion);
             WorkingDirPath = GetWebAppPublishDirectory(dotNetInstall, outputDir, tfm);
-            EnvironmentVariables.Add("DOTNET_SHARED_STORE", GetWebAppStoreDir(outputDir));
         }
 
         async Task CloneAspNetJitBenchRepo(string outputDir, ITestOutputHelper output)
@@ -82,37 +87,44 @@ namespace JitBench
                 throw new Exception($"git {arguments} has failed, the exit code was {exitCode}");
         }
 
-        private async Task CreateStore(DotNetInstallation dotNetInstall, string outputDir, ITestOutputHelper output)
+        void OverwriteNuGetConfig(string outputDir, ITestOutputHelper output)
         {
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
-            string rid = $"win7-{dotNetInstall.Architecture}";
-            string storeDirName = ".store";
-            await new ProcessRunner("powershell.exe", $".\\AspNet-GenerateStore.ps1 -InstallDir {storeDirName} -Architecture {dotNetInstall.Architecture} -Runtime {rid}")
-                .WithWorkingDirectory(GetJitBenchRepoRootDir(outputDir))
-                .WithEnvironmentVariable("PATH", $"{dotNetInstall.DotNetDir};{Environment.GetEnvironmentVariable("PATH")}")
-                .WithEnvironmentVariable("DOTNET_MULTILEVEL_LOOKUP", "0")
-                .WithEnvironmentVariable("JITBENCH_TARGET_FRAMEWORK_MONIKER", tfm)
-                .WithEnvironmentVariable("JITBENCH_FRAMEWORK_VERSION", dotNetInstall.FrameworkVersion)
-                .WithLog(output)
-                .Run();
+            string srcDir = GetWebAppSrcDirectory(outputDir);
+            if(!Directory.Exists(srcDir))
+            {
+                throw new Exception("Unable to find " + srcDir);
+            }
+            string nugetConfigPath = Path.Combine(srcDir, "NuGet.config");
+            string nugetConfigText =
+@"<?xml version=""1.0"" encoding=""utf-8""?>
+  <configuration>
+    <packageSources>
+      <clear/>
+      <add key=""aspnet core dev"" value=""https://dotnet.myget.org/F/aspnetcore-dev/api/v3/index.json"" />
+      <add key=""dotnet core"" value=""https://dotnet.myget.org/F/dotnet-core/api/v3/index.json"" />
+      <add key=""NuGet"" value=""https://api.nuget.org/v3/index.json""/>
+    </packageSources>
+  </configuration>
+";
+            output.WriteLine("Overwriting " + nugetConfigPath + " to add aspnetcore-dev feed");
+            File.WriteAllText(nugetConfigPath, nugetConfigText);
         }
 
         private async Task<string> Publish(DotNetInstallation dotNetInstall, string outputDir, ITestOutputHelper output)
         {
-            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.FrameworkVersion);
+            string tfm = DotNetSetup.GetTargetFrameworkMonikerForFrameworkVersion(dotNetInstall.MicrosoftNetCoreAppVersion);
             string publishDir = GetWebAppPublishDirectory(dotNetInstall, outputDir, tfm);
-            string manifestPath = Path.Combine(GetWebAppStoreDir(outputDir), dotNetInstall.Architecture, tfm, "artifact.xml");
             if (publishDir != null)
             {
                 FileTasks.DeleteDirectory(publishDir, output);
             }
             string dotNetExePath = dotNetInstall.DotNetExe;
-            await new ProcessRunner(dotNetExePath, $"publish -c Release -f {tfm} --manifest {manifestPath}")
+            await new ProcessRunner(dotNetExePath, $"publish -c Release -f {tfm}")
                 .WithWorkingDirectory(GetWebAppSrcDirectory(outputDir))
                 .WithEnvironmentVariable("DOTNET_MULTILEVEL_LOOKUP", "0")
-                .WithEnvironmentVariable("JITBENCH_ASPNET_VERSION", "2.0")
+                .WithEnvironmentVariable("JITBENCH_ASPNET_VERSION", dotNetInstall.MicrosoftAspNetCoreVersion)
                 .WithEnvironmentVariable("JITBENCH_TARGET_FRAMEWORK_MONIKER", tfm)
-                .WithEnvironmentVariable("JITBENCH_FRAMEWORK_VERSION", dotNetInstall.FrameworkVersion)
+                .WithEnvironmentVariable("JITBENCH_FRAMEWORK_VERSION", dotNetInstall.MicrosoftNetCoreAppVersion)
                 .WithEnvironmentVariable("UseSharedCompilation", "false")
                 .WithLog(output)
                 .Run();

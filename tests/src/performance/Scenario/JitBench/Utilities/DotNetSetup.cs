@@ -19,22 +19,29 @@ namespace JitBench
         }
 
         public string DotNetDirPath { get; set; }
-        public string FrameworkVersion { get; set; }
+        public string MicrosoftNetCoreAppVersion { get; set; }
         public string SdkVersion { get; set; }
+        public string MicrosoftAspNetCoreVersion { get; set; }
         public OSPlatform OS { get; set; }
         public Architecture Architecture { get; set; }
         public string AzureFeed { get; set; }
         public string PrivateRuntimeBinaryDirPath { get; set; }
 
-        public DotNetSetup WithFrameworkVersion(string version)
+        public DotNetSetup WithMicrosoftNetCoreAppVersion(string version)
         {
-            FrameworkVersion = version;
+            MicrosoftNetCoreAppVersion = version;
             return this;
         }
 
         public DotNetSetup WithSdkVersion(string version)
         {
             SdkVersion = version;
+            return this;
+        }
+
+        public DotNetSetup WithMicrosoftAspNetCoreVersion(string version)
+        {
+            MicrosoftAspNetCoreVersion = version;
             return this;
         }
 
@@ -56,15 +63,27 @@ namespace JitBench
             return this;
         }
 
-        public string GetFrameworkDownloadLink()
+        public string GetMicrosoftNetCoreAppDownloadLink()
         {
-            if(FrameworkVersion == null)
+            if(MicrosoftNetCoreAppVersion == null)
             {
                 return null;
             }
             else
             {
-                return GetFrameworkDownloadLink(AzureFeed, FrameworkVersion, OS, Architecture);
+                return GetMicrosoftNetCoreAppDownloadLink(AzureFeed, MicrosoftNetCoreAppVersion, OS, Architecture);
+            }
+        }
+
+        public string GetMicrosoftAspNetCoreDownloadLink()
+        {
+            if (MicrosoftAspNetCoreVersion == null)
+            {
+                return null;
+            }
+            else
+            {
+                return GetMicrosoftAspNetCoreDownloadLink(AzureFeed, MicrosoftAspNetCoreVersion, OS, Architecture);
             }
         }
 
@@ -89,37 +108,78 @@ namespace JitBench
                 {
                     await FileTasks.DownloadAndUnzip(remoteSdkPath, DotNetDirPath, acquireOutput);
                 }
-                string remoteRuntimePath = GetFrameworkDownloadLink();
+
+
+
+                string remoteAspNetCorePath = GetMicrosoftAspNetCoreDownloadLink();
+                if (remoteAspNetCorePath != null)
+                {
+                    await FileTasks.DownloadAndUnzip(remoteAspNetCorePath, DotNetDirPath, acquireOutput);
+
+                    // the SDK may have included another AspNetCore version, but to help prevent mistakes
+                    // where a test might run against a different version than we intended all other
+                    // versions will be deleted.
+                    string aspNetAllDirPath = Path.Combine(DotNetDirPath, "shared", "Microsoft.AspNetCore.All");
+                    foreach (string dir in Directory.GetDirectories(aspNetAllDirPath))
+                    {
+                        string versionDir = Path.GetFileName(dir);
+                        if (versionDir != MicrosoftAspNetCoreVersion)
+                        {
+                            FileTasks.DeleteDirectory(dir, acquireOutput);
+                        }
+                    }
+                    string aspNetAppDirPath = Path.Combine(DotNetDirPath, "shared", "Microsoft.AspNetCore.App");
+                    foreach (string dir in Directory.GetDirectories(aspNetAllDirPath))
+                    {
+                        string versionDir = Path.GetFileName(dir);
+                        if (versionDir != MicrosoftAspNetCoreVersion)
+                        {
+                            FileTasks.DeleteDirectory(dir, acquireOutput);
+                        }
+                    }
+                }
+                string actualMicrosoftAspNetCoreVersion = MicrosoftAspNetCoreVersion;
+                if (actualMicrosoftAspNetCoreVersion == null)
+                {
+                    //if AspNetCore version is being infered from an SDK then snoop the filesystem to see what got installed
+                    foreach (string dirPath in Directory.EnumerateDirectories(Path.Combine(DotNetDirPath, "shared", "Microsoft.AspNetCore.All")))
+                    {
+                        actualMicrosoftAspNetCoreVersion = Path.GetFileName(dirPath);
+                        break;
+                    }
+                }
+
+                string remoteRuntimePath = GetMicrosoftNetCoreAppDownloadLink();
                 if(remoteRuntimePath != null)
                 {
                     await FileTasks.DownloadAndUnzip(remoteRuntimePath, DotNetDirPath, acquireOutput);
 
-                    // the SDK may have included another runtime version, but to help prevent mistakes
+                    // the SDK or ASP.Net may have included another runtime version, but to help prevent mistakes
                     // where a test might run against a different version than we intended all other
                     // versions will be deleted.
                     string mnappDirPath = Path.Combine(DotNetDirPath, "shared", "Microsoft.NETCore.App");
                     foreach (string dir in Directory.GetDirectories(mnappDirPath))
                     {
                         string versionDir = Path.GetFileName(dir);
-                        if (versionDir != FrameworkVersion)
+                        if (versionDir != MicrosoftNetCoreAppVersion)
                         {
                             FileTasks.DeleteDirectory(dir, acquireOutput);
                         }
                     }
                 }
-                string actualFrameworkVersion = FrameworkVersion;
-                if (actualFrameworkVersion == null)
+
+                string actualMicrosoftNetCoreAppVersion = MicrosoftNetCoreAppVersion;
+                if (actualMicrosoftNetCoreAppVersion == null)
                 {
                     //if Framework version is being infered from an SDK then snoop the filesystem to see what got installed
                     foreach (string dirPath in Directory.EnumerateDirectories(Path.Combine(DotNetDirPath, "shared", "Microsoft.NETCore.App")))
                     {
-                        actualFrameworkVersion = Path.GetFileName(dirPath);
+                        actualMicrosoftNetCoreAppVersion = Path.GetFileName(dirPath);
                         break;
                     }
                 }
 
-
-                DotNetInstallation result = new DotNetInstallation(DotNetDirPath, actualFrameworkVersion, SdkVersion, Architecture);
+                DotNetInstallation result = new DotNetInstallation(DotNetDirPath, actualMicrosoftNetCoreAppVersion, SdkVersion, actualMicrosoftAspNetCoreVersion, Architecture);
                 acquireOutput.WriteLine("Dotnet path: " + result.DotNetExe);
                 if (!File.Exists(result.DotNetExe))
                 {
@@ -132,11 +192,11 @@ namespace JitBench
                         throw new DirectoryNotFoundException("Sdk directory " + result.SdkDir + " not found");
                     }
                 }
-                if (result.FrameworkVersion != null)
+                if (result.MicrosoftNetCoreAppVersion != null)
                 {
-                    if (!Directory.Exists(result.FrameworkDir))
+                    if (!Directory.Exists(result.MicrosoftNetCoreAppDir))
                     {
-                        throw new DirectoryNotFoundException("Framework directory " + result.FrameworkDir + " not found");
+                        throw new DirectoryNotFoundException("Framework directory " + result.MicrosoftNetCoreAppDir + " not found");
                     }
 
                     //overlay private binaries if needed
@@ -144,8 +204,8 @@ namespace JitBench
                     {
                         foreach (string fileName in GetPrivateRuntimeOverlayBinaryNames(OS))
                         {
-                            string backupPath = Path.Combine(result.FrameworkDir, fileName + ".original");
-                            string overwritePath = Path.Combine(result.FrameworkDir, fileName);
+                            string backupPath = Path.Combine(result.MicrosoftNetCoreAppDir, fileName + ".original");
+                            string overwritePath = Path.Combine(result.MicrosoftNetCoreAppDir, fileName);
                             string privateBinPath = Path.Combine(PrivateRuntimeBinaryDirPath, fileName);
                             if (!File.Exists(backupPath))
                             {
@@ -203,19 +263,34 @@ namespace JitBench
 
         
 
-        public static string GetRuntimeDownloadLink(string version, Architecture arch)
+        public static string GetMicrosoftNetCoreAppDownloadLink(string version, Architecture arch)
         {
-            return GetFrameworkDownloadLink(DefaultAzureFeed, version, DefaultOSPlatform, arch);
+            return GetMicrosoftNetCoreAppDownloadLink(DefaultAzureFeed, version, DefaultOSPlatform, arch);
         }
 
-        public static string GetFrameworkDownloadLink(string azureFeed, string version, OSPlatform os, Architecture arch)
+        public static string GetMicrosoftNetCoreAppDownloadLink(string azureFeed, string version, OSPlatform os, Architecture arch)
         {
-            return GetRuntimeDownloadLink(azureFeed, version, GetNormalizedOSName(os), DotNetInstallation.GetNormalizedArchitectureName(arch));
+            return GetMicrosoftNetCoreAppDownloadLink(azureFeed, version, GetNormalizedOSName(os), DotNetInstallation.GetNormalizedArchitectureName(arch));
         }
 
-        public static string GetRuntimeDownloadLink(string azureFeed, string version, string os, string arch)
+        public static string GetMicrosoftNetCoreAppDownloadLink(string azureFeed, string version, string os, string arch)
         {
             return string.Format("{0}/Runtime/{1}/dotnet-runtime-{1}-{2}-{3}.zip", azureFeed, version, os, arch);
+        }
+
+        public static string GetMicrosoftAspNetCoreDownloadLink(string version, Architecture arch)
+        {
+            return GetMicrosoftAspNetCoreDownloadLink(DefaultAzureFeed, version, DefaultOSPlatform, arch);
+        }
+
+        public static string GetMicrosoftAspNetCoreDownloadLink(string azureFeed, string version, OSPlatform os, Architecture arch)
+        {
+            return GetMicrosoftAspNetCoreDownloadLink(azureFeed, version, GetNormalizedOSName(os), DotNetInstallation.GetNormalizedArchitectureName(arch));
+        }
+
+        public static string GetMicrosoftAspNetCoreDownloadLink(string azureFeed, string version, string os, string arch)
+        {
+            return string.Format("{0}/aspnetcore/Runtime/{1}/aspnetcore-runtime-{1}-{2}-{3}.zip", azureFeed, version, os, arch);
         }
 
         public static string GetSDKDownloadLink(string version, Architecture arch)
@@ -271,6 +346,11 @@ namespace JitBench
             }
         }
 
+        public static string GetCompatibleDefaultAspNetCoreVersionForRuntimeVersion(string runtimeVersion)
+        {
+            return "2.1.0-preview2-30475";
+        }
+
         public static string[] GetPrivateRuntimeOverlayBinaryNames(OSPlatform os)
         {
             return new string[]
@@ -305,16 +385,21 @@ namespace JitBench
 
     public class DotNetInstallation
     {
-        public DotNetInstallation(string dotNetDir, string frameworkVersion, string sdkVersion, Architecture architecture)
+        public DotNetInstallation(string dotNetDir, string microsoftNetCoreAppVersion, string sdkVersion, string microsoftAspNetCoreVersion, Architecture architecture)
         {
             DotNetDir = dotNetDir;
-            FrameworkVersion = frameworkVersion;
+            MicrosoftNetCoreAppVersion = microsoftNetCoreAppVersion;
             SdkVersion = sdkVersion;
+            MicrosoftAspNetCoreVersion = microsoftAspNetCoreVersion;
             Architecture = GetNormalizedArchitectureName(architecture);
             DotNetExe = Path.Combine(DotNetDir, "dotnet" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".exe" : ""));
-            if(frameworkVersion != null)
+            if(microsoftNetCoreAppVersion != null)
             {
-                FrameworkDir = GetFrameworkDir(dotNetDir, frameworkVersion);
+                MicrosoftNetCoreAppDir = GetMicrosoftNetCoreAppVersionedDir(dotNetDir, microsoftNetCoreAppVersion);
+            }
+            if(microsoftAspNetCoreVersion != null)
+            {
+                MicrosoftAspNetCoreAllDir = GetMicrosoftAspNetCoreAllVersionedDir(dotNetDir, microsoftAspNetCoreVersion);
             }
             if(sdkVersion != null)
             {
@@ -324,20 +409,32 @@ namespace JitBench
 
         public string DotNetExe { get; } 
         public string DotNetDir { get; }
-        public string FrameworkDir { get; }
-        public string FrameworkVersion { get; }
+        public string MicrosoftNetCoreAppDir { get; }
+        public string MicrosoftNetCoreAppVersion { get; }
         public string SdkDir { get; }
         public string SdkVersion { get; }
+        public string MicrosoftAspNetCoreAllDir { get; }
+        public string MicrosoftAspNetCoreVersion { get; }
         public string Architecture { get; }
 
-        public static string GetMNAppDir(string dotNetDir)
+        public static string GetMicrosoftNetCoreAppDir(string dotNetDir)
         {
             return Path.Combine(dotNetDir, "shared", "Microsoft.NETCore.App");
         }
 
-        public static string GetFrameworkDir(string dotNetDir, string frameworkVersion)
+        public static string GetMicrosoftNetCoreAppVersionedDir(string dotNetDir, string version)
         {
-            return Path.Combine(GetMNAppDir(dotNetDir), frameworkVersion);
+            return Path.Combine(GetMicrosoftNetCoreAppDir(dotNetDir), version);
+        }
+
+        public static string GetMicrosoftAspNetCoreAllDir(string dotNetDir)
+        {
+            return Path.Combine(dotNetDir, "shared", "Microsoft.NETCore.All");
+        }
+
+        public static string GetMicrosoftAspNetCoreAllVersionedDir(string dotNetDir, string version)
+        {
+            return Path.Combine(GetMicrosoftAspNetCoreAllDir(dotNetDir), version);
         }
 
         public static string GetSDKDir(string dotNetDir, string sdkVersion)

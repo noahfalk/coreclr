@@ -45,7 +45,15 @@
     <!-- Scenario tests install this version of Microsoft.NetCore.App, then patch coreclr binaries via xcopy. At the moment it is
          updated manually whenever breaking changes require it to move forward, but it would be nice if we could update it automatically
          as we do with many of the package versions above -->
-    <BaselineMicrosoftNetCoreAppPackageVersion>2.1.0-preview3-26327-01</BaselineMicrosoftNetCoreAppPackageVersion>
+    <BaselineMicrosoftNetCoreAppPackageVersion>2.1.0-preview2-26406-04</BaselineMicrosoftNetCoreAppPackageVersion>
+    <!-- Scenario tests install this version of Microsoft.AspNetCore.All 
+         Ideally I'd like to pin this to a stable release version and change it rarely, but 2.1 will be the first time that is possible and
+         it hasn't shipped yet. In 2.0 there wasn't a seperate Microsoft.AspNetCore.All framework - instead it was intermingled with NetCoreApp.
+         For versions between 2.0 and now, the ASP.Net binaries depend on changes that have been made in post-2.0 versions of NetCoreApp and
+         have followed in lockstep with intra-release breaking changes. Once 2.1 ships however we could pin that version of AspNet and post 2.1
+         NetCoreApp builds won't be able to make breaking changes in the APIs 2.1 ASP.Net uses.
+    -->
+    <BaselineMicrosoftAspNetCorePackageVersion>2.1.0-preview3-32185</BaselineMicrosoftAspNetCorePackageVersion>
   </PropertyGroup>
 
   <!-- Package versions used as toolsets -->

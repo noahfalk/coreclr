@@ -38,6 +38,7 @@ namespace JitBench
             {
                 OutputDir = GetInitialWorkingDir(),
                 DotnetFrameworkVersion = JitBench.VersioningConstants.MicrosoftNetCoreAppPackageVersion,
+                AspNetCoreVersion = JitBench.VersioningConstants.MicrosoftAspNetCorePackageVersion,
                 Iterations = 11
             };
 
@@ -93,7 +94,11 @@ namespace JitBench
             {
                 run.DotnetSdkVersion = DotNetSetup.GetCompatibleDefaultSDKVersionForRuntimeVersion(run.DotnetFrameworkVersion);
             }
-            
+
+            if(options.AspNetCoreVersion != null)
+            {
+                run.AspNetCoreVersion = options.AspNetCoreVersion;
+            }
 
             if(options.TargetArchitecture != null)
             {

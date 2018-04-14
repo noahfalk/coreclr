@@ -33,6 +33,9 @@ namespace JitBench
         [Option("dotnet-sdk-version", Required = false, HelpText = "The version of dotnet SDK to install for this test")]
         public string DotnetSdkVersion { get; set; }
 
+        [Option("aspnetcore-version", Required = false, HelpText = "The version of asp.net core to install for this test")]
+        public string AspNetCoreVersion { get; set; }
+
         [Option("configs", Required = false, Separator=',', HelpText = "A comma list of all configurations that the benchmarks will be run with. The options are: Default, Tiering, Minopts, NoR2R, and NoNgen. " +
                                                                        "If not specified this defaults to a list containing only Default.")]
         public IEnumerable<string> Configs { get; set; }
