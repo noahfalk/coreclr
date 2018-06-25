@@ -125,7 +125,7 @@ void TieredCompilationManager::OnMethodCalled(
 
     *shouldStopCountingCallsRef =
         // Stop call counting when the delay is in effect
-        m_methodsPendingCountingForTier1 != nullptr ||
+        IsPaused() ||
         // Initiate the delay on tier 0 activity (when a new eligible method is called the first time)
         (currentCallCount == 1 && g_pConfig->TieredCompilation_Tier1CallCountingDelayMs() != 0) ||
         // Stop call counting when ready for tier 1 promotion
@@ -152,7 +152,7 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
 
     while (true)
     {
-        if (m_methodsPendingCountingForTier1 == nullptr && !TryInitiateTier1CountingDelay())
+        if (!IsPaused() && !TryInitiateTier1CountingDelay())
         {
             break;
         }
@@ -161,12 +161,13 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
         {
             CrstHolder holder(&m_tier1CountingDelayLock);
 
-            SArray<MethodDesc*>* methodsPendingCountingForTier1 = m_methodsPendingCountingForTier1;
-            if (methodsPendingCountingForTier1 == nullptr)
+            if (!IsPaused())
             {
                 // Timer tick callback race, try again
                 continue;
             }
+
+            SArray<MethodDesc*>* methodsPendingCountingForTier1 = m_methodsPendingCountingForTier1;
 
             // Record the method to resume counting later (see Tier1DelayTimerCallback)
             success = false;
@@ -193,13 +194,19 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
     ResumeCountingCalls(pMethodDesc);
 }
 
+BOOL TieredCompilationManager::IsPaused()
+{
+    // m_tier1CountingDelayLock may or may not be held
+    return (m_methodsPendingCountingForTier1 != nullptr);
+}
+
 bool TieredCompilationManager::TryInitiateTier1CountingDelay()
 {
     WRAPPER_NO_CONTRACT;
     _ASSERTE(g_pConfig->TieredCompilation());
     _ASSERTE(g_pConfig->TieredCompilation_Tier1CallCountingDelayMs() != 0);
 
-    if (m_methodsPendingCountingForTier1 != nullptr)
+    if (IsPaused())
     {
         return true;
     }
@@ -236,7 +243,8 @@ bool TieredCompilationManager::TryInitiateTier1CountingDelay()
     {
         CrstHolder holder(&m_tier1CountingDelayLock);
 
-        if (m_methodsPendingCountingForTier1 != nullptr)
+        //Another thread beat us to the pause, no work to be done
+        if (IsPaused())
         {
             return true;
         }
@@ -343,11 +351,11 @@ VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
         }
     }
 
-    if (m_methodsPendingCountingForTier1 != nullptr)
+    if (IsPaused())
     {
         CrstHolder holder(&m_tier1CountingDelayLock);
 
-        if (m_methodsPendingCountingForTier1 != nullptr)
+        if (IsPaused())
         {
             // The tier 1 call counting delay is in effect, so don't start optimizing yet. After the delay, the timer callback
             // will optimize methods.
@@ -609,11 +617,11 @@ void TieredCompilationManager::OptimizeMethods()
             }
             OptimizeMethod(nativeCodeVersion);
 
-            if (m_methodsPendingCountingForTier1 != nullptr)
+            if (IsPaused())
             {
                 CrstHolder holder(&m_tier1CountingDelayLock);
 
-                if (m_methodsPendingCountingForTier1 != nullptr)
+                if (IsPaused())
                 {
                     // The tier 1 call counting delay is in effect, so stop optimizing. After the delay, the timer callback
                     // will optimize methods.
