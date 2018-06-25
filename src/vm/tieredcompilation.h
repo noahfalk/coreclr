@@ -43,6 +43,7 @@ private:
     void Tier1DelayTimerCallbackWorker();
     static void ResumeCountingCalls(MethodDesc* pMethodDesc);
 
+    BOOL AsyncOptimizeMethods();
     static DWORD StaticOptimizeMethodsCallback(void* args);
     void OptimizeMethodsCallback();
     void OptimizeMethods();

@@ -350,26 +350,48 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
         }
     }
 
+    if (!AsyncOptimizeMethods())
+    {
+        SpinLockHolder holder(&m_lock);
+        DecrementWorkerThreadCount();
+    }
+}
+
+// Ensures that a thread will invoke OptimizeMethods() synchronously in the future by queueing a work item
+// to the threadpool. 
+BOOL TieredCompilationManager::AsyncOptimizeMethods()
+{
+    STANDARD_VM_CONTRACT;
+
+    // PRECONDITION: you have already incremented the optimization thread count to
+    // account for the thread this will create
+#if DEBUG
+    {
+        SpinLockHolder holder(&m_lock);
+        _ASSERTE(m_countOptimizationThreadsRunning >= 1);
+    }
+#endif
+
+    BOOL ret = TRUE;
     EX_TRY
     {
         if (!ThreadpoolMgr::QueueUserWorkItem(StaticOptimizeMethodsCallback, this, QUEUE_ONLY, TRUE))
         {
-            SpinLockHolder holder(&m_lock);
-            DecrementWorkerThreadCount();
-            STRESS_LOG1(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
-                "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run), method=%pM\n",
-                pMethodDesc);
+            STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::AsyncOptimizeMethods: "
+                "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run)\n");
+            ret = FALSE;
         }
     }
     EX_CATCH
     {
-        SpinLockHolder holder(&m_lock);
-        DecrementWorkerThreadCount();
-        STRESS_LOG2(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
-            "Exception queuing work item to threadpool, hr=0x%x, method=%pM\n",
-            GET_EXCEPTION()->GetHR(), pMethodDesc);
+        STRESS_LOG1(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::AsyncOptimizeMethods: "
+            "Exception queuing work item to threadpool, hr=0x%x\n",
+            GET_EXCEPTION()->GetHR());
+        ret = FALSE;
     }
     EX_END_CATCH(RethrowTerminalExceptions);
+
+    return ret;
 }
 
 void TieredCompilationManager::Shutdown()
@@ -567,12 +589,10 @@ void TieredCompilationManager::OptimizeMethods()
             ULONGLONG currentTickCount = CLRGetTickCount64();
             if (currentTickCount >= startTickCount + m_optimizationQuantumMs)
             {
-                if (!ThreadpoolMgr::QueueUserWorkItem(StaticOptimizeMethodsCallback, this, QUEUE_ONLY, TRUE))
+                if (!AsyncOptimizeMethods())
                 {
                     SpinLockHolder holder(&m_lock);
                     DecrementWorkerThreadCount();
-                    STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OptimizeMethods: "
-                        "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run)\n");
                 }
                 break;
             }
