@@ -54,6 +54,7 @@ private:
     BOOL CompileCodeVersion(NativeCodeVersion nativeCodeVersion);
     void ActivateCodeVersion(NativeCodeVersion nativeCodeVersion);
 
+    BOOL IncrementWorkerThreadCountIfNeeded();
     void IncrementWorkerThreadCount();
     void DecrementWorkerThreadCount();
 

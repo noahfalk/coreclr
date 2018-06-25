@@ -337,13 +337,7 @@ VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
     // and complicating the code to narrow an already rare error case isn't desirable.
     {
         SpinLockHolder holder(&m_lock);
-        if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown && !m_methodsToOptimize.IsEmpty())
-        {
-            // Our current policy throttles at 1 thread, but in the future we
-            // could experiment with more parallelism.
-            IncrementWorkerThreadCount();
-        }
-        else
+        if (!IncrementWorkerThreadCountIfNeeded())
         {
             return;
         }
@@ -366,6 +360,25 @@ VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
     {
         SpinLockHolder holder(&m_lock);
         DecrementWorkerThreadCount();
+    }
+}
+
+// Analyze the current state of the queue and the number of background threads already enrolled to determine
+// if a new thread should be enrolled. If so increment the count and return TRUE, otherwise return FALSE.
+BOOL TieredCompilationManager::IncrementWorkerThreadCountIfNeeded()
+{
+    STANDARD_VM_CONTRACT;
+    //m_lock should be held
+    if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown && !m_methodsToOptimize.IsEmpty())
+    {
+        // Our current policy throttles at 1 thread, but in the future we
+        // could experiment with more parallelism.
+        IncrementWorkerThreadCount();
+        return TRUE;
+    }
+    else
+    {
+        return FALSE;
     }
 }
 
