@@ -41,6 +41,7 @@ private:
     static VOID WINAPI Tier1DelayTimerCallback(PVOID parameter, BOOLEAN timerFired);
     static void Tier1DelayTimerCallbackInAppDomain(LPVOID parameter);
     void Tier1DelayTimerCallbackWorker();
+    void ResumeTieredCompilationWork();
     static void ResumeCountingCalls(MethodDesc* pMethodDesc);
 
     BOOL AsyncOptimizeMethods();

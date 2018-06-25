@@ -433,23 +433,43 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
     WRAPPER_NO_CONTRACT;
 
     // Reschedule the timer if a tier 0 JIT has been invoked since the timer was started to further delay call counting
+    HANDLE tier1CountingDelayTimerHandle;
     if (m_tier1CallCountingCandidateMethodRecentlyRecorded)
     {
         m_tier1CallCountingCandidateMethodRecentlyRecorded = false;
+        {
+            CrstHolder holder(&m_tier1CountingDelayLock);
+            tier1CountingDelayTimerHandle = m_tier1CountingDelayTimerHandle;
+        }
 
-        _ASSERTE(m_tier1CountingDelayTimerHandle != nullptr);
+        _ASSERTE(tier1CountingDelayTimerHandle != nullptr);
         if (ThreadpoolMgr::ChangeTimerQueueTimer(
-                m_tier1CountingDelayTimerHandle,
+                tier1CountingDelayTimerHandle,
                 g_pConfig->TieredCompilation_Tier1CallCountingDelayMs(),
                 (DWORD)-1 /* Period, non-repeating */))
         {
             return;
         }
     }
+    else
+    {
+        {
+            CrstHolder holder(&m_tier1CountingDelayLock);
+            m_tier1CountingDelayTimerHandle = nullptr;
+            tier1CountingDelayTimerHandle = m_tier1CountingDelayTimerHandle;
+        }
+        ThreadpoolMgr::DeleteTimerQueueTimer(tier1CountingDelayTimerHandle, nullptr);
+    }
+
+    ResumeTieredCompilationWork();
+}
+
+void TieredCompilationManager::ResumeTieredCompilationWork()
+{
+    STANDARD_VM_CONTRACT;
 
     // Exchange information into locals inside the lock
     SArray<MethodDesc*>* methodsPendingCountingForTier1;
-    HANDLE tier1CountingDelayTimerHandle;
     bool optimizeMethods;
     {
         CrstHolder holder(&m_tier1CountingDelayLock);
@@ -457,10 +477,6 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
         methodsPendingCountingForTier1 = m_methodsPendingCountingForTier1;
         _ASSERTE(methodsPendingCountingForTier1 != nullptr);
         m_methodsPendingCountingForTier1 = nullptr;
-
-        tier1CountingDelayTimerHandle = m_tier1CountingDelayTimerHandle;
-        _ASSERTE(tier1CountingDelayTimerHandle != nullptr);
-        m_tier1CountingDelayTimerHandle = nullptr;
 
         optimizeMethods = m_hasMethodsToOptimizeAfterDelay;
         m_hasMethodsToOptimizeAfterDelay = false;
@@ -474,8 +490,6 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
         ResumeCountingCalls(methods[i]);
     }
     delete methodsPendingCountingForTier1;
-
-    ThreadpoolMgr::DeleteTimerQueueTimer(tier1CountingDelayTimerHandle, nullptr);
 
     if (optimizeMethods)
     {
