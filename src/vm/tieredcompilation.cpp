@@ -100,10 +100,6 @@ void TieredCompilationManager::Init(ADID appDomainId)
     SpinLockHolder holder(&m_lock);
     m_domainId = appDomainId;
     m_callCountOptimizationThreshhold = g_pConfig->TieredCompilation_Tier1CallCountThreshold();
-    if (g_pConfig->TieredCompilation_Tier1CallCountingDelayMs() != 0)
-    {
-        m_tier1CountingDelayLock.Init(CrstTieredCompilation_Tier1CallCountingDelay);
-    }
 }
 
 // Called each time code in this AppDomain has been run. This is our sole entrypoint to begin
@@ -159,7 +155,7 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
 
         bool success;
         {
-            CrstHolder holder(&m_tier1CountingDelayLock);
+            SpinLockHolder holder(&m_lock);
 
             if (!IsPaused())
             {
@@ -196,7 +192,7 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
 
 BOOL TieredCompilationManager::IsPaused()
 {
-    // m_tier1CountingDelayLock may or may not be held
+    // m_lock  may or may not be held
     return (m_methodsPendingCountingForTier1 != nullptr);
 }
 
@@ -241,7 +237,7 @@ BOOL TieredCompilationManager::TryInitiateTier1CountingDelay()
     }
 
     {
-        CrstHolder holder(&m_tier1CountingDelayLock);
+        SpinLockHolder holder(&m_lock);
         _ASSERTE(m_tier1CountingDelayTimerHandle == nullptr);
         m_tier1CountingDelayTimerHandle = tier1CountingDelayTimerHandle;
         _ASSERTE(m_tier1CountingDelayTimerHandle != nullptr);
@@ -283,7 +279,7 @@ BOOL TieredCompilationManager::PauseTieredCompilationWork(BOOL *pWasAlreadyPause
     }
 
     {
-        CrstHolder holder(&m_tier1CountingDelayLock);
+        SpinLockHolder holder(&m_lock);
 
         //Another thread beat us to the pause, no work to be done
         if (*pWasAlreadyPaused = IsPaused())
@@ -382,7 +378,7 @@ VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
 
     if (IsPaused())
     {
-        CrstHolder holder(&m_tier1CountingDelayLock);
+        SpinLockHolder holder(&m_lock);
 
         if (IsPaused())
         {
@@ -500,7 +496,7 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
     {
         m_tier1CallCountingCandidateMethodRecentlyRecorded = false;
         {
-            CrstHolder holder(&m_tier1CountingDelayLock);
+            SpinLockHolder holder(&m_lock);
             tier1CountingDelayTimerHandle = m_tier1CountingDelayTimerHandle;
         }
 
@@ -516,7 +512,7 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
     else
     {
         {
-            CrstHolder holder(&m_tier1CountingDelayLock);
+            SpinLockHolder holder(&m_lock);
             m_tier1CountingDelayTimerHandle = nullptr;
             tier1CountingDelayTimerHandle = m_tier1CountingDelayTimerHandle;
         }
@@ -534,7 +530,7 @@ void TieredCompilationManager::ResumeTieredCompilationWork()
     SArray<MethodDesc*>* methodsPendingCountingForTier1;
     bool optimizeMethods;
     {
-        CrstHolder holder(&m_tier1CountingDelayLock);
+        SpinLockHolder holder(&m_lock);
 
         methodsPendingCountingForTier1 = m_methodsPendingCountingForTier1;
         _ASSERTE(methodsPendingCountingForTier1 != nullptr);
@@ -648,7 +644,7 @@ void TieredCompilationManager::OptimizeMethods()
 
             if (IsPaused())
             {
-                CrstHolder holder(&m_tier1CountingDelayLock);
+                SpinLockHolder holder(&m_lock);
 
                 if (IsPaused())
                 {

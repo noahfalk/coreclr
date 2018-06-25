@@ -67,8 +67,6 @@ private:
     DWORD m_countOptimizationThreadsRunning;
     DWORD m_callCountOptimizationThreshhold;
     DWORD m_optimizationQuantumMs;
-
-    CrstExplicitInit m_tier1CountingDelayLock;
     SArray<MethodDesc*>* m_methodsPendingCountingForTier1;
     HANDLE m_tier1CountingDelayTimerHandle;
     bool m_tier1CallCountingCandidateMethodRecentlyRecorded;
