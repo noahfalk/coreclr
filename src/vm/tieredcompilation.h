@@ -30,7 +30,7 @@ public:
     void OnMethodCalled(MethodDesc* pMethodDesc, DWORD currentCallCount, BOOL* shouldStopCountingCallsRef, BOOL* wasPromotedToTier1Ref);
     void OnMethodCallCountingStoppedWithoutTier1Promotion(MethodDesc* pMethodDesc);
 private:
-    bool TryInitiateTier1CountingDelay();
+    BOOL TryInitiateTier1CountingDelay();
 public:
     void AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc);
     void Shutdown();
@@ -41,7 +41,9 @@ private:
     static VOID WINAPI Tier1DelayTimerCallback(PVOID parameter, BOOLEAN timerFired);
     static void Tier1DelayTimerCallbackInAppDomain(LPVOID parameter);
     void Tier1DelayTimerCallbackWorker();
+    BOOL PauseTieredCompilationWork(BOOL *pWasAlreadyPaused);
     void ResumeTieredCompilationWork();
+    BOOL IsPaused();
     static void ResumeCountingCalls(MethodDesc* pMethodDesc);
 
     VOID EnrollOptimizeThreadIfNeeded();

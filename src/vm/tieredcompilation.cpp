@@ -200,28 +200,78 @@ BOOL TieredCompilationManager::IsPaused()
     return (m_methodsPendingCountingForTier1 != nullptr);
 }
 
-bool TieredCompilationManager::TryInitiateTier1CountingDelay()
+BOOL TieredCompilationManager::TryInitiateTier1CountingDelay()
 {
     WRAPPER_NO_CONTRACT;
     _ASSERTE(g_pConfig->TieredCompilation());
     _ASSERTE(g_pConfig->TieredCompilation_Tier1CallCountingDelayMs() != 0);
 
+    NewHolder<ThreadpoolMgr::TimerInfoContext> timerContextHolder = new(nothrow) ThreadpoolMgr::TimerInfoContext();
+    if (timerContextHolder == nullptr)
+    {
+        return FALSE;
+    }
+
+    timerContextHolder->AppDomainId = m_domainId;
+    timerContextHolder->TimerId = 0;
+
+    BOOL alreadyPaused = FALSE;
+    if (!PauseTieredCompilationWork(&alreadyPaused))
+    {
+        return FALSE;
+    }
+    if (alreadyPaused)
+    {
+        return TRUE;
+    }
+
+    // This thread just triggered the Pause() so if there are any failures from here on this
+    // thread is responsible for resuming from the Pause
+    HANDLE tier1CountingDelayTimerHandle = nullptr;
+    if (!ThreadpoolMgr::CreateTimerQueueTimer(
+        &tier1CountingDelayTimerHandle,
+        Tier1DelayTimerCallback,
+        timerContextHolder,
+        g_pConfig->TieredCompilation_Tier1CallCountingDelayMs(),
+        (DWORD)-1 /* Period, non-repeating */,
+        0 /* flags */))
+    {
+        ResumeTieredCompilationWork();
+        return FALSE;
+    }
+
+    {
+        CrstHolder holder(&m_tier1CountingDelayLock);
+        _ASSERTE(m_tier1CountingDelayTimerHandle == nullptr);
+        m_tier1CountingDelayTimerHandle = tier1CountingDelayTimerHandle;
+        _ASSERTE(m_tier1CountingDelayTimerHandle != nullptr);
+    }
+
+    timerContextHolder.SuppressRelease(); // the timer context is automatically deleted by the timer infrastructure
+    return TRUE;
+}
+
+BOOL TieredCompilationManager::PauseTieredCompilationWork(BOOL *pWasAlreadyPaused)
+{
+    STANDARD_VM_CONTRACT;
+
     if (IsPaused())
     {
-        return true;
+        *pWasAlreadyPaused = TRUE;
+        return TRUE;
     }
 
     NewHolder<SArray<MethodDesc*>> methodsPendingCountingHolder = new(nothrow) SArray<MethodDesc*>();
     if (methodsPendingCountingHolder == nullptr)
     {
-        return false;
+        return FALSE;
     }
 
-    bool success = false;
+    bool success = FALSE;
     EX_TRY
     {
         methodsPendingCountingHolder->Preallocate(64);
-        success = true;
+        success = TRUE;
     }
     EX_CATCH
     {
@@ -229,44 +279,23 @@ bool TieredCompilationManager::TryInitiateTier1CountingDelay()
     EX_END_CATCH(RethrowTerminalExceptions);
     if (!success)
     {
-        return false;
+        return FALSE;
     }
 
-    NewHolder<ThreadpoolMgr::TimerInfoContext> timerContextHolder = new(nothrow) ThreadpoolMgr::TimerInfoContext();
-    if (timerContextHolder == nullptr)
-    {
-        return false;
-    }
-
-    timerContextHolder->AppDomainId = m_domainId;
-    timerContextHolder->TimerId = 0;
     {
         CrstHolder holder(&m_tier1CountingDelayLock);
 
         //Another thread beat us to the pause, no work to be done
-        if (IsPaused())
+        if (*pWasAlreadyPaused = IsPaused())
         {
-            return true;
-        }
-
-        _ASSERTE(m_tier1CountingDelayTimerHandle == nullptr);
-        if (!ThreadpoolMgr::CreateTimerQueueTimer(
-                &m_tier1CountingDelayTimerHandle,
-                Tier1DelayTimerCallback,
-                timerContextHolder,
-                g_pConfig->TieredCompilation_Tier1CallCountingDelayMs(),
-                (DWORD)-1 /* Period, non-repeating */,
-                0 /* flags */))
-        {
-            _ASSERTE(m_tier1CountingDelayTimerHandle == nullptr);
-            return false;
+            return TRUE;
         }
 
         m_methodsPendingCountingForTier1 = methodsPendingCountingHolder.Extract();
+        _ASSERTE(IsPaused());
     }
 
-    timerContextHolder.SuppressRelease(); // the timer context is automatically deleted by the timer infrastructure
-    return true;
+    return TRUE;
 }
 
 void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc)
