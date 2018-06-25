@@ -301,18 +301,8 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
         t1NativeCodeVersion.SetOptimizationTier(NativeCodeVersion::OptimizationTier1);
     }
 
-    // Insert the method into the optimization queue and trigger a thread to service
-    // the queue if needed.
+    // Insert the method into the optimization queue 
     //
-    // Terminal exceptions escape as exceptions, but all other errors should gracefully
-    // return to the caller. Non-terminal error conditions should be rare (ie OOM,
-    // OS failure to create thread) and we consider it reasonable for some methods
-    // to go unoptimized or have their optimization arbitrarily delayed under these
-    // circumstances. Note an error here could affect concurrent threads running this
-    // code. Those threads will observe m_countOptimizationThreadsRunning > 0 and return,
-    // then QueueUserWorkItem fails on this thread lowering the count and leaves them 
-    // unserviced. Synchronous retries appear unlikely to offer any material improvement 
-    // and complicating the code to narrow an already rare error case isn't desirable.
     {
         SListElem<NativeCodeVersion>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersion>(t1NativeCodeVersion);
         SpinLockHolder holder(&m_lock);
@@ -324,8 +314,30 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
         LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::AsyncPromoteMethodToTier1 Method=0x%pM (%s::%s), code version id=0x%x queued\n",
             pMethodDesc, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName,
             t1NativeCodeVersion.GetVersionId()));
+    }
 
-        if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown)
+
+    // trigger a thread to service the queue if needed.
+    //
+    EnrollOptimizeThreadIfNeeded();
+}
+
+// Checks to see if an additional worker thread needs to be enlisted to process the optimization queue.
+// If yes, either recruits a threadpool thread or the delay callback thread to do the work
+VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
+{
+    // Terminal exceptions escape as exceptions, but all other errors should gracefully
+    // return to the caller. Non-terminal error conditions should be rare (ie OOM,
+    // OS failure to create thread) and we consider it reasonable for some methods
+    // to go unoptimized or have their optimization arbitrarily delayed under these
+    // circumstances. Note an error here could affect concurrent threads running this
+    // code. Those threads will observe m_countOptimizationThreadsRunning > 0 and return,
+    // then QueueUserWorkItem fails on this thread lowering the count and leaves them 
+    // unserviced. Synchronous retries appear unlikely to offer any material improvement 
+    // and complicating the code to narrow an already rare error case isn't desirable.
+    {
+        SpinLockHolder holder(&m_lock);
+        if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown && !m_methodsToOptimize.IsEmpty())
         {
             // Our current policy throttles at 1 thread, but in the future we
             // could experiment with more parallelism.

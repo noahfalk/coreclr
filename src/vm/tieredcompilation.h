@@ -44,6 +44,7 @@ private:
     void ResumeTieredCompilationWork();
     static void ResumeCountingCalls(MethodDesc* pMethodDesc);
 
+    VOID EnrollOptimizeThreadIfNeeded();
     BOOL AsyncOptimizeMethods();
     static DWORD StaticOptimizeMethodsCallback(void* args);
     void OptimizeMethodsCallback();
