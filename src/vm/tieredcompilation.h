@@ -70,7 +70,6 @@ private:
     SArray<MethodDesc*>* m_methodsPendingCountingForTier1;
     HANDLE m_tier1CountingDelayTimerHandle;
     bool m_tier1CallCountingCandidateMethodRecentlyRecorded;
-    bool m_hasMethodsToOptimizeAfterDelay;
 
     CLREvent m_asyncWorkDoneEvent;
 };

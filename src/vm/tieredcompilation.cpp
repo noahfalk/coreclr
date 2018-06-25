@@ -77,8 +77,7 @@ TieredCompilationManager::TieredCompilationManager() :
     m_optimizationQuantumMs(50),
     m_methodsPendingCountingForTier1(nullptr),
     m_tier1CountingDelayTimerHandle(nullptr),
-    m_tier1CallCountingCandidateMethodRecentlyRecorded(false),
-    m_hasMethodsToOptimizeAfterDelay(false)
+    m_tier1CallCountingCandidateMethodRecentlyRecorded(false)
 {
     LIMITED_METHOD_CONTRACT;
     m_lock.Init(LOCK_TYPE_DEFAULT);
@@ -356,7 +355,7 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
 }
 
 // Checks to see if an additional worker thread needs to be enlisted to process the optimization queue.
-// If yes, either recruits a threadpool thread or the delay callback thread to do the work
+// If yes, either recruits a threadpool thread to do the work
 VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
 {
     // Terminal exceptions escape as exceptions, but all other errors should gracefully
@@ -376,19 +375,6 @@ VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
         }
     }
 
-    if (IsPaused())
-    {
-        SpinLockHolder holder(&m_lock);
-
-        if (IsPaused())
-        {
-            // The tier 1 call counting delay is in effect, so don't start optimizing yet. After the delay, the timer callback
-            // will optimize methods.
-            m_hasMethodsToOptimizeAfterDelay = true;
-            return;
-        }
-    }
-
     if (!AsyncOptimizeMethods())
     {
         SpinLockHolder holder(&m_lock);
@@ -402,7 +388,7 @@ BOOL TieredCompilationManager::IncrementWorkerThreadCountIfNeeded()
 {
     STANDARD_VM_CONTRACT;
     //m_lock should be held
-    if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown && !m_methodsToOptimize.IsEmpty())
+    if (0 == m_countOptimizationThreadsRunning && !m_isAppDomainShuttingDown && !m_methodsToOptimize.IsEmpty() && !IsPaused())
     {
         // Our current policy throttles at 1 thread, but in the future we
         // could experiment with more parallelism.
@@ -528,16 +514,12 @@ void TieredCompilationManager::ResumeTieredCompilationWork()
 
     // Exchange information into locals inside the lock
     SArray<MethodDesc*>* methodsPendingCountingForTier1;
-    bool optimizeMethods;
     {
         SpinLockHolder holder(&m_lock);
 
         methodsPendingCountingForTier1 = m_methodsPendingCountingForTier1;
         _ASSERTE(methodsPendingCountingForTier1 != nullptr);
         m_methodsPendingCountingForTier1 = nullptr;
-
-        optimizeMethods = m_hasMethodsToOptimizeAfterDelay;
-        m_hasMethodsToOptimizeAfterDelay = false;
     }
 
     // Install call counters
@@ -549,7 +531,7 @@ void TieredCompilationManager::ResumeTieredCompilationWork()
     }
     delete methodsPendingCountingForTier1;
 
-    if (optimizeMethods)
+    if (IncrementWorkerThreadCountIfNeeded())
     {
         OptimizeMethods();
     }
@@ -631,9 +613,13 @@ void TieredCompilationManager::OptimizeMethods()
         {
             {
                 SpinLockHolder holder(&m_lock); 
+                if (IsPaused() || m_isAppDomainShuttingDown)
+                {
+                    DecrementWorkerThreadCount();
+                    break;
+                }
                 nativeCodeVersion = GetNextMethodToOptimize();
-                if (nativeCodeVersion.IsNull() ||
-                    m_isAppDomainShuttingDown)
+                if (nativeCodeVersion.IsNull() )
                 {
                     DecrementWorkerThreadCount();
                     break;
@@ -641,19 +627,6 @@ void TieredCompilationManager::OptimizeMethods()
                     
             }
             OptimizeMethod(nativeCodeVersion);
-
-            if (IsPaused())
-            {
-                SpinLockHolder holder(&m_lock);
-
-                if (IsPaused())
-                {
-                    // The tier 1 call counting delay is in effect, so stop optimizing. After the delay, the timer callback
-                    // will optimize methods.
-                    m_hasMethodsToOptimizeAfterDelay = true;
-                    break;
-                }
-            }
 
             // If we have been running for too long return the thread to the threadpool and queue another event
             // This gives the threadpool a chance to service other requests on this thread before returning to
