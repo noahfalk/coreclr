@@ -42,7 +42,7 @@ private:
     static void Tier1DelayTimerCallbackInAppDomain(LPVOID parameter);
     void Tier1DelayTimerCallbackWorker();
     BOOL PauseTieredCompilationWork(BOOL *pWasAlreadyPaused);
-    void ResumeTieredCompilationWork();
+    void ResumeTieredCompilationWork(BOOL doSynchronousMethodOptimization);
     BOOL IsPaused();
     static void ResumeCountingCalls(MethodDesc* pMethodDesc);
 

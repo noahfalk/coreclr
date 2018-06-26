@@ -231,7 +231,7 @@ BOOL TieredCompilationManager::TryInitiateTier1CountingDelay()
         (DWORD)-1 /* Period, non-repeating */,
         0 /* flags */))
     {
-        ResumeTieredCompilationWork();
+        ResumeTieredCompilationWork(FALSE /* doSynchronousMethodOptimization */);
         return FALSE;
     }
 
@@ -355,7 +355,7 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
 }
 
 // Checks to see if an additional worker thread needs to be enlisted to process the optimization queue.
-// If yes, either recruits a threadpool thread to do the work
+// If yes, recruits a threadpool thread to do the work
 VOID TieredCompilationManager::EnrollOptimizeThreadIfNeeded()
 {
     // Terminal exceptions escape as exceptions, but all other errors should gracefully
@@ -505,10 +505,10 @@ void TieredCompilationManager::Tier1DelayTimerCallbackWorker()
         ThreadpoolMgr::DeleteTimerQueueTimer(tier1CountingDelayTimerHandle, nullptr);
     }
 
-    ResumeTieredCompilationWork();
+    ResumeTieredCompilationWork(TRUE /* doSynchronousMethodOptimization */);
 }
 
-void TieredCompilationManager::ResumeTieredCompilationWork()
+void TieredCompilationManager::ResumeTieredCompilationWork(BOOL doSynchronousMethodOptimization)
 {
     STANDARD_VM_CONTRACT;
 
@@ -531,9 +531,16 @@ void TieredCompilationManager::ResumeTieredCompilationWork()
     }
     delete methodsPendingCountingForTier1;
 
-    if (IncrementWorkerThreadCountIfNeeded())
+    if (doSynchronousMethodOptimization)
     {
-        OptimizeMethods();
+        if (IncrementWorkerThreadCountIfNeeded())
+        {
+            OptimizeMethods();
+        }
+    }
+    else
+    {
+        EnrollOptimizeThreadIfNeeded();
     }
 }
 
