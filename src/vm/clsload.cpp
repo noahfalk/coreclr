@@ -894,11 +894,15 @@ void ClassLoader::GetClassValue(NameHandleTable nhTable,
             continue;
 
 #ifdef FEATURE_READYTORUN
-        if (nhTable == nhCaseSensitive && pCurrentClsModule->IsReadyToRun() && pCurrentClsModule->GetReadyToRunInfo()->HasHashtableOfTypes())
+        if (nhTable == nhCaseSensitive && pCurrentClsModule->IsReadyToRun() && pCurrentClsModule->GetReadyToRunInfo()->HasHashtableOfTypes() &&
+            pCurrentClsModule->GetAvailableClassHash() == NULL)
         {
             // For R2R modules, we only search the hashtable of token types stored in the module's image, and don't fallback
             // to searching m_pAvailableClasses or m_pAvailableClassesCaseIns (in fact, we don't even allocate them for R2R modules).
             // Also note that type lookups in R2R modules only support case sensitive lookups.
+            //
+            // EXCEPTION: The profiler can dynamically add new types at runtime. If this occurs we will fallback to creating
+            // the in memory class hash so we must use it if it is present.
 
             mdToken mdFoundTypeToken;
             if (pCurrentClsModule->GetReadyToRunInfo()->TryLookupTypeTokenFromName(pName, &mdFoundTypeToken))
@@ -4676,6 +4680,15 @@ VOID ClassLoader::AddExportedTypeDontHaveLock(Module *pManifestModule,
     CONTRACTL_END
 
     CrstHolder ch(&m_AvailableClassLock);
+
+    // R2R pre-computes an export table and tries to avoid populating a class hash at runtime. However the profiler can
+    // still add new types on the fly by calling here. If that occurs we fallback to the slower path of creating the
+    // in memory hashtable as usual.
+    if (!pManifestModule->IsResource() && pManifestModule->GetAvailableClassHash() == NULL)
+    {
+        LazyPopulateCaseSensitiveHashTables();
+    }
+
     AddExportedTypeHaveLock(
         pManifestModule,
         cl,
