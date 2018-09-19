@@ -1745,19 +1745,20 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     // When the TieredCompilationManager has received enough call notifications
     // for this method only then do we back-patch it.
     BOOL fCanBackpatchPrestub = TRUE;
-    BOOL fEligibleForCallCounting = FALSE;
+    BOOL fNeedsCallCounting = FALSE;
 #ifdef FEATURE_TIERED_COMPILATION
     TieredCompilationManager* pTieredCompilationManager = nullptr;
     BOOL fEligibleForTieredCompilation = IsEligibleForTieredCompilation();
-    BOOL fWasPromotedToTier1 = FALSE;
     if (fEligibleForTieredCompilation)
     {
-        fEligibleForCallCounting = g_pConfig->TieredCompilation_CallCounting();
-        if (fEligibleForCallCounting)
+        fNeedsCallCounting = TieredCompilationManager::MethodRequiresCallCounting(this);
+        if (fNeedsCallCounting)
         {
             pTieredCompilationManager = GetAppDomain()->GetTieredCompilationManager();
             CallCounter * pCallCounter = GetCallCounter();
+            BOOL fWasPromotedToTier1 = FALSE;
             pCallCounter->OnMethodCalled(this, pTieredCompilationManager, &fCanBackpatchPrestub, &fWasPromotedToTier1);
+            fNeedsCallCounting = !fWasPromotedToTier1;
         }
     }
 #endif
@@ -1771,7 +1772,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
     {
         pCode = GetCodeVersionManager()->PublishVersionableCodeIfNecessary(this, fCanBackpatchPrestub);
 
-        if (pTieredCompilationManager != nullptr && fEligibleForCallCounting && fCanBackpatchPrestub && pCode != NULL && !fWasPromotedToTier1)
+        if (pTieredCompilationManager != nullptr && fNeedsCallCounting && fCanBackpatchPrestub && pCode != NULL)
         {
             pTieredCompilationManager->OnMethodCallCountingStoppedWithoutTier1Promotion(this);
         }

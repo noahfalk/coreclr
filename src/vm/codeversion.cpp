@@ -50,13 +50,13 @@ bool NativeCodeVersion::operator!=(const NativeCodeVersion & rhs) const { return
 #define CORPROF_E_RUNTIME_SUSPEND_REQUIRED 0x80131381
 
 #ifndef DACCESS_COMPILE
-NativeCodeVersionNode::NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethodDesc, ReJITID parentId) :
+NativeCodeVersionNode::NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethodDesc, ReJITID parentId, OptimizationTier tier) :
     m_pNativeCode(NULL),
     m_pMethodDesc(pMethodDesc),
     m_parentId(parentId),
     m_pNextMethodDescSibling(NULL),
     m_id(id),
-    m_optTier(NativeCodeVersion::OptimizationTier0),
+    m_optTier(tier),
     m_flags(0)
 {}
 #endif
@@ -336,7 +336,7 @@ NativeCodeVersion::OptimizationTier NativeCodeVersion::GetOptimizationTier() con
     }
     else
     {
-        return NativeCodeVersion::OptimizationTier0;
+        return TieredCompilationManager::GetDefaultOptimizationTier(GetMethodDesc());
     }
 }
 
@@ -2112,7 +2112,11 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(ILCodeVersion ilCodeVersion, Me
     }
 
     NativeCodeVersionId newId = pMethodVersioningState->AllocateVersionId();
-    NativeCodeVersionNode* pNativeCodeVersionNode = new (nothrow) NativeCodeVersionNode(newId, pClosedMethodDesc, ilCodeVersion.GetVersionId());
+
+    //PERF: this call could be hoisted higher so that the case which allocates new non-default tier code versions (TieredCompilationManager::AsyncPromoteMethodToTier1) can pass the tier as an input argument rather
+    //than overwriting the default tier after paying the perf cost to compute it. However I suspect the difference would be neglible and not worth the code complexity.
+    NativeCodeVersion::OptimizationTier optTier = TieredCompilationManager::GetDefaultOptimizationTier(pClosedMethodDesc);
+    NativeCodeVersionNode* pNativeCodeVersionNode = new (nothrow) NativeCodeVersionNode(newId, pClosedMethodDesc, ilCodeVersion.GetVersionId(), optTier);
     if (pNativeCodeVersionNode == NULL)
     {
         return E_OUTOFMEMORY;

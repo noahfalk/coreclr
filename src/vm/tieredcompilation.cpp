@@ -791,4 +791,28 @@ CORJIT_FLAGS TieredCompilationManager::GetJitFlags(NativeCodeVersion nativeCodeV
     return flags;
 }
 
+// static
+// Given a method that is eligible for tiered compilation, which Tier should it start at by default?
+NativeCodeVersion::OptimizationTier TieredCompilationManager::GetDefaultOptimizationTier(MethodDesc* pMethod)
+{
+    _ASSERTE(pMethod->IsEligibleForTieredCompilation());
+    if (pMethod->RequestedAggresiveOptimization())
+    {
+        return NativeCodeVersion::OptimizationTier::Tier1;
+    }
+    else
+    {
+        return NativeCodeVersion::OptimizationTier::Tier0;
+    }
+}
+
+// static
+// Given a method that is eligible for tiered compilation, do we need to do call counting in the prestub?
+// Note: This is invariant for the lifetime of a method, and will continue to return true regardless of call count
+BOOL TieredCompilationManager::MethodRequiresCallCounting(MethodDesc* pMethod)
+{
+    _ASSERTE(pMethod->IsEligibleForTieredCompilation());
+    return g_pConfig->TieredCompilation_CallCounting() && GetDefaultOptimizationTier(pMethod) == NativeCodeVersion::OptimizationTier::Tier0;
+}
+
 #endif // FEATURE_TIERED_COMPILATION
