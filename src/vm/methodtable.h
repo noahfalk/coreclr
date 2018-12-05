@@ -3542,6 +3542,8 @@ public:
         MethodTable *             pMTDecl, 
         MethodTable *             pMTImpl);
 
+    void CopySlotFrom(UINT32 slotNumber, MethodDataWrapper &hSourceMTData, MethodTable *pSourceMT);
+
 protected:
     static void CheckInitMethodDataCache();
     static MethodData *FindParentMethodDataHelper(MethodTable *pMT);
