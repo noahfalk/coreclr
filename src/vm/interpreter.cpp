@@ -1663,7 +1663,7 @@ void Interpreter::JitMethodIfAppropriate(InterpreterMethodInfo* interpMethInfo, 
             // interpreter I didn't wring my hands too much trying to determine the ideal
             // policy.
 #ifdef FEATURE_TIERED_COMPILATION
-            GetAppDomain()->GetTieredCompilationManager()->AsyncPromoteMethodToTier1(md);
+            GetAppDomain()->GetTieredCompilationManager()->AsyncPromoteMethod(md, NativeCodeVersion::OptimizationTier1);
 #else
 #error FEATURE_INTERPRETER depends on FEATURE_TIERED_COMPILATION now
 #endif

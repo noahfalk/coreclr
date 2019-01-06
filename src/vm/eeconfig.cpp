@@ -356,6 +356,8 @@ HRESULT EEConfig::Init()
     fTieredCompilation_CallCounting = false;
     fTieredCompilation_OptimizeTier0 = false;
     tieredCompilation_tier1CallCountThreshold = 1;
+    tieredCompilation_tier1CallRateThreshold = 1;
+    tieredCompilation_tier2CallRateThreshold = 1;
     tieredCompilation_tier1CallCountingDelayMs = 0;
 #endif
     
@@ -1214,6 +1216,18 @@ HRESULT EEConfig::sync()
     if (tieredCompilation_tier1CallCountThreshold < 1)
     {
         tieredCompilation_tier1CallCountThreshold = 1;
+    }
+    tieredCompilation_tier1CallRateThreshold =
+        CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_TieredCompilation_Tier1CallRateThreshold);
+    if (tieredCompilation_tier1CallRateThreshold < 1)
+    {
+        tieredCompilation_tier1CallRateThreshold = 1;
+    }
+    tieredCompilation_tier2CallRateThreshold =
+        CLRConfig::GetConfigValue(CLRConfig::UNSUPPORTED_TieredCompilation_Tier2CallRateThreshold);
+    if (tieredCompilation_tier2CallRateThreshold < 1)
+    {
+        tieredCompilation_tier2CallRateThreshold = 1;
     }
 
     tieredCompilation_tier1CallCountingDelayMs =

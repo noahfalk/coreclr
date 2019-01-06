@@ -1589,6 +1589,16 @@ void WrapICorJitInfo::reportFatalError(CorJitResult result)
     API_LEAVE(reportFatalError);
 }
 
+HRESULT WrapICorJitInfo::allocHotCodeTestBBProfileBuffer(
+        ULONG count,
+        WORD **counterBuffer)
+{
+    API_ENTER(allocHotCodeTestBBProfileBuffer);
+    HRESULT result = wrapHnd->allocHotCodeTestBBProfileBuffer(count, counterBuffer);
+    API_LEAVE(allocHotCodeTestBBProfileBuffer);
+    return result;
+}
+
 HRESULT WrapICorJitInfo::allocBBProfileBuffer(
         ULONG count,
         ProfileBuffer **profileBuffer)

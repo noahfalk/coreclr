@@ -929,7 +929,12 @@ void CompileResult::dmpAllocUnwindInfo(DWORD key, const Agnostic_AllocUnwindInfo
            key, value.pHotCode, value.pColdCode, value.startOffset, value.endOffset, value.unwindSize,
            value.pUnwindBlock_index, value.funcKind);
 }
-
+void CompileResult::recAllocHotCodeTestBBProfileBuffer(ULONG                        count,
+                                                       WORD** profileBuffer,
+                                                       HRESULT                      result)
+{
+    //TODO
+}
 void CompileResult::recAllocBBProfileBuffer(ULONG count, ICorJitInfo::ProfileBuffer** profileBuffer, HRESULT result)
 {
     if (AllocBBProfileBuffer == nullptr)

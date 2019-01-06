@@ -148,7 +148,7 @@ public:
 #endif
 
     PTR_MethodDesc      phdrMDesc;
-
+    PTR_BYTE            phdrProfileBuffer;
 #ifdef WIN64EXCEPTIONS
     DWORD               nUnwindInfos;
     T_RUNTIME_FUNCTION  unwindInfos[0];
@@ -186,6 +186,11 @@ public:
         return pCalledMethods;
     }
 #endif
+    PTR_BYTE                GetProfileBuffer()
+    {
+        SUPPORTS_DAC;
+        return phdrProfileBuffer;
+    }
     TADDR                   GetCodeStartAddress()
     {
         SUPPORTS_DAC;
@@ -225,6 +230,10 @@ public:
         pCalledMethods = pCM;
     }
 #endif
+    void SetProfileBuffer(PTR_BYTE pProfileBuffer)
+    {
+        phdrProfileBuffer = pProfileBuffer;
+    }
     void SetStubCodeBlockKind(StubCodeBlockKind kind)
     {
         phdrMDesc = (PTR_MethodDesc)kind;
@@ -267,6 +276,11 @@ public:
     {
         SUPPORTS_DAC;
         return pRealCodeHeader->phdrMDesc;
+    }
+    PTR_BYTE                GetProfileBuffer()
+    {
+        SUPPORTS_DAC;
+        return pRealCodeHeader->phdrProfileBuffer;
     }
 #if defined(FEATURE_GDBJIT)
     VOID*                GetCalledMethods()
@@ -319,6 +333,10 @@ public:
         pRealCodeHeader->pCalledMethods = pCM;
     }
 #endif
+    void SetProfileBuffer(PTR_BYTE pProfileBuffer)
+    {
+        pRealCodeHeader->phdrProfileBuffer = pProfileBuffer;
+    }
     void SetStubCodeBlockKind(StubCodeBlockKind kind)
     {
         pRealCodeHeader = (PTR_RealCodeHeader)kind;
@@ -1202,6 +1220,106 @@ public:
     bool                m_AltJITRequired;
 #endif //ALLOW_SXS_JIT
 };
+
+class ProfileBufferHeader
+{
+public:
+    enum Format
+    {
+        MaxBBCounterFormat = 0,
+        FullFormat = 1
+    };
+    static const int FORMAT_FLAGS_BITS = 1;
+    static const int FORMAT_FLAGS_MASK = 0x01;
+
+    Format GetFormat()
+    {
+        return (Format)(m_flags & FORMAT_FLAGS_MASK);
+    }
+private:
+    BYTE m_flags;
+};
+
+class FullInstrumentationProfileBuffer
+{
+public:
+    static const DWORD COUNT_BLOCKS_MASK = ~0UL >> ProfileBufferHeader::FORMAT_FLAGS_BITS;
+
+    void Init(DWORD countBlocks)
+    {
+        _ASSERTE((countBlocks & COUNT_BLOCKS_MASK) == countBlocks);
+        countBlocksAndFlags = ProfileBufferHeader::FullFormat |
+            ((countBlocks & COUNT_BLOCKS_MASK) << ProfileBufferHeader::FORMAT_FLAGS_BITS);
+    }
+
+    static DWORD GetAllocationSize(int blockCount)
+    {
+        return sizeof(FullInstrumentationProfileBuffer) + blockCount * sizeof(ICorJitInfo::ProfileBuffer);
+    }
+    
+    DWORD GetCountBlocks()
+    {
+        return (countBlocksAndFlags >> ProfileBufferHeader::FORMAT_FLAGS_BITS) & COUNT_BLOCKS_MASK;
+    }
+
+    ICorJitInfo::ProfileBuffer* GetBlockCountersAddr()
+    {
+        return blockCounters;
+    }
+private:
+    DWORD countBlocksAndFlags;
+    //trailing array of block counters, element_count = GetCountBlocks()
+    ICorJitInfo::ProfileBuffer blockCounters[0];
+};
+
+class HotCodeTestProfileBuffer
+{
+
+public:
+    static const int RESET_PARITY_BIT = ProfileBufferHeader::FORMAT_FLAGS_BITS;
+    static const int TIER_BIT = RESET_PARITY_BIT + 1;
+    static const int IGNORE_BIT = TIER_BIT + 1;
+    static const int TIMESTAMP_SHIFT_BITS = IGNORE_BIT + 1;
+    static const WORD TIMESTAMP_MASK = 0xFFFFU >> TIMESTAMP_SHIFT_BITS;
+
+    static HotCodeTestProfileBuffer* GetFromBlockCounterAddr(WORD* pBlockCounterAddr)
+    {
+        return (HotCodeTestProfileBuffer*)
+            (((BYTE*)pBlockCounterAddr) - offsetof(HotCodeTestProfileBuffer, blockCounter));
+    }
+
+    void Init()
+    {
+        SetLastCheckTimestampAndFlags(0,0,0,0);
+    }
+
+    void GetLastCheckTimestampAndFlags(WORD* lastCheckTimestamp, BOOL* parityBit, BOOL* tierBit, BOOL* ignoreBit)
+    {
+        *lastCheckTimestamp =(lastCheckTimestampAndFlags >> TIMESTAMP_SHIFT_BITS) & TIMESTAMP_MASK;
+        *parityBit = (lastCheckTimestampAndFlags >> RESET_PARITY_BIT) & 0x1;
+        *tierBit = (lastCheckTimestampAndFlags >> TIER_BIT) & 0x1;
+        *ignoreBit = (lastCheckTimestampAndFlags >> IGNORE_BIT) & 0x1;
+    }
+    
+    void SetLastCheckTimestampAndFlags(WORD timestamp, BOOL parityBit, BOOL tierBit, BOOL ignoreBit)
+    {
+        lastCheckTimestampAndFlags = ProfileBufferHeader::MaxBBCounterFormat |
+            ((timestamp & TIMESTAMP_MASK) << TIMESTAMP_SHIFT_BITS) |
+            (parityBit << RESET_PARITY_BIT) |
+            (tierBit << TIER_BIT) |
+            (ignoreBit << IGNORE_BIT);
+    }
+
+    WORD* GetBlockCounterAddr()
+    {
+        return &blockCounter;
+    }
+
+private:
+    WORD lastCheckTimestampAndFlags;
+    WORD blockCounter;
+};
+
 
 //*****************************************************************************
 //

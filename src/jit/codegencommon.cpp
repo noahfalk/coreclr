@@ -2284,6 +2284,10 @@ void CodeGen::genGenerateCode(void** codePtr, ULONG* nativeSizeOfCode)
         {
             printf("; Tier-1 compilation\n");
         }
+        if (compiler->opts.jitFlags->IsSet(JitFlags::JIT_FLAG_TIER2))
+        {
+            printf("; Tier-2 compilation\n");
+        }
 
         if ((compiler->opts.compFlags & CLFLG_MAXOPT) == CLFLG_MAXOPT)
         {

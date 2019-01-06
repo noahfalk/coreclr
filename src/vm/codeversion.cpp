@@ -54,7 +54,8 @@ NativeCodeVersionNode::NativeCodeVersionNode(
     NativeCodeVersionId id,
     MethodDesc* pMethodDesc,
     ReJITID parentId,
-    NativeCodeVersion::OptimizationTier optimizationTier)
+    NativeCodeVersion::OptimizationTier optimizationTier,
+    NativeCodeVersion::InstrumentationLevel instrumentationLevel)
     :
     m_pNativeCode(NULL),
     m_pMethodDesc(pMethodDesc),
@@ -63,6 +64,8 @@ NativeCodeVersionNode::NativeCodeVersionNode(
     m_id(id),
 #ifdef FEATURE_TIERED_COMPILATION
     m_optTier(optimizationTier),
+    m_instrumentationLevel(instrumentationLevel),
+    m_pProfileSnapshot(NULL),
 #endif
     m_flags(0)
 {}
@@ -151,6 +154,28 @@ NativeCodeVersion::OptimizationTier NativeCodeVersionNode::GetOptimizationTier()
 {
     LIMITED_METHOD_DAC_CONTRACT;
     return m_optTier;
+}
+
+NativeCodeVersion::InstrumentationLevel NativeCodeVersionNode::GetInstrumentationLevel() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return m_instrumentationLevel;
+}
+
+#ifndef DACCESS_COMPILE
+void NativeCodeVersionNode::SetProfileSnapshot(VOID* pProfileSnapshot)
+{
+    LIMITED_METHOD_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+    m_pProfileSnapshot = pProfileSnapshot;
+}
+#endif
+
+PTR_VOID NativeCodeVersionNode::GetProfileSnapshot() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    _ASSERTE(LockOwnedByCurrentThread());
+    return m_pProfileSnapshot;
 }
 #endif // FEATURE_TIERED_COMPILATION
 
@@ -337,6 +362,52 @@ NativeCodeVersion::OptimizationTier NativeCodeVersion::GetOptimizationTier() con
     else
     {
         return TieredCompilationManager::GetInitialOptimizationTier(GetMethodDesc());
+    }
+}
+#endif
+
+#ifdef FEATURE_TIERED_COMPILATION
+NativeCodeVersion::InstrumentationLevel NativeCodeVersion::GetInstrumentationLevel() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetInstrumentationLevel();
+    }
+    else
+    {
+        return TieredCompilationManager::GetInitialInstrumentationLevel(GetMethodDesc());
+    }
+}
+#endif
+
+#if defined(FEATURE_TIERED_COMPILATION) && !defined(DACCESS_COMPILE) 
+void NativeCodeVersion::SetProfileSnapshot(VOID* pProfileSnapshot)
+{
+    LIMITED_METHOD_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        AsNode()->SetProfileSnapshot(pProfileSnapshot);
+    }
+    else
+    {
+        _ASSERTE(!"Default native code version does not support profile snapshot storage");
+        return;
+    }
+}
+#endif
+
+#ifdef FEATURE_TIERED_COMPILATION
+PTR_VOID NativeCodeVersion::GetProfileSnapshot() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    if (m_storageKind == StorageKind::Explicit)
+    {
+        return AsNode()->GetProfileSnapshot();
+    }
+    else
+    {
+        return dac_cast<PTR_VOID>(NULL);
     }
 }
 #endif
@@ -869,11 +940,12 @@ void ILCodeVersion::SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap)
 HRESULT ILCodeVersion::AddNativeCodeVersion(
     MethodDesc* pClosedMethodDesc,
     NativeCodeVersion::OptimizationTier optimizationTier,
+    NativeCodeVersion::InstrumentationLevel instrumentationLevel,
     NativeCodeVersion* pNativeCodeVersion)
 {
     LIMITED_METHOD_CONTRACT;
     CodeVersionManager* pManager = GetModule()->GetCodeVersionManager();
-    HRESULT hr = pManager->AddNativeCodeVersion(*this, pClosedMethodDesc, optimizationTier, pNativeCodeVersion);
+    HRESULT hr = pManager->AddNativeCodeVersion(*this, pClosedMethodDesc, optimizationTier, instrumentationLevel, pNativeCodeVersion);
     if (FAILED(hr))
     {
         _ASSERTE(hr == E_OUTOFMEMORY);
@@ -891,7 +963,9 @@ HRESULT ILCodeVersion::GetOrCreateActiveNativeCodeVersion(MethodDesc* pClosedMet
     {
         NativeCodeVersion::OptimizationTier optimizationTier =
             TieredCompilationManager::GetInitialOptimizationTier(pClosedMethodDesc);
-        if (FAILED(hr = AddNativeCodeVersion(pClosedMethodDesc, optimizationTier, &activeNativeChild)))
+        NativeCodeVersion::InstrumentationLevel instrumentationLevel =
+            TieredCompilationManager::GetInitialInstrumentationLevel(pClosedMethodDesc);
+        if (FAILED(hr = AddNativeCodeVersion(pClosedMethodDesc, optimizationTier, instrumentationLevel, &activeNativeChild)))
         {
             _ASSERTE(hr == E_OUTOFMEMORY);
             return hr;
@@ -2088,6 +2162,7 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(
     ILCodeVersion ilCodeVersion,
     MethodDesc* pClosedMethodDesc,
     NativeCodeVersion::OptimizationTier optimizationTier,
+    NativeCodeVersion::InstrumentationLevel instrumentationLevel,
     NativeCodeVersion* pNativeCodeVersion)
 {
     LIMITED_METHOD_CONTRACT;
@@ -2102,7 +2177,7 @@ HRESULT CodeVersionManager::AddNativeCodeVersion(
     }
 
     NativeCodeVersionId newId = pMethodVersioningState->AllocateVersionId();
-    NativeCodeVersionNode* pNativeCodeVersionNode = new (nothrow) NativeCodeVersionNode(newId, pClosedMethodDesc, ilCodeVersion.GetVersionId(), optimizationTier);
+    NativeCodeVersionNode* pNativeCodeVersionNode = new (nothrow) NativeCodeVersionNode(newId, pClosedMethodDesc, ilCodeVersion.GetVersionId(), optimizationTier, instrumentationLevel);
     if (pNativeCodeVersionNode == NULL)
     {
         return E_OUTOFMEMORY;

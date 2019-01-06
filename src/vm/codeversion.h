@@ -10,6 +10,8 @@
 #ifndef CODE_VERSION_H
 #define CODE_VERSION_H
 
+#include "ilinstrumentation.h"
+
 class NativeCodeVersion;
 class ILCodeVersion;
 typedef DWORD NativeCodeVersionId;
@@ -67,10 +69,22 @@ public:
     enum OptimizationTier
     {
         OptimizationTier0,
-        OptimizationTier1
+        OptimizationTier1,
+        OptimizationTier2
+    };
+    enum InstrumentationLevel
+    {
+        NoInstrumentation,
+        ApproxMaxBBInstrumention,
+        FullInstrumentation
     };
 #ifdef FEATURE_TIERED_COMPILATION
     OptimizationTier GetOptimizationTier() const;
+    InstrumentationLevel GetInstrumentationLevel() const;
+#ifndef DACCESS_COMPILE 
+    void SetProfileSnapshot(VOID* pProfileSnapshot);
+#endif
+    PTR_VOID GetProfileSnapshot() const;
 #endif // FEATURE_TIERED_COMPILATION
     bool operator==(const NativeCodeVersion & rhs) const;
     bool operator!=(const NativeCodeVersion & rhs) const;
@@ -149,7 +163,10 @@ public:
     void SetIL(COR_ILMETHOD* pIL);
     void SetJitFlags(DWORD flags);
     void SetInstrumentedILMap(SIZE_T cMap, COR_IL_MAP * rgMap);
-    HRESULT AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion::OptimizationTier optimizationTier, NativeCodeVersion* pNativeCodeVersion);
+    HRESULT AddNativeCodeVersion(MethodDesc* pClosedMethodDesc, 
+                                 NativeCodeVersion::OptimizationTier optimizationTier,
+                                 NativeCodeVersion::InstrumentationLevel instrumentationLevel,
+                                 NativeCodeVersion* pNativeCodeVersion);
     HRESULT GetOrCreateActiveNativeCodeVersion(MethodDesc* pClosedMethodDesc, NativeCodeVersion* pNativeCodeVersion);
     HRESULT SetActiveNativeCodeVersion(NativeCodeVersion activeNativeCodeVersion, BOOL fEESuspended);
 #endif //DACCESS_COMPILE
@@ -220,7 +237,7 @@ class NativeCodeVersionNode
     friend ILCodeVersionNode;
 public:
 #ifndef DACCESS_COMPILE
-    NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethod, ReJITID parentId, NativeCodeVersion::OptimizationTier optimizationTier);
+    NativeCodeVersionNode(NativeCodeVersionId id, MethodDesc* pMethod, ReJITID parentId, NativeCodeVersion::OptimizationTier optimizationTier, NativeCodeVersion::InstrumentationLevel instrumentationLevel);
 #endif
 #ifdef DEBUG
     BOOL LockOwnedByCurrentThread() const;
@@ -237,6 +254,11 @@ public:
 #endif
 #ifdef FEATURE_TIERED_COMPILATION
     NativeCodeVersion::OptimizationTier GetOptimizationTier() const;
+    NativeCodeVersion::InstrumentationLevel GetInstrumentationLevel() const;
+#ifndef DACCESS_COMPILE
+    void SetProfileSnapshot(VOID* pProfileSnapshot);
+#endif
+    PTR_VOID GetProfileSnapshot() const;
 #endif
 
 private:
@@ -248,9 +270,14 @@ private:
 
     ReJITID m_parentId;
     PTR_NativeCodeVersionNode m_pNextMethodDescSibling;
+
+    //perf - we could save memory by packing flags, instrumentation level, opt tier, and potentially id+parent id into a single byte
+    // optTier = 2 bits, instrumentationLevel = 2 bits, flags = 1 bit, id often is either 1 or 2, parent id often is 0
     NativeCodeVersionId m_id;
 #ifdef FEATURE_TIERED_COMPILATION
     NativeCodeVersion::OptimizationTier m_optTier;
+    NativeCodeVersion::InstrumentationLevel m_instrumentationLevel;
+    PTR_VOID m_pProfileSnapshot; // this could be a hanging field on nodes with tier2 full instrumentation only
 #endif
 
     enum NativeCodeVersionNodeFlags
@@ -603,7 +630,11 @@ public:
     };
 
     HRESULT AddILCodeVersion(Module* pModule, mdMethodDef methodDef, ReJITID rejitId, ILCodeVersion* pILCodeVersion);
-    HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion, MethodDesc* pClosedMethodDesc, NativeCodeVersion::OptimizationTier optimizationTier, NativeCodeVersion* pNativeCodeVersion);
+    HRESULT AddNativeCodeVersion(ILCodeVersion ilCodeVersion,
+                                 MethodDesc* pClosedMethodDesc,
+                                 NativeCodeVersion::OptimizationTier optimizationTier,
+                                 NativeCodeVersion::InstrumentationLevel instrumentationLevel,
+                                 NativeCodeVersion* pNativeCodeVersion);
     HRESULT DoJumpStampIfNecessary(MethodDesc* pMD, PCODE pCode);
     PCODE PublishVersionableCodeIfNecessary(MethodDesc* pMethodDesc, BOOL fCanBackpatchPrestub);
     HRESULT PublishNativeCodeVersion(MethodDesc* pMethodDesc, NativeCodeVersion nativeCodeVersion, BOOL fEESuspended);

@@ -1801,6 +1801,16 @@ void MyICJI::reportFatalError(CorJitResult result)
     jitInstance->mc->cr->recReportFatalError(result);
 }
 
+HRESULT MyICJI::allocHotCodeTestBBProfileBuffer(ULONG           count, // The number of basic blocks that we have
+                                                WORD**          counterBuffer)
+{
+    jitInstance->mc->cr->AddCall("allocHotCodeTestBBProfileBuffer");
+    //TODO
+    // return jitInstance->mc->cr->repAllocHotCodeTestBBProfileBuffer(count, counterBuffer);
+    return E_NOTIMPL;
+    
+}
+
 // allocate a basic block profile buffer where execution counts will be stored
 // for jitted basic blocks.
 HRESULT MyICJI::allocBBProfileBuffer(ULONG           count, // The number of basic blocks that we have

@@ -1021,6 +1021,9 @@ struct ProfileBuffer  // Also defined here: code:CORBBTPROF_BLOCK_DATA
 };
 */
 
+HRESULT allocHotCodeTestBBProfileBuffer(ULONG  count, // The number of basic blocks that we have
+                                        WORD** profileBuffer);
+
 // allocate a basic block profile buffer where execution counts will be stored
 // for jitted basic blocks.
 HRESULT allocBBProfileBuffer(ULONG           count, // The number of basic blocks that we have

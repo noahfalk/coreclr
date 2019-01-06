@@ -16,8 +16,10 @@
 #define TYPEHANDLE_H
 
 #include "check.h"
+#include "daccess.h"
 #include "classloadlevel.h"
 #include "fixuppointer.h"
+#include "vars.hpp"
 
 class TypeDesc;
 class TypeHandle;

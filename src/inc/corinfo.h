@@ -565,6 +565,7 @@ enum CorInfoHelpFunc
     /* Miscellaneous */
 
     CORINFO_HELP_BBT_FCN_ENTER,         // record the entry to a method for collecting Tuning data
+    CORINFO_HELP_BB_SAMPLING_TICK,      // record that a basic block has been executed a given number of times
 
     CORINFO_HELP_PINVOKE_CALLI,         // Indirect pinvoke call
     CORINFO_HELP_TAILCALL,              // Perform a tail call

@@ -16,6 +16,9 @@
 #include "corcompile.h"
 #endif // FEATURE_PREJIT
 
+#include "ilinstrumentation.h"
+#include "codeversion.h"
+
 #ifndef FEATURE_PAL
 #define MAX_UNCHECKED_OFFSET_FOR_NULL_OBJECT ((32*1024)-1)   // when generating JIT code
 #else // !FEATURE_PAL
@@ -68,8 +71,10 @@ bool SigInfoFlagsAreValid (CORINFO_SIG_INFO *sig)
 void InitJITHelpers1();
 void InitJITHelpers2();
 
-PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* header,
+#if !defined(CROSSGEN_COMPILE) && !defined(DACCESS_COMPILE)
+PCODE UnsafeJitFunction(NativeCodeVersion codeVersion, COR_ILMETHOD_DECODER* header,
                         CORJIT_FLAGS flags, ULONG* sizeOfCode = NULL);
+#endif
 
 void getMethodInfoHelper(MethodDesc * ftn,
                          CORINFO_METHOD_HANDLE ftnHnd,
@@ -1077,6 +1082,11 @@ public:
     void logSQMLongJitEvent(unsigned mcycles, unsigned msec, unsigned ilSize, unsigned numBasicBlocks, bool minOpts, 
                             CORINFO_METHOD_HANDLE methodHnd);
 
+    HRESULT allocHotCodeTestBBProfileBuffer(
+            ULONG                 count,
+            WORD **               counterBuffer
+    );
+
     HRESULT allocBBProfileBuffer (
             ULONG                 count,           // The number of basic blocks that we have
             ProfileBuffer **      profileBuffer
@@ -1111,6 +1121,14 @@ public:
             );
 
     DWORD getExpectedTargetArchitecture();
+
+#if defined(FEATURE_CODE_VERSIONING) && !defined(DACCESS_COMPILE)
+    CEEInfo(NativeCodeVersion codeVersion, bool fVerifyOnly = false, bool fAllowInlining = true) :
+        CEEInfo(codeVersion.GetMethodDesc(), fVerifyOnly, fAllowInlining)
+    {
+        m_codeVersionBeingCompiled = codeVersion;
+    }
+#endif
 
     CEEInfo(MethodDesc * fd = NULL, bool fVerifyOnly = false, bool fAllowInlining = true) :
         m_pOverride(NULL),
@@ -1197,6 +1215,9 @@ protected:
     ICorDynamicInfo * m_pOverride;
     
     MethodDesc*             m_pMethodBeingCompiled;             // Top-level method being compiled
+#ifdef FEATURE_CODE_VERSIONING
+    NativeCodeVersion       m_codeVersionBeingCompiled;
+#endif
     bool                    m_fVerifyOnly;
     Thread *                m_pThread;                          // Cached current thread for faster JIT-EE transitions
     CORJIT_FLAGS            m_jitFlags;
@@ -1283,6 +1304,10 @@ public:
             CORINFO_EH_CLAUSE* clause               /* OUT */
             );
 
+    HRESULT allocHotCodeTestBBProfileBuffer(
+        ULONG                     count,
+        WORD **                   counterBuffer
+    );
 
     HRESULT allocBBProfileBuffer (
         ULONG                         count,            // The number of basic blocks that we have
@@ -1350,6 +1375,8 @@ public:
         m_iNativeVarInfo = 0;
         m_pNativeVarInfo = NULL;
 
+        //TODO: this could leak memory
+        m_pProfileBuffer = NULL;
 #ifdef WIN64EXCEPTIONS
         m_moduleBase = NULL;
         m_totalUnwindSize = 0;
@@ -1412,9 +1439,10 @@ public:
     }
 #endif
 
-    CEEJitInfo(MethodDesc* fd,  COR_ILMETHOD_DECODER* header, 
+#ifndef DACCESS_COMPILE
+    CEEJitInfo(NativeCodeVersion codeVersion,  COR_ILMETHOD_DECODER* header, 
                EEJitManager* jm, bool fVerifyOnly, bool allowInlining = true)
-        : CEEInfo(fd, fVerifyOnly, allowInlining),
+        : CEEInfo(codeVersion, fVerifyOnly, allowInlining),
           m_jitManager(jm),
           m_CodeHeader(NULL),
           m_ILHeader(header),
@@ -1439,6 +1467,7 @@ public:
           m_pOffsetMapping(NULL),
           m_iNativeVarInfo(0),
           m_pNativeVarInfo(NULL),
+          m_pProfileBuffer(NULL),
           m_gphCache()
     {
         CONTRACTL
@@ -1450,6 +1479,7 @@ public:
 
         m_pOverride = this;
     }
+#endif
 
     ~CEEJitInfo()
     {
@@ -1535,6 +1565,8 @@ protected :
     ULONG32                 m_iNativeVarInfo;
     ICorDebugInfo::NativeVarInfo * m_pNativeVarInfo;
 
+    BYTE *                  m_pProfileBuffer; // buffer that holds BB instrumentation counters
+
     // The first time a call is made to CEEJitInfo::GetProfilingHandle() from this thread
     // for this method, these values are filled in.   Thereafter, these values are used
     // in lieu of calling into the base CEEInfo::GetProfilingHandle() again.  This protects the
@@ -1553,6 +1585,9 @@ protected :
         bool                    m_bGphHookFunction : 1;
         void*                   m_pvGphProfilerHandle;
     } m_gphCache;
+
+    
+
 
 };
 #endif // CROSSGEN_COMPILE

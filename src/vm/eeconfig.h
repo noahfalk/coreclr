@@ -288,6 +288,8 @@ public:
     bool          TieredCompilation_CallCounting()  const {LIMITED_METHOD_CONTRACT;  return fTieredCompilation_CallCounting; }
     bool          TieredCompilation_OptimizeTier0() const {LIMITED_METHOD_CONTRACT; return fTieredCompilation_OptimizeTier0; }
     DWORD         TieredCompilation_Tier1CallCountThreshold() const { LIMITED_METHOD_CONTRACT; return tieredCompilation_tier1CallCountThreshold; }
+    DWORD         TieredCompilation_Tier1CallRateThreshold() const { LIMITED_METHOD_CONTRACT; return tieredCompilation_tier1CallRateThreshold; }
+    DWORD         TieredCompilation_Tier2CallRateThreshold() const { LIMITED_METHOD_CONTRACT; return tieredCompilation_tier2CallRateThreshold; }
     DWORD         TieredCompilation_Tier1CallCountingDelayMs() const { LIMITED_METHOD_CONTRACT; return tieredCompilation_tier1CallCountingDelayMs; }
 #endif
 
@@ -1021,6 +1023,8 @@ private: //----------------------------------------------------------------
     bool fTieredCompilation_CallCounting;
     bool fTieredCompilation_OptimizeTier0;
     DWORD tieredCompilation_tier1CallCountThreshold;
+    DWORD tieredCompilation_tier1CallRateThreshold;
+    DWORD tieredCompilation_tier2CallRateThreshold;
     DWORD tieredCompilation_tier1CallCountingDelayMs;
 #endif
 

@@ -873,6 +873,14 @@ bool ZapInfo::runWithErrorTrap(void (*function)(void*), void* param)
     return m_pEEJitInfo->runWithErrorTrap(function, param);
 }
 
+HRESULT ZapInfo::allocHotCodeTestBBProfileBuffer(
+    ULONG   count,
+    WORD ** counterBuffer
+)
+{
+    return E_NOTIMPL;
+}
+
 HRESULT ZapInfo::allocBBProfileBuffer (
     ULONG                         cBlock,
     ICorJitInfo::ProfileBuffer ** ppBlock

@@ -415,6 +415,11 @@ public:
     
     virtual void reportFatalError(CorJitResult result) = 0;
 
+    virtual HRESULT allocHotCodeTestBBProfileBuffer(
+        ULONG                 count,           // The number of basic blocks that we have
+        WORD **               counterBuffer
+    ) = 0;
+
     struct ProfileBuffer  // Also defined here: code:CORBBTPROF_BLOCK_DATA
     {
         ULONG ILOffset;
@@ -424,9 +429,9 @@ public:
     // allocate a basic block profile buffer where execution counts will be stored
     // for jitted basic blocks.
     virtual HRESULT allocBBProfileBuffer (
-            ULONG                 count,           // The number of basic blocks that we have
-            ProfileBuffer **      profileBuffer
-            ) = 0;
+        ULONG                     count,           // The number of basic blocks that we have
+        ProfileBuffer **          profileBuffer
+    ) = 0;
 
     // get profile information to be used for optimizing the current method.  The format
     // of the buffer is the same as the format the JIT passes to allocBBProfileBuffer.

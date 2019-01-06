@@ -732,14 +732,17 @@ PCODE MethodDesc::JitCompileCodeLockedEventWrapper(PrepareCodeConfig* pConfig, J
 #endif
         {
             // Fire an ETW event to mark the end of JIT'ing
+            NativeCodeVersion codeVersion = pConfig->GetCodeVersion();
             ETW::MethodLog::MethodJitted(this,
                 &namespaceOrClassName,
                 &methodName,
                 &methodSignature,
                 pCode,
-                pConfig->GetCodeVersion().GetVersionId(),
+                codeVersion.GetVersionId(),
                 pConfig->ProfilerRejectedPrecompiledCode(),
-                pConfig->ReadyToRunRejectedPrecompiledCode());
+                pConfig->ReadyToRunRejectedPrecompiledCode(),
+                codeVersion.GetOptimizationTier(),
+                codeVersion.GetInstrumentationLevel());
         }
 
     }
@@ -840,7 +843,7 @@ PCODE MethodDesc::JitCompileCodeLocked(PrepareCodeConfig* pConfig, JitListLockEn
     PCODE pOtherCode = NULL;
     EX_TRY
     {
-        pCode = UnsafeJitFunction(this, pilHeader, *pFlags, pSizeOfCode);
+        pCode = UnsafeJitFunction(pConfig->GetCodeVersion(), pilHeader, *pFlags, pSizeOfCode);
     }
     EX_CATCH
     {

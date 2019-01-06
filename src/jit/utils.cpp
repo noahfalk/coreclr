@@ -1446,6 +1446,7 @@ void HelperCallProperties::init()
 
             case CORINFO_HELP_DBG_IS_JUST_MY_CODE:
             case CORINFO_HELP_BBT_FCN_ENTER:
+            case CORINFO_HELP_BB_SAMPLING_TICK:
             case CORINFO_HELP_POLL_GC:
             case CORINFO_HELP_MON_ENTER:
             case CORINFO_HELP_MON_EXIT:

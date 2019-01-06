@@ -83,7 +83,7 @@ public:
         JIT_FLAG_REVERSE_PINVOKE         = 37, // The JIT should insert REVERSE_PINVOKE_{ENTER,EXIT} helpers into method prolog/epilog
         JIT_FLAG_DESKTOP_QUIRKS          = 38, // The JIT should generate desktop-quirk-compatible code
         JIT_FLAG_TIER0                   = 39, // This is the initial tier for tiered compilation which should generate code as quickly as possible
-        JIT_FLAG_TIER1                   = 40, // This is the final tier (for now) for tiered compilation which should generate high quality code
+        JIT_FLAG_TIER1                   = 40, // This is the middle tier for tiered compilation which should generate good quality code without using profiling feedback
 
 #if defined(_TARGET_ARM_)
         JIT_FLAG_RELATIVE_CODE_RELOCS    = 41, // JIT should generate PC-relative address computations instead of EE relocation records
@@ -115,7 +115,7 @@ public:
         JIT_FLAG_HAS_ARM64_SIMD_FP16     = 60, // ID_AA64PFR0_EL1.AdvSIMD is 1 or better
         JIT_FLAG_HAS_ARM64_SM3           = 61, // ID_AA64ISAR0_EL1.SM3 is 1 or better
         JIT_FLAG_HAS_ARM64_SM4           = 62, // ID_AA64ISAR0_EL1.SM4 is 1 or better
-        JIT_FLAG_HAS_ARM64_SVE           = 63  // ID_AA64PFR0_EL1.SVE is 1 or better
+        JIT_FLAG_HAS_ARM64_SVE           = 63, // ID_AA64PFR0_EL1.SVE is 1 or better
 
 #elif defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
 
@@ -139,7 +139,7 @@ public:
         JIT_FLAG_UNUSED29                = 60,
         JIT_FLAG_UNUSED30                = 61,
         JIT_FLAG_UNUSED31                = 62,
-        JIT_FLAG_UNUSED32                = 63
+        JIT_FLAG_UNUSED32                = 63,
         
 
 #else // !defined(_TARGET_ARM64_) && !defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
@@ -164,64 +164,87 @@ public:
         JIT_FLAG_UNUSED29                = 60,
         JIT_FLAG_UNUSED30                = 61,
         JIT_FLAG_UNUSED31                = 62,
-        JIT_FLAG_UNUSED32                = 63
+        JIT_FLAG_UNUSED32                = 63,
 
 #endif // !defined(_TARGET_ARM64_) && !defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
+
+        JIT_FLAG_HOT_CODE_TEST_BBINSTR   = 64,
+        JIT_FLAG_TIER2                   = 65,
+        // add new flags here and increment COUNT_FLAGS
+        JIT_FLAG_COUNT_FLAGS             = 66
 
     };
     // clang-format on
 
-    JitFlags() : m_jitFlags(0)
+    JitFlags()
     {
-        // empty
+        Reset();
     }
 
     // Convenience constructor to set exactly one flags.
-    JitFlags(JitFlag flag) : m_jitFlags(0)
+    JitFlags(JitFlag flag)
     {
+        Reset();
         Set(flag);
     }
 
     void Reset()
     {
-        m_jitFlags = 0;
+        memset(m_jitFlags, 0, sizeof(m_jitFlags));
     }
 
     void Set(JitFlag flag)
     {
-        m_jitFlags |= 1ULL << (unsigned __int64)flag;
+        m_jitFlags[flag/32] |= 1UL << (unsigned __int32)(flag%32);
     }
 
     void Clear(JitFlag flag)
     {
-        m_jitFlags &= ~(1ULL << (unsigned __int64)flag);
+        m_jitFlags[flag/32] &= ~(1UL << (unsigned __int32)(flag%32));
     }
 
     bool IsSet(JitFlag flag) const
     {
-        return (m_jitFlags & (1ULL << (unsigned __int64)flag)) != 0;
+        return (m_jitFlags[flag/32] & (1UL << (unsigned __int32)(flag%32))) != 0;
     }
 
     void Add(const JitFlags& other)
     {
-        m_jitFlags |= other.m_jitFlags;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            m_jitFlags[i] |= other.m_jitFlags[i];
+        }
     }
 
     void Remove(const JitFlags& other)
     {
-        m_jitFlags &= ~other.m_jitFlags;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            m_jitFlags[i] &= ~other.m_jitFlags[i];
+        }
     }
 
     bool IsEmpty() const
     {
-        return m_jitFlags == 0;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            if (m_jitFlags[i] != 0)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     void SetFromFlags(CORJIT_FLAGS flags)
     {
         // We don't want to have to check every one, so we assume it is exactly the same values as the JitFlag
         // values defined in this type.
-        m_jitFlags = flags.GetFlagsRaw();
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            m_jitFlags[i] = flags.GetFlagsRaw(i);
+        }
+        
 
         C_ASSERT(sizeof(m_jitFlags) == sizeof(CORJIT_FLAGS));
 
@@ -332,9 +355,14 @@ public:
 
 #endif // _TARGET_X86_ || _TARGET_AMD64_
 
+        FLAGS_EQUAL(CORJIT_FLAGS::CORJIT_FLAG_HOT_CODE_TEST_BBINSTR, JIT_FLAG_HOT_CODE_TEST_BBINSTR);
+        FLAGS_EQUAL(CORJIT_FLAGS::CORJIT_FLAG_TIER2, JIT_FLAG_TIER2);
+        FLAGS_EQUAL(CORJIT_FLAGS::CORJIT_FLAG_COUNT_FLAGS, JIT_FLAG_COUNT_FLAGS);
+
 #undef FLAGS_EQUAL
     }
 
 private:
-    unsigned __int64 m_jitFlags;
+    static const unsigned int COUNT_FLAG_DWORDS = (JIT_FLAG_COUNT_FLAGS+31)/32;
+    unsigned __int32 m_jitFlags[COUNT_FLAG_DWORDS];
 };

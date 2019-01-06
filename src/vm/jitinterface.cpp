@@ -11878,9 +11878,9 @@ void* CEEJitInfo::getMethodSync(CORINFO_METHOD_HANDLE ftnHnd,
 {
     CONTRACTL {
         SO_TOLERANT;
-        THROWS;
-        GC_TRIGGERS;
-        MODE_PREEMPTIVE;
+THROWS;
+GC_TRIGGERS;
+MODE_PREEMPTIVE;
     } CONTRACTL_END;
 
     void * result = NULL;
@@ -11897,13 +11897,55 @@ void* CEEJitInfo::getMethodSync(CORINFO_METHOD_HANDLE ftnHnd,
     return result;
 }
 
+
+
 /*********************************************************************/
-HRESULT CEEJitInfo::allocBBProfileBuffer (
+HRESULT CEEJitInfo::allocHotCodeTestBBProfileBuffer(
+    ULONG   count,
+    WORD ** counterBuffer
+)
+{
+    CONTRACTL{
+        SO_TOLERANT;
+        THROWS;
+        GC_TRIGGERS;
+        MODE_PREEMPTIVE;
+    } CONTRACTL_END;
+
+    HRESULT hr = E_FAIL;
+
+    JIT_TO_EE_TRANSITION();
+
+    HotCodeTestProfileBuffer* pProfileBuffer = (HotCodeTestProfileBuffer*)(void *)m_pMethodBeingCompiled->GetLoaderAllocator()->GetLowFrequencyHeap()->AllocMem(S_SIZE_T(sizeof(HotCodeTestProfileBuffer)));
+    if (!pProfileBuffer)
+    {
+        hr = E_OUTOFMEMORY;
+    }
+    else
+    {
+        pProfileBuffer->Init();
+        NativeCodeVersion::OptimizationTier tier = m_codeVersionBeingCompiled.GetOptimizationTier();
+        WORD timestamp = (WORD)(GetTickCount() & HotCodeTestProfileBuffer::TIMESTAMP_MASK);
+        WORD threshold = TieredCompilationManager::GetCallRateThreshold(tier);
+        pProfileBuffer->SetLastCheckTimestampAndFlags(timestamp, 0, tier == NativeCodeVersion::OptimizationTier1, 0);
+        m_pProfileBuffer = (BYTE*)pProfileBuffer;
+        *counterBuffer = pProfileBuffer->GetBlockCounterAddr();
+        **counterBuffer = (WORD)(threshold << 1);
+        hr = S_OK;
+    }
+
+    EE_TO_JIT_TRANSITION();
+
+    return hr;
+}
+
+/*********************************************************************/
+HRESULT CEEJitInfo::allocBBProfileBuffer(
     ULONG                         count,
     ICorJitInfo::ProfileBuffer ** profileBuffer
-    )
+)
 {
-    CONTRACTL {
+    CONTRACTL{
         SO_TOLERANT;
         THROWS;
         GC_TRIGGERS;
@@ -11915,38 +11957,60 @@ HRESULT CEEJitInfo::allocBBProfileBuffer (
     JIT_TO_EE_TRANSITION();
 
 #ifdef FEATURE_PREJIT
-
-    // We need to know the code size. Typically we can get the code size
-    // from m_ILHeader. For dynamic methods, m_ILHeader will be NULL, so
-    // for that case we need to use DynamicResolver to get the code size.
-
-    unsigned codeSize = 0; 
-    if (m_pMethodBeingCompiled->IsDynamicMethod())
+    if (IsCompilationProcess())
     {
-        unsigned stackSize, ehSize;
-        CorInfoOptions options;
-        DynamicResolver * pResolver = m_pMethodBeingCompiled->AsDynamicMethodDesc()->GetResolver();        
-        pResolver->GetCodeInfo(&codeSize, &stackSize, &options, &ehSize);
+        // We need to know the code size. Typically we can get the code size
+        // from m_ILHeader. For dynamic methods, m_ILHeader will be NULL, so
+        // for that case we need to use DynamicResolver to get the code size.
+
+        unsigned codeSize = 0;
+        if (m_pMethodBeingCompiled->IsDynamicMethod())
+        {
+            unsigned stackSize, ehSize;
+            CorInfoOptions options;
+            DynamicResolver * pResolver = m_pMethodBeingCompiled->AsDynamicMethodDesc()->GetResolver();
+            pResolver->GetCodeInfo(&codeSize, &stackSize, &options, &ehSize);
+        }
+        else
+        {
+            codeSize = m_ILHeader->GetCodeSize();
+        }
+
+        *profileBuffer = m_pMethodBeingCompiled->GetLoaderModule()->AllocateProfileBuffer(m_pMethodBeingCompiled->GetMemberDef(), count, codeSize);
+        hr = (*profileBuffer ? S_OK : E_OUTOFMEMORY);
     }
     else
-    {
-        codeSize = m_ILHeader->GetCodeSize();    
-    }
-    
-    *profileBuffer = m_pMethodBeingCompiled->GetLoaderModule()->AllocateProfileBuffer(m_pMethodBeingCompiled->GetMemberDef(), count, codeSize);
-    hr = (*profileBuffer ? S_OK : E_OUTOFMEMORY);
-#else // FEATURE_PREJIT
-    _ASSERTE(!"allocBBProfileBuffer not implemented on CEEJitInfo!");
-    hr = E_NOTIMPL;
 #endif // !FEATURE_PREJIT
+    {
+        if ((count & FullInstrumentationProfileBuffer::COUNT_BLOCKS_MASK) != count)
+        {
+            //too many blocks, don't profile
+            hr = E_FAIL;
+        }
+        else
+        {
+            DWORD size = FullInstrumentationProfileBuffer::GetAllocationSize(count);
+            FullInstrumentationProfileBuffer* pProfileBuffer = (FullInstrumentationProfileBuffer*)(void *)m_pMethodBeingCompiled->GetLoaderAllocator()->GetLowFrequencyHeap()->AllocMem(S_SIZE_T(size));
+            if (!pProfileBuffer)
+            {
+                hr = E_OUTOFMEMORY;
+            }
+            else
+            {
+                pProfileBuffer->Init(count);
+                m_pProfileBuffer = (BYTE*)pProfileBuffer;
+                *profileBuffer = pProfileBuffer->GetBlockCountersAddr();
+                hr = S_OK;
+            }
+        }
+    }
 
     EE_TO_JIT_TRANSITION();
     
     return hr;
 }
 
-// Consider implementing getBBProfileData on CEEJitInfo.  This will allow us
-// to use profile info in codegen for non zapped images.
+
 HRESULT CEEJitInfo::getBBProfileData (
     CORINFO_METHOD_HANDLE         ftnHnd,
     ULONG *                       size,
@@ -11955,8 +12019,27 @@ HRESULT CEEJitInfo::getBBProfileData (
     )
 {
     LIMITED_METHOD_CONTRACT;
-    _ASSERTE(!"getBBProfileData not implemented on CEEJitInfo!");
-    return E_NOTIMPL;
+    CodeVersionManager* pCodeVersionManager = m_pMethodBeingCompiled->GetCodeVersionManager();
+    {
+        CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+        ILCodeVersion ilVersion = m_codeVersionBeingCompiled.GetILCodeVersion();
+        NativeCodeVersionCollection nativeVersions = ilVersion.GetNativeCodeVersions(m_pMethodBeingCompiled);
+        for (NativeCodeVersionIterator cur = nativeVersions.Begin(), end = nativeVersions.End(); cur != end; cur++)
+        {
+            if ((cur->GetOptimizationTier() == NativeCodeVersion::OptimizationTier1) &&
+                (cur->GetInstrumentationLevel() == NativeCodeVersion::FullInstrumentation))
+            {
+                ProfileBufferHeader* pProfileBufferHeader = (ProfileBufferHeader*)cur->GetProfileSnapshot();
+                _ASSERTE(pProfileBufferHeader->GetFormat() == ProfileBufferHeader::FullFormat);
+                FullInstrumentationProfileBuffer* pProfile = (FullInstrumentationProfileBuffer*)pProfileBufferHeader;
+                *size = pProfile->GetCountBlocks();
+                *profileBuffer = pProfile->GetBlockCountersAddr();
+                *numRuns = 1;
+                return S_OK;
+            }
+        }
+    }
+    return E_FAIL;
 }
 
 void CEEJitInfo::allocMem (
@@ -12058,6 +12141,8 @@ void CEEJitInfo::allocMem (
     m_theUnwindBlock = current;
     current += m_totalUnwindSize;
 #endif
+
+    m_CodeHeader->SetProfileBuffer((BYTE*)m_pProfileBuffer);
 
     _ASSERTE((SIZE_T)(current - (BYTE *)m_CodeHeader->GetCodeStartAddress()) <= totalSize.Value());
 
@@ -12725,8 +12810,8 @@ BOOL g_fAllowRel32 = TRUE;
 //
 // Calls to this method that occur to check if inlining can occur on x86,
 // are OK since they discard the return value of this method.
-
-PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS flags,
+#if !defined(CROSSGEN_COMPILE) && !defined(DACCESS_COMPILE)
+PCODE UnsafeJitFunction(NativeCodeVersion codeVersion, COR_ILMETHOD_DECODER* ILHeader, CORJIT_FLAGS flags,
                         ULONG * pSizeOfCode)
 {
     STANDARD_VM_CONTRACT;
@@ -12735,6 +12820,7 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
 
     COOPERATIVE_TRANSITION_BEGIN();
 
+    MethodDesc* ftn = codeVersion.GetMethodDesc();
 #ifdef FEATURE_PREJIT
 
     if (g_pConfig->RequireZaps() == EEConfig::REQUIRE_ZAPS_ALL &&
@@ -12868,7 +12954,7 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
     for (;;)
     {
 #ifndef CROSSGEN_COMPILE
-        CEEJitInfo jitInfo(ftn, ILHeader, jitMgr, flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IMPORT_ONLY), 
+        CEEJitInfo jitInfo(codeVersion, ILHeader, jitMgr, flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_IMPORT_ONLY),
             !flags.IsSet(CORJIT_FLAGS::CORJIT_FLAG_NO_INLINING));
 #else
         // This path should be only ever used for verification in crossgen and so we should not need EEJitManager
@@ -13101,6 +13187,7 @@ PCODE UnsafeJitFunction(MethodDesc* ftn, COR_ILMETHOD_DECODER* ILHeader, CORJIT_
     COOPERATIVE_TRANSITION_END();
     return ret;
 }
+#endif
 
 extern "C" unsigned __stdcall PartialNGenStressPercentage()
 {
@@ -13986,6 +14073,15 @@ void* CEEInfo::getMethodSync(CORINFO_METHOD_HANDLE ftnHnd,
 {
     LIMITED_METHOD_CONTRACT;
     UNREACHABLE();      // only called on derived class.
+}
+
+HRESULT CEEInfo::allocHotCodeTestBBProfileBuffer(
+    ULONG                 count,           // The number of basic blocks that we have
+    WORD **               counterBuffer
+)
+{
+    LIMITED_METHOD_CONTRACT;
+    UNREACHABLE_RET();      // only called on derived class.
 }
 
 HRESULT CEEInfo::allocBBProfileBuffer (

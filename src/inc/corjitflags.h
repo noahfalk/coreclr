@@ -96,7 +96,7 @@ public:
         CORJIT_FLAG_REVERSE_PINVOKE         = 37, // The JIT should insert REVERSE_PINVOKE_{ENTER,EXIT} helpers into method prolog/epilog
         CORJIT_FLAG_DESKTOP_QUIRKS          = 38, // The JIT should generate desktop-quirk-compatible code
         CORJIT_FLAG_TIER0                   = 39, // This is the initial tier for tiered compilation which should generate code as quickly as possible
-        CORJIT_FLAG_TIER1                   = 40, // This is the final tier (for now) for tiered compilation which should generate high quality code
+        CORJIT_FLAG_TIER1                   = 40, // This is the middle tier for tiered compilation which should generate good quality code without using profiling feedback
 
 #if defined(_TARGET_ARM_)
         CORJIT_FLAG_RELATIVE_CODE_RELOCS    = 41, // JIT should generate PC-relative address computations instead of EE relocation records
@@ -128,7 +128,7 @@ public:
         CORJIT_FLAG_HAS_ARM64_SIMD_FP16     = 60, // ID_AA64PFR0_EL1.AdvSIMD is 1 or better
         CORJIT_FLAG_HAS_ARM64_SM3           = 61, // ID_AA64ISAR0_EL1.SM3 is 1 or better
         CORJIT_FLAG_HAS_ARM64_SM4           = 62, // ID_AA64ISAR0_EL1.SM4 is 1 or better
-        CORJIT_FLAG_HAS_ARM64_SVE           = 63  // ID_AA64PFR0_EL1.SVE is 1 or better
+        CORJIT_FLAG_HAS_ARM64_SVE           = 63, // ID_AA64PFR0_EL1.SVE is 1 or better
 
 #elif defined(_TARGET_X86_) || defined(_TARGET_AMD64_)
 
@@ -152,7 +152,7 @@ public:
         CORJIT_FLAG_UNUSED29                = 60,
         CORJIT_FLAG_UNUSED30                = 61,
         CORJIT_FLAG_UNUSED31                = 62,
-        CORJIT_FLAG_UNUSED32                = 63
+        CORJIT_FLAG_UNUSED32                = 63,
 
 
 #else // !defined(_TARGET_ARM64_) &&!defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
@@ -177,73 +177,91 @@ public:
         CORJIT_FLAG_UNUSED29                = 60,
         CORJIT_FLAG_UNUSED30                = 61,
         CORJIT_FLAG_UNUSED31                = 62,
-        CORJIT_FLAG_UNUSED32                = 63
+        CORJIT_FLAG_UNUSED32                = 63,
 
 #endif // !defined(_TARGET_ARM64_) &&!defined(_TARGET_X86_) && !defined(_TARGET_AMD64_)
+
+        CORJIT_FLAG_HOT_CODE_TEST_BBINSTR = 64,
+        CORJIT_FLAG_TIER2 = 65,
+        // add new flags here and increment COUNT_FLAGS
+        CORJIT_FLAG_COUNT_FLAGS = 66
     };
 
     CORJIT_FLAGS()
-        : corJitFlags(0)
     {
-        // empty
+        Reset();
     }
 
     // Convenience constructor to set exactly one flag.
     CORJIT_FLAGS(CorJitFlag flag)
-        : corJitFlags(0)
     {
+        Reset();
         Set(flag);
     }
 
     CORJIT_FLAGS(const CORJIT_FLAGS& other)
     {
-        corJitFlags = other.corJitFlags;
+        memcpy(corJitFlags, other.corJitFlags, sizeof(corJitFlags));
     }
 
     void Reset()
     {
-        corJitFlags = 0;
+        memset(corJitFlags, 0, sizeof(corJitFlags));
     }
 
     void Set(CorJitFlag flag)
     {
-        corJitFlags |= 1ULL << (unsigned __int64)flag;
+        corJitFlags[flag/32] |= 1UL << (unsigned __int32)(flag%32);
     }
 
     void Clear(CorJitFlag flag)
     {
-        corJitFlags &= ~(1ULL << (unsigned __int64)flag);
+        corJitFlags[flag/32] &= ~(1UL << (unsigned __int32)(flag%32));
     }
 
     bool IsSet(CorJitFlag flag) const
     {
-        return (corJitFlags & (1ULL << (unsigned __int64)flag)) != 0;
+        return (corJitFlags[flag/32] & (1UL << (unsigned __int32)(flag%32))) != 0;
     }
 
     void Add(const CORJIT_FLAGS& other)
     {
-        corJitFlags |= other.corJitFlags;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            corJitFlags[i] |= other.corJitFlags[i];
+        } 
     }
 
     void Remove(const CORJIT_FLAGS& other)
     {
-        corJitFlags &= ~other.corJitFlags;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            corJitFlags[i] &= ~other.corJitFlags[i];
+        }
     }
 
     bool IsEmpty() const
     {
-        return corJitFlags == 0;
+        for (unsigned int i = 0; i < COUNT_FLAG_DWORDS; i++)
+        {
+            if (corJitFlags[i] != 0)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // DO NOT USE THIS FUNCTION! (except in very restricted special cases)
-    unsigned __int64 GetFlagsRaw()
+    unsigned __int32 GetFlagsRaw(int dword_index)
     {
-        return corJitFlags;
+        return corJitFlags[dword_index];
     }
 
 private:
 
-    unsigned __int64 corJitFlags;
+    static const unsigned int COUNT_FLAG_DWORDS = (CORJIT_FLAG_COUNT_FLAGS + 31) / 32;
+    unsigned __int32 corJitFlags[COUNT_FLAG_DWORDS];
 };
 
 

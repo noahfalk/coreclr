@@ -33,8 +33,10 @@
 #ifndef _VMEVENTTRACE_H_
 #define _VMEVENTTRACE_H_
 
+#include "daccess.h"
 #include "eventtracebase.h"
 #include "gcinterface.h"
+#include "codeversion.h"
 
 #if defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 struct ProfilingScanContext : ScanContext
@@ -43,18 +45,7 @@ struct ProfilingScanContext : ScanContext
     void * pvEtwContext;
     void *pHeapId;
     
-    ProfilingScanContext(BOOL fProfilerPinnedParam) : ScanContext()
-    {
-        LIMITED_METHOD_CONTRACT;
-
-        pHeapId = NULL;
-        fProfilerPinned = fProfilerPinnedParam;
-        pvEtwContext = NULL;
-#ifdef FEATURE_CONSERVATIVE_GC
-        // To not confuse GCScan::GcScanRoots
-        promotion = g_pConfig->GetGCConservative();
-#endif
-    }
+    ProfilingScanContext(BOOL fProfilerPinnedParam);
 };
 #endif // defined(GC_PROFILING) || defined(FEATURE_EVENT_TRACE)
 
@@ -354,6 +345,234 @@ namespace ETW
         static VOID EndMovedReferences(size_t profilingContext, BOOL fAllowProfApiNotification = TRUE) {};
 #endif // FEATURE_EVENT_TRACE        
         static VOID SendFinalizeObjectEvent(MethodTable * pMT, Object * pObj);
+    };
+
+    class LoaderLog;
+    class MethodLog;
+    // Class to wrap all the enumeration logic for ETW
+    class EnumerationLog
+    {
+        friend class ETW::LoaderLog;
+        friend class ETW::MethodLog;
+#ifdef FEATURE_EVENT_TRACE
+        static VOID SendThreadRundownEvent();
+        static VOID IterateDomain(BaseDomain *pDomain, DWORD enumerationOptions);
+        static VOID IterateAppDomain(AppDomain * pAppDomain, DWORD enumerationOptions);
+        static VOID IterateCollectibleLoaderAllocator(AssemblyLoaderAllocator *pLoaderAllocator, DWORD enumerationOptions);
+        static VOID IterateAssembly(Assembly *pAssembly, DWORD enumerationOptions);
+        static VOID IterateModule(Module *pModule, DWORD enumerationOptions);
+        static VOID EnumerationHelper(Module *moduleFilter, BaseDomain *domainFilter, DWORD enumerationOptions);
+        static DWORD GetEnumerationOptionsFromRuntimeKeywords();
+    public:
+        typedef union _EnumerationStructs
+        {
+            typedef enum _EnumerationOptions
+            {
+                None = 0x00000000,
+                DomainAssemblyModuleLoad = 0x00000001,
+                DomainAssemblyModuleUnload = 0x00000002,
+                DomainAssemblyModuleDCStart = 0x00000004,
+                DomainAssemblyModuleDCEnd = 0x00000008,
+                JitMethodLoad = 0x00000010,
+                JitMethodUnload = 0x00000020,
+                JitMethodDCStart = 0x00000040,
+                JitMethodDCEnd = 0x00000080,
+                NgenMethodLoad = 0x00000100,
+                NgenMethodUnload = 0x00000200,
+                NgenMethodDCStart = 0x00000400,
+                NgenMethodDCEnd = 0x00000800,
+                ModuleRangeLoad = 0x00001000,
+                ModuleRangeDCStart = 0x00002000,
+                ModuleRangeDCEnd = 0x00004000,
+                ModuleRangeLoadPrivate = 0x00008000,
+                MethodDCStartILToNativeMap = 0x00010000,
+                MethodDCEndILToNativeMap = 0x00020000,
+                JitMethodILToNativeMap = 0x00040000,
+                TypeUnload = 0x00080000,
+
+                // Helpers
+                ModuleRangeEnabledAny = ModuleRangeLoad | ModuleRangeDCStart | ModuleRangeDCEnd | ModuleRangeLoadPrivate,
+                JitMethodLoadOrDCStartAny = JitMethodLoad | JitMethodDCStart | MethodDCStartILToNativeMap,
+                JitMethodUnloadOrDCEndAny = JitMethodUnload | JitMethodDCEnd | MethodDCEndILToNativeMap,
+            }EnumerationOptions;
+        }EnumerationStructs;
+
+        static VOID ProcessShutdown();
+        static VOID ModuleRangeRundown();
+        static VOID StartRundown();
+        static VOID EndRundown();
+        static VOID EnumerateForCaptureState();
+#else
+    public:
+        static VOID ProcessShutdown() {};
+        static VOID StartRundown() {};
+        static VOID EndRundown() {};
+#endif // FEATURE_EVENT_TRACE
+    };
+
+
+    // Class to wrap all Loader logic for ETW
+    class LoaderLog
+    {
+        friend class ETW::EnumerationLog;
+#if defined(FEATURE_EVENT_TRACE)
+        static VOID SendModuleEvent(Module *pModule, DWORD dwEventOptions, BOOL bFireDomainModuleEvents = FALSE);
+        static ULONG SendModuleRange(__in Module *pModule, __in DWORD dwEventOptions);
+        static VOID SendAssemblyEvent(Assembly *pAssembly, DWORD dwEventOptions);
+        static VOID SendDomainEvent(BaseDomain *pBaseDomain, DWORD dwEventOptions, LPCWSTR wszFriendlyName = NULL);
+    public:
+        typedef union _LoaderStructs
+        {
+            typedef enum _AppDomainFlags
+            {
+                DefaultDomain = 0x1,
+                ExecutableDomain = 0x2,
+                SharedDomain = 0x4
+            }AppDomainFlags;
+
+            typedef enum _AssemblyFlags
+            {
+                DomainNeutralAssembly = 0x1,
+                DynamicAssembly = 0x2,
+                NativeAssembly = 0x4,
+                CollectibleAssembly = 0x8,
+                ReadyToRunAssembly = 0x10,
+            }AssemblyFlags;
+
+            typedef enum _ModuleFlags
+            {
+                DomainNeutralModule = 0x1,
+                NativeModule = 0x2,
+                DynamicModule = 0x4,
+                ManifestModule = 0x8,
+                IbcOptimized = 0x10,
+                ReadyToRunModule = 0x20,
+            }ModuleFlags;
+
+            typedef enum _RangeFlags
+            {
+                HotRange = 0x0
+            }RangeFlags;
+
+        }LoaderStructs;
+
+        static VOID DomainLoadReal(BaseDomain *pDomain, __in_opt LPWSTR wszFriendlyName = NULL);
+
+        static VOID DomainLoad(BaseDomain *pDomain, __in_opt LPWSTR wszFriendlyName = NULL)
+        {
+            if (ETW_PROVIDER_ENABLED(MICROSOFT_WINDOWS_DOTNETRUNTIME_PROVIDER))
+            {
+                DomainLoadReal(pDomain, wszFriendlyName);
+            }
+        }
+
+        static VOID DomainUnload(AppDomain *pDomain);
+        static VOID CollectibleLoaderAllocatorUnload(AssemblyLoaderAllocator *pLoaderAllocator);
+        static VOID ModuleLoad(Module *pModule, LONG liReportedSharedModule);
+#else
+    public:
+        static VOID DomainLoad(BaseDomain *pDomain, __in_opt LPWSTR wszFriendlyName = NULL) {};
+        static VOID DomainUnload(AppDomain *pDomain) {};
+        static VOID CollectibleLoaderAllocatorUnload(AssemblyLoaderAllocator *pLoaderAllocator) {};
+        static VOID ModuleLoad(Module *pModule, LONG liReportedSharedModule) {};
+#endif // FEATURE_EVENT_TRACE
+    };
+
+    // Class to wrap all Method logic for ETW
+    class MethodLog
+    {
+        friend class ETW::EnumerationLog;
+#ifdef FEATURE_EVENT_TRACE
+        static VOID SendEventsForJitMethods(BaseDomain *pDomainFilter, LoaderAllocator *pLoaderAllocatorFilter, DWORD dwEventOptions);
+        static VOID SendEventsForJitMethodsHelper(BaseDomain *pDomainFilter,
+            LoaderAllocator *pLoaderAllocatorFilter,
+            CodeVersionManager* pCodeVersionManager,
+            DWORD dwEventOptions,
+            BOOL fLoadOrDCStart,
+            BOOL fUnloadOrDCEnd,
+            BOOL fSendMethodEvent,
+            BOOL fSendILToNativeMapEvent,
+            BOOL fGetReJitIDs);
+        static VOID SendEventsForNgenMethods(Module *pModule, DWORD dwEventOptions);
+        static VOID SendMethodJitStartEvent(MethodDesc *pMethodDesc, SString *namespaceOrClassName = NULL, SString *methodName = NULL, SString *methodSignature = NULL);
+        static VOID SendMethodILToNativeMapEvent(MethodDesc * pMethodDesc, DWORD dwEventOptions, SIZE_T pCode, NativeCodeVersionId codeVersionId);
+        static VOID SendMethodEvent(MethodDesc *pMethodDesc,
+            DWORD dwEventOptions,
+            BOOL bIsJit,
+            SString *namespaceOrClassName = NULL,
+            SString *methodName = NULL,
+            SString *methodSignature = NULL,
+            SIZE_T pCode = 0,
+            NativeCodeVersionId codeVersionId = 0,
+            BOOL bProfilerRejectedPrecompiledCode = FALSE,
+            BOOL bReadyToRunRejectedPrecompiledCode = FALSE,
+            NativeCodeVersion::OptimizationTier = (NativeCodeVersion::OptimizationTier) - 1,
+            NativeCodeVersion::InstrumentationLevel = NativeCodeVersion::NoInstrumentation);
+        static VOID SendHelperEvent(ULONGLONG ullHelperStartAddress, ULONG ulHelperSize, LPCWSTR pHelperName);
+    public:
+        typedef union _MethodStructs
+        {
+            typedef enum _MethodFlags
+            {
+                DynamicMethod = 0x1,
+                GenericMethod = 0x2,
+                SharedGenericCode = 0x4,
+                JittedMethod = 0x8,
+                JitHelperMethod = 0x10,
+                ProfilerRejectedPrecompiledCode = 0x20,
+                ReadyToRunRejectedPrecompiledCode = 0x40,
+                TierMask = 0x380, // 3 bits, only 2 in use and 1 reserved in case we add yet more tiers
+                TierUnknown = 0x0,
+                Tier0 = 0x80,
+                Tier1 = 0x100,
+                Tier2 = 0x180,
+                MethodEntryInstrumentation = 0x400,
+                FullBBCounterInstrumentation = 0x800,
+            }MethodFlags;
+
+            typedef enum _MethodExtent
+            {
+                HotSection = 0x00000000,
+                ColdSection = 0x10000000
+            }MethodExtent;
+
+        }MethodStructs;
+
+        static VOID MethodJitting(MethodDesc *pMethodDesc, SString *namespaceOrClassName = NULL, SString *methodName = NULL, SString *methodSignature = NULL);
+        static VOID MethodJitted(MethodDesc *pMethodDesc,
+            SString *namespaceOrClassName = NULL,
+            SString *methodName = NULL,
+            SString *methodSignature = NULL,
+            SIZE_T pCode = 0,
+            NativeCodeVersionId codeVersionId = 0,
+            BOOL bProfilerRejectedPrecompiledCode = FALSE,
+            BOOL bReadyToRunRejectedPrecompiledCode = FALSE,
+            NativeCodeVersion::OptimizationTier tier = (NativeCodeVersion::OptimizationTier) - 1,
+            NativeCodeVersion::InstrumentationLevel level = NativeCodeVersion::NoInstrumentation);
+        static VOID StubInitialized(ULONGLONG ullHelperStartAddress, LPCWSTR pHelperName);
+        static VOID StubsInitialized(PVOID *pHelperStartAddresss, PVOID *pHelperNames, LONG ulNoOfHelpers);
+        static VOID MethodRestored(MethodDesc * pMethodDesc);
+        static VOID MethodTableRestored(MethodTable * pMethodTable);
+        static VOID DynamicMethodDestroyed(MethodDesc *pMethodDesc);
+#else // FEATURE_EVENT_TRACE
+    public:
+        static VOID MethodJitting(MethodDesc *pMethodDesc, SString *namespaceOrClassName = NULL, SString *methodName = NULL, SString *methodSignature = NULL) {};
+        static VOID MethodJitted(MethodDesc *pMethodDesc,
+            SString *namespaceOrClassName = NULL,
+            SString *methodName = NULL,
+            SString *methodSignature = NULL,
+            SIZE_T pCode = 0,
+            ReJITID rejitID = 0,
+            BOOL bProfilerRejectedPrecompiledCode = FALSE,
+            BOOL bReadyToRunRejectedPrecompiledCode = FALSE,
+            NativeCodeVersion::OptimizationTier tier = (NativeCodeVersion::OptimizationTier) - 1,
+            NativeCodeVersion::InstrumentationLevel level = NativeCodeVersion::NoInstrumentation) {};
+        static VOID StubInitialized(ULONGLONG ullHelperStartAddress, LPCWSTR pHelperName) {};
+        static VOID StubsInitialized(PVOID *pHelperStartAddresss, PVOID *pHelperNames, LONG ulNoOfHelpers) {};
+        static VOID MethodRestored(MethodDesc * pMethodDesc) {};
+        static VOID MethodTableRestored(MethodTable * pMethodTable) {};
+        static VOID DynamicMethodDestroyed(MethodDesc *pMethodDesc) {};
+#endif // FEATURE_EVENT_TRACE
     };
 };
 

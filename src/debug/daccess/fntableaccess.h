@@ -52,6 +52,7 @@ typedef struct _FakeHpRealCodeHdr
 #if defined (FEATURE_GDBJIT)
     LPVOID              pCalledMethods;
 #endif
+    LPVOID              phdrProfileBuffer;
     LPVOID              hdrMDesc;       // changed from MethodDesc*
     DWORD               nUnwindInfos;
     T_RUNTIME_FUNCTION  unwindInfos[0];

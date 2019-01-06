@@ -74,7 +74,7 @@
 #include "typekey.h"
 #include "peimagelayout.inl"
 #include "ildbsymlib.h"
-
+#include "eventtrace.h"
 
 #if defined(PROFILING_SUPPORTED)
 #include "profilermetadataemitvalidator.h"

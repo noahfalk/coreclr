@@ -5477,6 +5477,7 @@ HRESULT EEToProfInterfaceImpl::SetEnterLeaveFunctionHooksForJit(FunctionEnter3 *
 
 /*************************************************************/
 HCIMPL1(void, JIT_LogMethodEnter, CORINFO_METHOD_HANDLE methHnd_)
+{
     FCALL_CONTRACT;
 
     //
@@ -5488,10 +5489,56 @@ HCIMPL1(void, JIT_LogMethodEnter, CORINFO_METHOD_HANDLE methHnd_)
     g_IBCLogger.LogMethodCodeAccess(GetMethod(methHnd_));
 
     HELPER_METHOD_FRAME_END_POLL();
-
+}
 HCIMPLEND
 
+/*************************************************************/
+HCIMPL1(void, JIT_LogBBSamplingTick, WORD* pSamplingTickCounterBuffer)
+{
+    FCALL_CONTRACT;
+ 
+    HotCodeTestProfileBuffer* pProfileBuffer = HotCodeTestProfileBuffer::GetFromBlockCounterAddr(pSamplingTickCounterBuffer);
+    WORD lastCheckTimestamp;
+    BOOL parityBit;
+    BOOL tierBit;
+    BOOL ignoreBit;
+    pProfileBuffer->GetLastCheckTimestampAndFlags(&lastCheckTimestamp, &parityBit, &tierBit, &ignoreBit);
+    NativeCodeVersion::OptimizationTier tier = (NativeCodeVersion::OptimizationTier)tierBit;
+    WORD counterValue = *pSamplingTickCounterBuffer;
+    WORD timestamp = (WORD)(GetTickCount() & HotCodeTestProfileBuffer::TIMESTAMP_MASK);
 
+    // TODO: I'm playing with fire doing these unsynchronized multi-threaded read/write operations.
+    // If we ever wanted to write a production quality impl this deserves serious scrutiny
+    if ( ignoreBit ||
+        ((counterValue & 0x1) != parityBit) ||
+        (lastCheckTimestamp != timestamp))
+    {
+        parityBit = !(counterValue & 0x1);
+        WORD threshold = ignoreBit ? 0x7FFF : TieredCompilationManager::GetCallRateThreshold(tier);
+        *pSamplingTickCounterBuffer = (threshold << 1) | parityBit;
+        pProfileBuffer->SetLastCheckTimestampAndFlags(timestamp, parityBit, tierBit, ignoreBit);
+        return;
+    }
+
+    
+    HELPER_METHOD_FRAME_BEGIN_NOPOLL();
+    {
+        GCX_PREEMP();
+        __helperframe.InsureInit(false, NULL);
+        PCODE returnIP = __helperframe.GetReturnAddress();
+        EECodeInfo callerInfo(returnIP);
+        MethodDesc* pCallerMD = callerInfo.GetMethodDesc();
+        TieredCompilationManager* pTCM = GetAppDomain()->GetTieredCompilationManager();
+        pTCM->OnMethodCallRateThresholdExceeded(pCallerMD, tier);
+    }
+    
+    // disable the counter
+    *pSamplingTickCounterBuffer = 0x7FFF << 1;
+    pProfileBuffer->SetLastCheckTimestampAndFlags(timestamp, 0, tierBit, 1);
+
+    HELPER_METHOD_FRAME_END_POLL();
+}
+HCIMPLEND
 
 //========================================================================
 //

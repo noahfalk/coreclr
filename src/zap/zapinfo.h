@@ -307,6 +307,11 @@ public:
     int  doAssert(const char* szFile, int iLine, const char* szExpr);
     void reportFatalError(CorJitResult result);
 
+    HRESULT allocHotCodeTestBBProfileBuffer(
+        ULONG                     count,
+        WORD **                   counterBuffer
+    );
+
     HRESULT allocBBProfileBuffer (
             ULONG cBlock,
             ICorJitInfo::ProfileBuffer ** ppBlock);

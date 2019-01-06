@@ -60,6 +60,37 @@
 
 #if defined(FEATURE_TIERED_COMPILATION) && !defined(DACCESS_COMPILE)
 
+
+HotMethodProfilingInfo::Key::Key() {}
+
+HotMethodProfilingInfo::Key::Key(PTR_MethodDesc pMethod, ReJITID codeVersion) :
+    m_pMethod(pMethod),
+    m_codeVersion(codeVersion)
+{}
+
+size_t HotMethodProfilingInfo::Key::Hash() const
+{
+    LIMITED_METHOD_DAC_CONTRACT;
+    return (size_t)(dac_cast<TADDR>(m_pMethod) ^ dac_cast<TADDR>(m_codeVersion));
+}
+
+bool HotMethodProfilingInfo::Key::operator==(const Key & rhs) const
+{
+    return (m_pMethod == rhs.m_pMethod) &&
+        (m_codeVersion == rhs.m_codeVersion);
+}
+
+HotMethodProfilingInfo::HotMethodProfilingInfo(PTR_MethodDesc pMethod, ReJITID codeVersion) :
+    m_key(Key(pMethod, codeVersion)),
+    m_stage(CompilingInstrumentedCodeBody)
+{}
+
+HotMethodProfilingInfo::Key HotMethodProfilingInfo::GetKey() const
+{
+    return m_key;
+}
+
+
 // Called at AppDomain construction
 TieredCompilationManager::TieredCompilationManager() :
     m_lock(CrstTieredCompilation),
@@ -69,7 +100,9 @@ TieredCompilationManager::TieredCompilationManager() :
     m_optimizationQuantumMs(50),
     m_methodsPendingCountingForTier1(nullptr),
     m_tieringDelayTimerHandle(nullptr),
-    m_tier1CallCountingCandidateMethodRecentlyRecorded(false)
+    m_tier1CallCountingCandidateMethodRecentlyRecorded(false),
+    m_instrumentationMonitorPeriodMs(16),
+    m_minMonitorBBCount(10000)
 {
     WRAPPER_NO_CONTRACT;
     // On Unix, we can reach here before EEConfig is initialized, so defer config-based initialization to Init()
@@ -110,6 +143,24 @@ NativeCodeVersion::OptimizationTier TieredCompilationManager::GetInitialOptimiza
     return NativeCodeVersion::OptimizationTier0;
 }
 
+NativeCodeVersion::InstrumentationLevel TieredCompilationManager::GetInitialInstrumentationLevel(PTR_MethodDesc pMethodDesc)
+{
+    WRAPPER_NO_CONTRACT;
+    _ASSERTE(pMethodDesc != NULL);
+
+#ifdef FEATURE_TIERED_COMPILATION
+    if (pMethodDesc->IsEligibleForTieredCompilation())
+    {
+        _ASSERTE(TieredCompilationManager::GetInitialOptimizationTier(pMethodDesc) != NativeCodeVersion::OptimizationTier2);
+        if (g_pConfig->TieredCompilation_CallCounting())
+        {
+            return NativeCodeVersion::ApproxMaxBBInstrumention;
+        }
+    }
+#endif
+    return NativeCodeVersion::NoInstrumentation;
+}
+
 #if defined(FEATURE_TIERED_COMPILATION) && !defined(DACCESS_COMPILE)
 
 bool TieredCompilationManager::RequiresCallCounting(MethodDesc* pMethodDesc)
@@ -121,6 +172,33 @@ bool TieredCompilationManager::RequiresCallCounting(MethodDesc* pMethodDesc)
     return
         g_pConfig->TieredCompilation_CallCounting() &&
         GetInitialOptimizationTier(pMethodDesc) == NativeCodeVersion::OptimizationTier0;
+}
+
+WORD TieredCompilationManager::GetCallRateThreshold(NativeCodeVersion::OptimizationTier tier)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    if (tier == NativeCodeVersion::OptimizationTier0)
+    {
+        return (WORD)g_pConfig->TieredCompilation_Tier1CallRateThreshold();
+    }
+    else //if(tier == NativeCodeVersion::OptimizationTier1)
+    {
+        return (WORD)g_pConfig->TieredCompilation_Tier2CallRateThreshold();
+    }
+}
+
+void TieredCompilationManager::OnMethodCallRateThresholdExceeded(MethodDesc* pMethodDesc, NativeCodeVersion::OptimizationTier tier)
+{
+    STANDARD_VM_CONTRACT;
+    if (tier == NativeCodeVersion::OptimizationTier0)
+    {
+        AsyncPromoteMethod(pMethodDesc, NativeCodeVersion::OptimizationTier1);
+    }
+    else if (tier == NativeCodeVersion::OptimizationTier1)
+    {
+        AsyncPromoteMethod(pMethodDesc, NativeCodeVersion::OptimizationTier2);
+    }
 }
 
 // Called each time code in this AppDomain has been run. This is our sole entrypoint to begin
@@ -152,7 +230,7 @@ void TieredCompilationManager::OnMethodCalled(
 
     if (currentCallCount == m_callCountOptimizationThreshhold)
     {
-        AsyncPromoteMethodToTier1(pMethodDesc);
+        AsyncPromoteMethod(pMethodDesc, NativeCodeVersion::OptimizationTier1);
     }
 }
 
@@ -217,41 +295,74 @@ void TieredCompilationManager::OnMethodCallCountingStoppedWithoutTier1Promotion(
     ResumeCountingCalls(pMethodDesc);
 }
 
-void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc)
+void TieredCompilationManager::AsyncPromoteMethod(MethodDesc* pMethodDesc, NativeCodeVersion::OptimizationTier tier)
 {
     STANDARD_VM_CONTRACT;
 
-    NativeCodeVersion t1NativeCodeVersion;
+    //Figure out what code to create
+    NativeCodeVersion::InstrumentationLevel instrumentationLevel;
+    NativeCodeVersion::OptimizationTier tierToCompile;
+    if (tier == NativeCodeVersion::OptimizationTier1)
+    {
+        tierToCompile = NativeCodeVersion::OptimizationTier1;
+        instrumentationLevel = NativeCodeVersion::ApproxMaxBBInstrumention;
+    }
+    else if (tier == NativeCodeVersion::OptimizationTier2)
+    {
+        // In order to get to tier2, first we need to profile tier1.
+        // As soon the instrumented code is ready, it will be monitored
+        // and then tier2 optimized code will be produced
+        tierToCompile = NativeCodeVersion::OptimizationTier1;
+        instrumentationLevel = NativeCodeVersion::FullInstrumentation;
+    }
+    else
+    {
+        _ASSERTE(!"Unsupported tier in TieredCompilationManager::AsyncPromoteMethod");
+        return;
+    }
 
-    // Add an inactive native code entry in the versioning table to track the tier1 
+    AsyncCompileAndActivate(pMethodDesc, tierToCompile, instrumentationLevel);
+}
+
+void TieredCompilationManager::AsyncCompileAndActivate(MethodDesc* pMethodDesc, 
+                                                       NativeCodeVersion::OptimizationTier tier,
+                                                       NativeCodeVersion::InstrumentationLevel instrumentationLevel)
+{
+    STANDARD_VM_CONTRACT;
+
+    // Add an inactive native code entry in the versioning table to track the new 
     // compilation we are going to create. This entry binds the compilation to a
     // particular version of the IL code regardless of any changes that may
     // occur between now and when jitting completes. If the IL does change in that
     // interval the new code entry won't be activated.
+    NativeCodeVersion nativeCodeVersionToCompile;
     {
         CodeVersionManager* pCodeVersionManager = pMethodDesc->GetCodeVersionManager();
         CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
         ILCodeVersion ilVersion = pCodeVersionManager->GetActiveILCodeVersion(pMethodDesc);
+        
+        // Its possible to receive multiple requests for promotion, or to maybe to receive a promotion
+        // request for a lower tier than we've already commited to. Ignore these requests.
         NativeCodeVersionCollection nativeVersions = ilVersion.GetNativeCodeVersions(pMethodDesc);
         for (NativeCodeVersionIterator cur = nativeVersions.Begin(), end = nativeVersions.End(); cur != end; cur++)
         {
-            if (cur->GetOptimizationTier() == NativeCodeVersion::OptimizationTier1)
+            if (cur->GetOptimizationTier() > tier ||
+                ((cur->GetOptimizationTier() == tier) && (cur->GetInstrumentationLevel() == instrumentationLevel)))
             {
-                // we've already promoted
-                LOG((LF_TIEREDCOMPILATION, LL_INFO100000, "TieredCompilationManager::AsyncPromoteMethodToTier1 Method=0x%pM (%s::%s) ignoring already promoted method\n",
-                    pMethodDesc, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName));
+                LOG((LF_TIEREDCOMPILATION, LL_INFO100000, "TieredCompilationManager::AsyncCompileAndActivate Method=0x%pM Tier=%d (%s::%s) ignoring already promoted method\n",
+                    pMethodDesc, tier, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName));
                 return;
             }
         }
 
         HRESULT hr = S_OK;
-        if (FAILED(hr = ilVersion.AddNativeCodeVersion(pMethodDesc, NativeCodeVersion::OptimizationTier1, &t1NativeCodeVersion)))
+        if (FAILED(hr = ilVersion.AddNativeCodeVersion(pMethodDesc, tier, instrumentationLevel, &nativeCodeVersionToCompile)))
         {
             // optimization didn't work for some reason (presumably OOM)
             // just give up and continue on
-            STRESS_LOG2(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::AsyncPromoteMethodToTier1: "
-                "AddNativeCodeVersion failed hr=0x%x, method=%pM\n",
-                hr, pMethodDesc);
+            STRESS_LOG3(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::AsyncCompileAndActivate: "
+                "AddNativeCodeVersion failed hr=0x%x, method=%pM, tier=%d\n",
+                hr, pMethodDesc, tier);
             return;
         }
     }
@@ -265,16 +376,16 @@ void TieredCompilationManager::AsyncPromoteMethodToTier1(MethodDesc* pMethodDesc
     // unserviced. Synchronous retries appear unlikely to offer any material improvement 
     // and complicating the code to narrow an already rare error case isn't desirable.
     {
-        SListElem<NativeCodeVersion>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersion>(t1NativeCodeVersion);
+        SListElem<NativeCodeVersion>* pMethodListItem = new (nothrow) SListElem<NativeCodeVersion>(nativeCodeVersionToCompile);
         CrstHolder holder(&m_lock);
         if (pMethodListItem != NULL)
         {
             m_methodsToOptimize.InsertTail(pMethodListItem);
         }
 
-        LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::AsyncPromoteMethodToTier1 Method=0x%pM (%s::%s), code version id=0x%x queued\n",
+        LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::AsyncCompileAndActivate Method=0x%pM (%s::%s), tier=%d, instrumentation=%d, code version id=0x%x queued\n",
             pMethodDesc, pMethodDesc->m_pszDebugClassName, pMethodDesc->m_pszDebugMethodName,
-            t1NativeCodeVersion.GetVersionId()));
+            tier, instrumentationLevel, nativeCodeVersionToCompile.GetVersionId()));
 
         if (!IncrementWorkerThreadCountIfNeeded())
         {
@@ -336,7 +447,7 @@ bool TieredCompilationManager::TryInitiateTieringDelay()
         return false;
     }
     timerContextHolder->AppDomainId = m_domainId;
-    timerContextHolder->TimerId = 0;
+    timerContextHolder->TimerId = TieringDelayTimer;
 
     {
         CrstHolder holder(&m_lock);
@@ -356,7 +467,7 @@ bool TieredCompilationManager::TryInitiateTieringDelay()
         {
             if (ThreadpoolMgr::CreateTimerQueueTimer(
                     &m_tieringDelayTimerHandle,
-                    TieringDelayTimerCallback,
+                    TimerCallback,
                     timerContextHolder,
                     g_pConfig->TieredCompilation_Tier1CallCountingDelayMs(),
                     (DWORD)-1 /* Period, non-repeating */,
@@ -383,16 +494,17 @@ bool TieredCompilationManager::TryInitiateTieringDelay()
     return true;
 }
 
-void WINAPI TieredCompilationManager::TieringDelayTimerCallback(PVOID parameter, BOOLEAN timerFired)
+void WINAPI TieredCompilationManager::TimerCallback(PVOID parameter, BOOLEAN timerFired)
 {
     WRAPPER_NO_CONTRACT;
     _ASSERTE(timerFired);
 
     ThreadpoolMgr::TimerInfoContext* timerContext = (ThreadpoolMgr::TimerInfoContext*)parameter;
+    TimerId timerId = (TimerId)timerContext->TimerId;
     EX_TRY
     {
         GCX_COOP();
-        ManagedThreadBase::ThreadPool(timerContext->AppDomainId, TieringDelayTimerCallbackInAppDomain, nullptr);
+        ManagedThreadBase::ThreadPool(timerContext->AppDomainId, TimerCallbackInAppDomain, (LPVOID)timerId);
     }
     EX_CATCH
     {
@@ -403,10 +515,21 @@ void WINAPI TieredCompilationManager::TieringDelayTimerCallback(PVOID parameter,
     EX_END_CATCH(RethrowTerminalExceptions);
 }
 
-void TieredCompilationManager::TieringDelayTimerCallbackInAppDomain(LPVOID parameter)
+void TieredCompilationManager::TimerCallbackInAppDomain(LPVOID parameter)
 {
     WRAPPER_NO_CONTRACT;
-    GetAppDomain()->GetTieredCompilationManager()->TieringDelayTimerCallbackWorker();
+
+    GCX_PREEMP();
+    TimerId timerId = (TimerId)(DWORD)parameter;
+    TieredCompilationManager* pTCM = GetAppDomain()->GetTieredCompilationManager();
+    if (timerId == TieringDelayTimer)
+    {
+        pTCM->TieringDelayTimerCallbackWorker();
+    }
+    else if (timerId == InstrumentationMonitorTimer)
+    {
+        pTCM->InstrumentationMonitorCallbackWorker();
+    }
 }
 
 void TieredCompilationManager::TieringDelayTimerCallbackWorker()
@@ -519,13 +642,13 @@ bool TieredCompilationManager::TryAsyncOptimizeMethods()
         }
         else
         {
-            STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
+            STRESS_LOG0(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::TryAsyncOptimizeMethods: "
                 "ThreadpoolMgr::QueueUserWorkItem returned FALSE (no thread will run)\n");
         }
     }
     EX_CATCH
     {
-        STRESS_LOG1(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::OnMethodCalled: "
+        STRESS_LOG1(LF_TIEREDCOMPILATION, LL_WARNING, "TieredCompilationManager::TryAsyncOptimizeMethods: "
             "Exception queuing work item to threadpool, hr=0x%x\n",
             GET_EXCEPTION()->GetHR());
     }
@@ -707,35 +830,146 @@ void TieredCompilationManager::ActivateCodeVersion(NativeCodeVersion nativeCodeV
         // methods this first attempt should succeed
         CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
         ilParent = nativeCodeVersion.GetILCodeVersion();
+        NativeCodeVersion activeVersion = ilParent.GetActiveNativeCodeVersion(pMethod);
         hr = ilParent.SetActiveNativeCodeVersion(nativeCodeVersion, FALSE);
         LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::ActivateCodeVersion Method=0x%pM (%s::%s), code version id=0x%x. SetActiveNativeCodeVersion ret=0x%x\n",
             pMethod, pMethod->m_pszDebugClassName, pMethod->m_pszDebugMethodName,
             nativeCodeVersion.GetVersionId(),
             hr));
     }
-    if (hr == CORPROF_E_RUNTIME_SUSPEND_REQUIRED)
-    {
-        // if we start using jump-stamp publishing for tiered compilation, the first attempt
-        // without the runtime suspended will fail and then this second attempt will
-        // succeed.
-        // Even though this works performance is likely to be quite bad. Realistically
-        // we are going to need batched updates to makes tiered-compilation + jump-stamp
-        // viable. This fallback path is just here as a proof-of-concept.
-        ThreadSuspend::SuspendEE(ThreadSuspend::SUSPEND_FOR_REJIT);
-        {
-            CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
-            hr = ilParent.SetActiveNativeCodeVersion(nativeCodeVersion, TRUE);
-            LOG((LF_TIEREDCOMPILATION, LL_INFO10000, "TieredCompilationManager::ActivateCodeVersion Method=0x%pM (%s::%s), code version id=0x%x. [Suspended] SetActiveNativeCodeVersion ret=0x%x\n",
-                pMethod, pMethod->m_pszDebugClassName, pMethod->m_pszDebugMethodName,
-                nativeCodeVersion.GetVersionId(),
-                hr));
-        }
-        ThreadSuspend::RestartEE(FALSE, TRUE);
-    }
+    // If we start using jump-stamp publishing for tiered compilation then SetActiveNativeCodeVersion
+    // could fail with CORPROF_E_RUNTIME_SUSPEND_REQUIRED. Retrying with the runtime suspended would
+    // work, but it probably wouldn't perform well.
     if (FAILED(hr))
     {
         STRESS_LOG2(LF_TIEREDCOMPILATION, LL_INFO10, "TieredCompilationManager::ActivateCodeVersion: Method %pM failed to publish native code for native code version %d\n",
             pMethod, nativeCodeVersion.GetVersionId());
+        return;
+    }
+
+    bool isFullyInstrumented = nativeCodeVersion.GetInstrumentationLevel() == NativeCodeVersion::FullInstrumentation;
+    if (isFullyInstrumented)
+    {
+        BeginMonitorInstrumentation(nativeCodeVersion);
+    }
+}
+
+void TieredCompilationManager::BeginMonitorInstrumentation(NativeCodeVersion nativeCodeVersion)
+{
+    STANDARD_VM_CONTRACT;
+
+    CrstHolder holder(&m_lock);
+    EX_TRY
+    {
+        m_instrumentationInProgressCodeBodies.Append(nativeCodeVersion);
+
+        // start the timer if needed
+        if (m_instrumentationTimerHandle == NULL)
+        {
+            NewHolder<ThreadpoolMgr::TimerInfoContext> timerContextHolder = new(nothrow) ThreadpoolMgr::TimerInfoContext();
+            if (timerContextHolder != nullptr)
+            {
+                timerContextHolder->AppDomainId = m_domainId;
+                timerContextHolder->TimerId = InstrumentationMonitorTimer;
+                if (ThreadpoolMgr::CreateTimerQueueTimer(
+                    &m_instrumentationTimerHandle,
+                    TimerCallback,
+                    timerContextHolder,
+                    m_instrumentationMonitorPeriodMs,
+                    (DWORD)-1 /* Period, non-repeating */,
+                    0 /* flags */))
+                {
+                    timerContextHolder.SuppressRelease(); // the timer context is automatically deleted by the timer infrastructure
+                }
+            }
+        }
+    }
+    EX_CATCH
+    {
+    }
+    EX_END_CATCH(RethrowTerminalExceptions);
+}
+
+void TieredCompilationManager::InstrumentationMonitorCallbackWorker()
+{
+    STANDARD_VM_CONTRACT;
+
+    STRESS_LOG0(LF_TIEREDCOMPILATION, LL_INFO1000, "TieredCompilationManager::InstrumentationMonitorCallbackWorker: Polling instrumention from methods\n");
+    NewHolder<NativeCodeVersion> pVersionsCopy = NULL;
+    DWORD count = 0;
+    {
+        CrstHolder holder(&m_lock);
+        NativeCodeVersion* pVersions = m_instrumentationInProgressCodeBodies.GetElements();
+        count = m_instrumentationInProgressCodeBodies.GetCount();
+        pVersionsCopy = new NativeCodeVersion[count];
+        if (pVersionsCopy == nullptr)
+        {
+            return;
+        }
+        memcpy(pVersionsCopy, pVersions, sizeof(NativeCodeVersion)*count);
+        m_instrumentationInProgressCodeBodies.Clear();
+    }
+
+    
+    for (DWORD i = 0; i < count; ++i)
+    {
+        TADDR nativeCodeStartAddr = PCODEToPINSTR(pVersionsCopy[i].GetNativeCode());
+        CodeHeader* pCodeHeader = EEJitManager::GetCodeHeaderFromStartAddress(nativeCodeStartAddr);
+        ProfileBufferHeader* pHeader = (ProfileBufferHeader*)pCodeHeader->GetProfileBuffer();
+        _ASSERTE(pHeader->GetFormat() == ProfileBufferHeader::FullFormat);
+        FullInstrumentationProfileBuffer* pProfileBuffer = (FullInstrumentationProfileBuffer*)pHeader;
+        DWORD countBlocks = pProfileBuffer->GetCountBlocks();
+        ICorJitInfo::ProfileBuffer* pCounters = pProfileBuffer->GetBlockCountersAddr();
+        bool collectedEnoughSamples = false;
+        for (DWORD bbIndex = 0; bbIndex < countBlocks; bbIndex++)
+        {
+            if (pCounters[bbIndex].ExecutionCount >= m_minMonitorBBCount)
+            {
+                collectedEnoughSamples = true;
+                break;
+            }
+        }
+        if (collectedEnoughSamples)
+        {
+            DWORD size = FullInstrumentationProfileBuffer::GetAllocationSize(count);
+            MethodDesc* pMethod = pVersionsCopy[i].GetMethodDesc();
+            void* pProfileBufferSnapshot = (void *)pMethod->GetLoaderAllocator()->GetLowFrequencyHeap()->AllocMem(S_SIZE_T(size));
+            memcpy(pProfileBufferSnapshot, pProfileBuffer, size);
+            CodeVersionManager* pCodeVersionManager = pMethod->GetCodeVersionManager();
+            {
+                CodeVersionManager::TableLockHolder lock(pCodeVersionManager);
+                pVersionsCopy[i].SetProfileSnapshot(pProfileBufferSnapshot);
+            }
+            AsyncCompileAndActivate(pMethod, NativeCodeVersion::OptimizationTier2, NativeCodeVersion::NoInstrumentation);
+        }
+        else
+        {
+            CrstHolder holder(&m_lock);
+            m_instrumentationInProgressCodeBodies.Append(pVersionsCopy[i]);
+        }
+    }
+
+
+    {
+        CrstHolder holder(&m_lock);
+        if (m_instrumentationInProgressCodeBodies.GetCount() != 0)
+        {
+            EX_TRY
+            {
+                ThreadpoolMgr::ChangeTimerQueueTimer(
+                    m_instrumentationTimerHandle,
+                    m_instrumentationMonitorPeriodMs,
+                    (DWORD)-1 /* Period, non-repeating */);
+            }
+                EX_CATCH
+            {
+            }
+            EX_END_CATCH(RethrowTerminalExceptions);
+        }
+        else
+        {
+            m_instrumentationTimerHandle = NULL;
+        }
     }
 }
 
@@ -807,10 +1041,16 @@ CORJIT_FLAGS TieredCompilationManager::GetJitFlags(NativeCodeVersion nativeCodeV
         return flags;
     }
     
-    if (nativeCodeVersion.GetOptimizationTier() == NativeCodeVersion::OptimizationTier0 &&
+    NativeCodeVersion::OptimizationTier optTier = nativeCodeVersion.GetOptimizationTier();
+    if (optTier == NativeCodeVersion::OptimizationTier0 &&
         !g_pConfig->TieredCompilation_OptimizeTier0())
     {
         flags.Set(CORJIT_FLAGS::CORJIT_FLAG_TIER0);
+    }
+    else if (optTier == NativeCodeVersion::OptimizationTier2)
+    {
+        flags.Set(CORJIT_FLAGS::CORJIT_FLAG_TIER2);
+        flags.Set(CORJIT_FLAGS::CORJIT_FLAG_BBOPT);
     }
     else
     {
@@ -818,6 +1058,15 @@ CORJIT_FLAGS TieredCompilationManager::GetJitFlags(NativeCodeVersion nativeCodeV
 #ifdef FEATURE_INTERPRETER
         flags.Set(CORJIT_FLAGS::CORJIT_FLAG_MAKEFINALCODE);
 #endif
+    }
+    NativeCodeVersion::InstrumentationLevel instrumentationLevel = nativeCodeVersion.GetInstrumentationLevel();
+    if (instrumentationLevel == NativeCodeVersion::ApproxMaxBBInstrumention)
+    {
+        flags.Set(CORJIT_FLAGS::CORJIT_FLAG_HOT_CODE_TEST_BBINSTR);
+    }
+    else if (instrumentationLevel == NativeCodeVersion::FullInstrumentation)
+    {
+        flags.Set(CORJIT_FLAGS::CORJIT_FLAG_BBINSTR);
     }
     return flags;
 }

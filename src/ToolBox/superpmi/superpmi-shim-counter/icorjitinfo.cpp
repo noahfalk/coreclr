@@ -1662,6 +1662,12 @@ void interceptor_ICJI::reportFatalError(CorJitResult result)
     original_ICorJitInfo->reportFatalError(result);
 }
 
+HRESULT interceptor_ICJI::allocHotCodeTestBBProfileBuffer(ULONG count, WORD** counterBuffer)
+{
+    mcs->AddCall("allocHotCodeTestBBProfileBuffer");
+    return original_ICorJitInfo->allocHotCodeTestBBProfileBuffer(count, counterBuffer);
+}
+
 /*
 struct ProfileBuffer  // Also defined here: code:CORBBTPROF_BLOCK_DATA
 {

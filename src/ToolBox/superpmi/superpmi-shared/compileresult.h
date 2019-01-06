@@ -278,7 +278,8 @@ public:
                             BYTE*          pUnwindBlock,
                             CorJitFuncKind funcKind);
     void dmpAllocUnwindInfo(DWORD key, const Agnostic_AllocUnwindInfo& value);
-
+    
+    void recAllocHotCodeTestBBProfileBuffer(ULONG count, WORD** counterBuffer, HRESULT result);
     void recAllocBBProfileBuffer(ULONG count, ICorJitInfo::ProfileBuffer** profileBuffer, HRESULT result);
     void dmpAllocBBProfileBuffer(DWORD key, const Agnostic_AllocBBProfileBuffer& value);
     HRESULT repAllocBBProfileBuffer(ULONG count, ICorJitInfo::ProfileBuffer** profileBuffer);

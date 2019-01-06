@@ -1488,6 +1488,11 @@ void interceptor_ICJI::reportFatalError(CorJitResult result)
     original_ICorJitInfo->reportFatalError(result);
 }
 
+HRESULT interceptor_ICJI::allocHotCodeTestBBProfileBuffer(ULONG count, WORD** counterBuffer)
+{
+    return original_ICorJitInfo->allocHotCodeTestBBProfileBuffer(count, counterBuffer);
+}
+
 // allocate a basic block profile buffer where execution counts will be stored
 // for jitted basic blocks.
 HRESULT interceptor_ICJI::allocBBProfileBuffer(ULONG           count, // The number of basic blocks that we have
