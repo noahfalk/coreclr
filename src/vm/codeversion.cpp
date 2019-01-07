@@ -2244,13 +2244,13 @@ HRESULT CodeVersionManager::PublishNativeCodeVersion(MethodDesc* pMethod, Native
     _ASSERTE(pMethod->IsVersionable());
     HRESULT hr = S_OK;
     PCODE pCode = nativeCodeVersion.IsNull() ? NULL : nativeCodeVersion.GetNativeCode();
-    if (pMethod->IsEligibleForTieredCompilation())
+    if (pMethod->IsVersionableWithPrecode() || pMethod->IsVersionableWithCallerSlots())
     {
         EX_TRY
         {
             if (pCode == NULL)
             {
-                pMethod->ResetTieredMethodCodeEntryPoint();
+                pMethod->ResetMethodCodeEntryPoint();
             }
             else
             {
@@ -2699,6 +2699,28 @@ void CodeVersionManager::ReportCodePublishError(Module* pModule, mdMethodDef met
 }
 #endif // DACCESS_COMPILE
 
+// Returns TRUE if CodeVersionManager is capable of versioning this method.
+// There may be other reasons that the runtime elects not to version a method even
+// if CodeVersionManager could support it. Use the MethodDesc::IsVersionable*()
+// accesors to get the final determination of versioning support for a given
+// method.
+//
+//static
+BOOL CodeVersionManager::IsMethodSupported(MethodDesc* pMethod)
+{
+    return 
+        // The NativeCodeSlot is required to hold the code pointer for the 
+        // default code version
+        pMethod->HasNativeCodeSlot() &&
+
+        // CodeVersionManager datastructures don't properly handle the lifetime
+        // semantics of dynamic code at this point.
+        !pMethod->IsDynamicMethod() &&
+
+        // CodeVersionManager datastructures don't properly handle the lifetime
+        // semantics of collectible code at this point.
+        !pMethod->GetLoaderAllocator()->IsCollectible();
+}
 //---------------------------------------------------------------------------------------
 //
 // PrepareCodeConfig::SetNativeCode() calls this to determine if there's a non-default code

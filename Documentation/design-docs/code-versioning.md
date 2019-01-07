@@ -327,13 +327,33 @@ to update the active child at either of those levels (ReJIT uses SetActiveILCode
 2. Recalculate the active code version for each entrypoint
 3. Update the published code version for each entrypoint to match the active code version
 
-In order to do step 3 the CodeVersionManager relies on one of two different mechanisms, either a FixupPrecode or a JumpStamp. Both techniques roughly involve using a jmp instruction as the method entrypoint and then updating that jmp to point at whatever code version should be published. In the FixupPrecode case this is memory that was allocated dynamically for the explicit purpose of being the method entrypoint. In the JumpStamp this is memory that was initially used as the prolog of the default code version and then repurposed. JumpStamp is required for AOT compiled images that use direct calls from method to method, however changing between prolog instructions and a jmp instruction requires EE suspension to ensure that threads have been evacuated from the region. FixupPrecode can be updated with only an Interlocked operation which offers lower overhead updates when it can be used.
+In order to do step 3 the CodeVersionManager relies on one of three different mechanisms, a FixupPrecode, a JumpStamp, or modifying caller slots. In method.hpp these mechanisms are described in the
+VersioningTechnique enumeration:
+
+        // All calls to the method should funnel through a Precode which can be updated
+        // to point to the current method body. This technique can introduce more indirections
+        // than optimal but it has low memory overhead.
+        PrecodeVersioningTechnique,
+
+        // All calls to the method should go through backpatchable slots in VSD stubs
+        // vtables, and FuncPtr stubs. This technique can eliminate more indirections
+        // but is more memory intensive to track all the appropriate slots.
+        CallerSlotVersioningTechnique,
+
+        // All calls to the method go to the default code and the prologue of that code
+        // will be overwritten with a jmp to other code if necessary. This is the only
+        // technique that can handle NGEN'ed code that embeds untracked direct calls
+        // between methods. It has much higher update overhead than other approaches because
+        // it needs EESuspend to evacuate all threads from method prologues before a
+        // prologue can be patched. The patching is also not compatible with a debugger which
+        // may be trying to rewrite the same code bytes to add/remove a breakpoint.
+        JumpStampVersioningTechnique
 
 All methods have been classified to use at most one of the techniques, based on:
 
 ```
-MethodDesc::IsEligibleForTieredCompilation() && MethodDesc::IsTieredMethodVersionableWithPrecode()
-MethodDesc::IsEligibleForTieredCompilation() && MethodDesc::IsTieredMethodVersionableWithVtableSlotBackpatch()
+MethodDesc::IsVersionableWithPrecode()
+MethodDesc::IsVersionableWithCallerSlots()
 MethodDesc::IsVersionableWithJumpStamp()
 ```
 

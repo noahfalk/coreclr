@@ -613,6 +613,7 @@ public:
     static HRESULT AddCodePublishError(Module* pModule, mdMethodDef methodDef, MethodDesc* pMD, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
     static HRESULT AddCodePublishError(NativeCodeVersion nativeCodeVersion, HRESULT hrStatus, CDynArray<CodePublishError> * pErrors);
     static void OnAppDomainExit(AppDomain* pAppDomain);
+    static bool IsMethodSupported(MethodDesc* pMethodDesc);
 #endif
 
 private:

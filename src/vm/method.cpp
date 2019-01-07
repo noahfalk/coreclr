@@ -2188,7 +2188,7 @@ PCODE MethodDesc::TryGetMultiCallableAddrOfCode(CORINFO_ACCESS_FLAGS accessFlags
     if (HasStableEntryPoint())
         return GetStableEntryPoint();
 
-    if (IsTieredVtableMethod())
+    if (IsVersionableWithCallerSlots())
     {
         // Caller has to call via slot or allocate funcptr stub
         return NULL;
@@ -2313,7 +2313,7 @@ BOOL MethodDesc::IsPointingToPrestub()
 
     if (!HasStableEntryPoint())
     {
-        if (IsTieredVtableMethod())
+        if (IsVersionableWithCallerSlots())
         {
             return !IsRestored() || GetMethodEntryPoint() == GetTemporaryEntryPoint();
         }
@@ -2438,7 +2438,7 @@ BOOL MethodDesc::RequiresStableEntryPoint(BOOL fEstimateForChunk /*=FALSE*/)
     LIMITED_METHOD_CONTRACT;
     
     // Create precodes for versionable methods
-    if (IsEligibleForTieredCompilation() && IsTieredMethodVersionableWithPrecode())
+    if (IsVersionableWithPrecode())
         return TRUE;
     
     // Create precodes for edit and continue to make methods updateable
@@ -4748,7 +4748,7 @@ void MethodDesc::InterlockedUpdateFlags2(BYTE bMask, BOOL fSet)
 Precode* MethodDesc::GetOrCreatePrecode()
 {
     WRAPPER_NO_CONTRACT;
-    _ASSERTE(!IsTieredVtableMethod());
+    _ASSERTE(!IsVersionableWithCallerSlots());
 
     if (HasPrecode())
     {
@@ -4818,23 +4818,105 @@ bool MethodDesc::DetermineAndSetIsEligibleForTieredCompilation()
 #ifdef FEATURE_TIERED_COMPILATION
     // Keep in-sync with MethodTableBuilder::NeedsNativeCodeSlot(bmtMDMethod * pMDMethod)
     // to ensure native slots are available where needed.
-    if (g_pConfig->TieredCompilation() &&
+
+    if (
+        // policy - registry/env-var/config file requested we not do
+        // tiered compilation
+        g_pConfig->TieredCompilation() && 
+        
+        // functional requirement - NGEN images embed direct calls that
+        // we would be unable to detect and redirect
         !IsZapped() &&
-        HasNativeCodeSlot() &&
+
+        // functional requirement - CodeVersionManager has to support
+        // versioning the method
+        CodeVersionManager::IsMethodSupported(this) &&
+        
+        // functional requirement - These methods have no IL that could
+        // be optimized
         !IsWrapperStub() &&
-        !IsDynamicMethod() &&
-        !GetLoaderAllocator()->IsCollectible() &&
-        !IsEnCMethod() &&
+
+        // functional requirement - EnC has its own way of doing versioning
+        // and on stack replacement only works for unoptimized codegen
+        // Note: we don't need to evaluate this one because it is a subset
+        // of the debuggable code check below.
+        //!IsEnCMethod() &&
+
+        // policy - debugging works much better with unoptimized code
         !CORDisableJITOptimizations(GetModule()->GetDebuggerInfoBits()) &&
+
+        // policy - the profiler asked us not to do tiered compilation
         !CORProfilerDisableTieredCompilation())
     {
         m_bFlags2 |= enum_flag2_IsEligibleForTieredCompilation;
-        _ASSERTE(IsTieredMethodVersionableWithPrecode() || IsTieredMethodVersionableWithVtableSlotBackpatch());
+
+        // GetVersioningTechnique assumes that IsEligibleForTieredCompilation() implies 
+        //   CodeVersionManager::IsMethodSupported(this) && !IsZapped()
+        // If that ever changed update that method
+        _ASSERTE(CodeVersionManager::IsMethodSupported(this) && !IsZapped());
+        _ASSERTE(IsVersionableWithPrecode() || IsVersionableWithCallerSlots());
         return true;
     }
 #endif
 
     return false;
+}
+
+VersioningTechnique MethodDesc::GetVersioningTechnique()
+{
+    WRAPPER_NO_CONTRACT;
+#ifdef FEATURE_CODE_VERSIONING
+    if (IsEligibleForTieredCompilation())
+    {
+        // IsEligibleForTieredCompilation contains a mixture of functional and policy choices pre-computed.
+        // Functionally we are relying on it to have CodeVersionManager::IsMethodSupported(this) && !IsZapped()
+        // If it ever loses those checks they will need to be enforced here separately
+
+        if (g_pConfig->BackpatchEntryPointSlots() && // policy
+
+            IsVtableSlot() &&                        // functional - DoBackpatch() can't currently handle a NonVtableSlot
+                                                     // being backpatchable
+
+            !(IsInterface() && !IsStatic())          // functional - I'm not clear what scenario these methods are even 
+                                                     // callable, but because MethodDesc::DoBackpatch() treats them as
+                                                     // non-backpatchable we continue to assume they require a precode
+            )
+        {
+            return CallerSlotVersioningTechnique;
+        }
+        else
+        {
+            return PrecodeVersioningTechnique;
+        }
+    }
+#ifdef FEATURE_JUMPSTAMP
+    else if (
+        // If we aren't doing tiered compilation, ReJIT is currently the only other reason to make
+        // methods versionable.
+        // ReJIT is required to work even in NGEN images where the other versioning techniques aren't
+        // supported. If both ReJIT and tiered compilation are enabled then we prefer using the
+        // CallerSlot or Precode techniques because they offer lower overhead method update performance
+        // and don't interfere with the debugger.
+        ReJitManager::IsReJITEnabled() &&
+
+        // functional requirement - we must be able to evacuate the prolog and the prolog must be big
+        // enough, both of which are only designed to work on jitted code
+        (IsIL() || IsNoMetadata()) &&
+        !IsWrapperStub() &&
+
+        // functional requirement - code version manager can't handle what would happen if the code
+        // was collected
+        CodeVersionManager::IsMethodSupported(this)
+        )
+    {
+        return JumpStampVersioningTechnique;
+    }
+#endif // FEATURE_JUMPSTAMP
+    else
+#endif //FEATURE_CODE_VERSIONING
+    {
+        return NoVersioningTechnique;
+    }
 }
 
 #ifndef CROSSGEN_COMPILE
@@ -4874,7 +4956,7 @@ void MethodDesc::RecordAndBackpatchEntryPointSlot_Locked(
     _ASSERTE(slotLoaderAllocator != nullptr);
     _ASSERTE(slot != NULL);
     _ASSERTE(slotType < EntryPointSlotsToBackpatch::SlotType_Count);
-    _ASSERTE(IsTieredVtableMethod());
+    _ASSERTE(IsVersionableWithCallerSlots());
 
     // The speciifed current entry point must actually be *current* in the sense that it must have been retrieved inside the
     // lock, such that a recorded slot is guaranteed to point to the entry point at the time at which it was recorded, in order
@@ -4921,7 +5003,7 @@ void MethodDesc::BackpatchEntryPointSlots(PCODE entryPoint, bool isPrestubEntryP
         return;
     }
 
-    if (IsTieredVtableMethod())
+    if (IsVersionableWithCallerSlots())
     {
         // Backpatch the func ptr stub if it was created
         FuncPtrStubs *funcPtrStubs = mdLoaderAllocator->GetFuncPtrStubsNoCreate();
@@ -4977,13 +5059,15 @@ void MethodDesc::SetCodeEntryPoint(PCODE entryPoint)
     WRAPPER_NO_CONTRACT;
     _ASSERTE(entryPoint != NULL);
 
-    if (IsEligibleForEntryPointSlotBackpatch())
+    VersioningTechnique technique = GetVersioningTechnique();
+    //JumpStamp doesn't call here
+    _ASSERTE(technique != JumpStampVersioningTechnique);
+    if (technique == CallerSlotVersioningTechnique)
     {
         BackpatchEntryPointSlots(entryPoint);
     }
-    else if (IsEligibleForTieredCompilation())
+    else if (technique == PrecodeVersioningTechnique)
     {
-        _ASSERTE(IsTieredMethodVersionableWithPrecode());
         GetOrCreatePrecode()->SetTargetInterlocked(entryPoint, FALSE /* fOnlyRedirectFromPrestub */);
 
         // SetTargetInterlocked() would return false if it lost the race with another thread. That is fine, this thread
@@ -5000,19 +5084,23 @@ void MethodDesc::SetCodeEntryPoint(PCODE entryPoint)
     }
 }
 
-void MethodDesc::ResetTieredMethodCodeEntryPoint()
+void MethodDesc::ResetMethodCodeEntryPoint()
 {
     WRAPPER_NO_CONTRACT;
+
+    //currently this is true, but it doesn't need to be true
+    //if we started using Precode and CallerSlot versioning for
+    //other purposes
     _ASSERTE(IsEligibleForTieredCompilation());
 
-#ifdef FEATURE_TIERED_COMPILATION
+#ifdef CODE_VERSIONING
     if (IsEligibleForEntryPointSlotBackpatch())
     {
         BackpatchToResetEntryPointSlots();
         return;
     }
 
-    _ASSERTE(IsTieredMethodVersionableWithPrecode());
+    _ASSERTE(IsVersionableWithPrecode());
     GetPrecode()->ResetTargetInterlocked();
 #endif
 }

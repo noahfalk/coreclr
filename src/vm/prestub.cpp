@@ -86,18 +86,18 @@ PCODE MethodDesc::DoBackpatch(MethodTable * pMT, MethodTable *pDispatchingMT, BO
     }
     CONTRACTL_END;
 
-    bool isTieredVtableMethod = IsTieredVtableMethod();
-    LoaderAllocator *mdLoaderAllocator = isTieredVtableMethod ? GetLoaderAllocator() : nullptr;
+    bool isCallerSlotVersionable = IsVersionableWithCallerSlots();
+    LoaderAllocator *mdLoaderAllocator = isCallerSlotVersionable ? GetLoaderAllocator() : nullptr;
 
     // Only take the lock if it's a tiered virtual method, for recording slots and synchronizing with backpatching slots
-    MethodDescBackpatchInfoTracker::ConditionalLockHolder lockHolder(isTieredVtableMethod);
+    MethodDescBackpatchInfoTracker::ConditionalLockHolder lockHolder(isCallerSlotVersionable);
 
     // For tiered vtable methods, get the method entry point inside the lock above to synchronize with backpatching in
     // MethodDesc::BackpatchEntryPointSlots()
     PCODE pTarget = GetMethodEntryPoint();
 
     PCODE pExpected;
-    if (isTieredVtableMethod)
+    if (isCallerSlotVersionable)
     {
         _ASSERTE(pTarget == GetEntryPointToBackpatch_Locked());
 
@@ -161,7 +161,7 @@ PCODE MethodDesc::DoBackpatch(MethodTable * pMT, MethodTable *pDispatchingMT, BO
     auto RecordAndBackpatchSlot = [&](MethodTable *patchedMT, DWORD slotIndex)
     {
         WRAPPER_NO_CONTRACT;
-        _ASSERTE(isTieredVtableMethod);
+        _ASSERTE(isCallerSlotVersionable);
 
         RecordAndBackpatchEntryPointSlot_Locked(
             mdLoaderAllocator,
@@ -178,7 +178,7 @@ PCODE MethodDesc::DoBackpatch(MethodTable * pMT, MethodTable *pDispatchingMT, BO
     {                                                           \
         if (pPatchedMT->GetSlot(dwSlot) == pExpected)           \
         {                                                       \
-            if (isTieredVtableMethod)                           \
+            if (isCallerSlotVersionable)                           \
             {                                                   \
                 RecordAndBackpatchSlot(pPatchedMT, dwSlot);     \
             }                                                   \
@@ -1795,8 +1795,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 #ifdef FEATURE_TIERED_COMPILATION
     BOOL fNeedsCallCounting = FALSE;
     TieredCompilationManager* pTieredCompilationManager = nullptr;
-    BOOL fIsEligibleForTieredCompilation = IsEligibleForTieredCompilation();
-    if (fIsEligibleForTieredCompilation && TieredCompilationManager::RequiresCallCounting(this))
+    if (IsEligibleForTieredCompilation() && TieredCompilationManager::RequiresCallCounting(this))
     {
         pTieredCompilationManager = GetAppDomain()->GetTieredCompilationManager();
         CallCounter * pCallCounter = GetCallCounter();
@@ -1810,8 +1809,10 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     BOOL fIsPointingToPrestub = IsPointingToPrestub();
 #ifdef FEATURE_CODE_VERSIONING
-    if (fIsEligibleForTieredCompilation ||
-        (!fIsPointingToPrestub && IsVersionableWithJumpStamp()))
+    VersioningTechnique technique = GetVersioningTechnique();
+    if (technique == PrestubVersioning ||
+        technique == CallerSlotsVersioning ||
+        (!fIsPointingToPrestub && technique == JumpStampVersioning))
     {
         pCode = GetCodeVersionManager()->PublishVersionableCodeIfNecessary(this, fCanBackpatchPrestub);
 
@@ -1860,7 +1861,7 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 #endif // defined(FEATURE_SHARE_GENERIC_CODE)
     else if (IsIL() || IsNoMetadata())
     {
-        if (!IsNativeCodeStableAfterInit() && !(IsEligibleForTieredCompilation() && !IsTieredMethodVersionableWithPrecode()))
+        if (!HasPrecode() && RequiresStableEntrypoint())
         {
             GetOrCreatePrecode();
         }
@@ -1931,11 +1932,11 @@ PCODE MethodDesc::DoPrestub(MethodTable *pDispatchingMT)
 
     if (pCode != NULL)
     {
-#ifdef FEATURE_TIERED_COMPILATION
-        if (fIsEligibleForTieredCompilation)
+#ifdef CODE_VERSIONING
+        if (technique == PrestubVersioning || technique == CallerSlotsVersioning)
         {
-            // Tiered methods should not get here unless there was a failure. There may have been a failure to update the code
-            // versions above for some reason. Don't backpatch this time and try again next time.
+            // Precode or CallerSlot versioning methods should not get here unless there was a failure. There may have 
+            // been a failure to update the code versions above for some reason. Don't backpatch this time and try again next time.
             return pCode;
         }
 #endif
@@ -2384,7 +2385,7 @@ EXTERN_C PCODE STDCALL ExternalMethodFixupWorker(TransitionBlock * pTransitionBl
             //
             if (!DoesSlotCallPrestub(pCode))
             {
-                if (pMD->IsTieredVtableMethod())
+                if (pMD->IsVersionableWithCallerSlots())
                 {
                     // The entry point for a tiered vtable method needs to be versionable, so use a FuncPtrStub similarly to
                     // what is done in MethodDesc::GetMultiCallableAddrOfCode()
@@ -2449,7 +2450,7 @@ EXTERN_C PCODE VirtualMethodFixupWorker(Object * pThisPtr,  CORCOMPILE_VIRTUAL_I
     if (!DoesSlotCallPrestub(pCode))
     {
         MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(pCode);
-        if (pMD->IsTieredVtableMethod())
+        if (pMD->IsVersionableWithCallerSlots())
         {
             // The entry point for a tiered vtable method needs to be versionable, so use a FuncPtrStub similarly to
             // what is done in MethodDesc::GetMultiCallableAddrOfCode()

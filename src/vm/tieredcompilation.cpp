@@ -500,7 +500,7 @@ void TieredCompilationManager::ResumeCountingCalls(MethodDesc* pMethodDesc)
 
     EX_TRY
     {
-        pMethodDesc->ResetTieredMethodCodeEntryPoint();
+        pMethodDesc->ResetMethodCodeEntryPoint();
     }
     EX_CATCH
     {

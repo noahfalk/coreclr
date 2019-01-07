@@ -2791,9 +2791,9 @@ DispatchHolder *VirtualCallStubManager::GenerateDispatchStub(PCODE            ad
 #endif
                        );
 
-#ifdef FEATURE_TIERED_COMPILATION
+#ifdef FEATURE_CODE_VERSIONING
     MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(addrOfCode);
-    if (pMD->IsTieredVtableMethod())
+    if (pMD->IsVersionableWithCallerSlots())
     {
         EntryPointSlotsToBackpatch::SlotType slotType;
         TADDR slot = holder->stub()->implTargetSlot(&slotType);
@@ -2847,9 +2847,9 @@ DispatchHolder *VirtualCallStubManager::GenerateDispatchStubLong(PCODE          
                        (size_t)pMTExpected,
                        DispatchStub::e_TYPE_LONG);
 
-#ifdef FEATURE_TIERED_COMPILATION
+#ifdef FEATURE_CODE_VERSIONING
     MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress(addrOfCode);
-    if (pMD->IsTieredVtableMethod())
+    if (pMD->IsVersionableWithCallerSlots())
     {
         EntryPointSlotsToBackpatch::SlotType slotType;
         TADDR slot = holder->stub()->implTargetSlot(&slotType);
@@ -3025,9 +3025,9 @@ ResolveCacheElem *VirtualCallStubManager::GenerateResolveCacheElem(void *addrOfC
 
     e->pNext  = NULL;
 
-#ifdef FEATURE_TIERED_COMPILATION
+#ifdef FEATURE_CODE_VERSIONING
     MethodDesc *pMD = MethodTable::GetMethodDescForSlotAddress((PCODE)addrOfCode);
-    if (pMD->IsTieredVtableMethod())
+    if (pMD->IsVersionableWithCallerSlots())
     {
         pMD->RecordAndBackpatchEntryPointSlot(
             m_loaderAllocator,

@@ -880,9 +880,9 @@ EXTERN_C PCODE VirtualMethodFixupWorker(TransitionBlock * pTransitionBlock, CORC
         INSTALL_MANAGED_EXCEPTION_DISPATCHER;
         INSTALL_UNWIND_AND_CONTINUE_HANDLER_NO_PROBE;
 
-        if (pMD->IsTieredVtableMethod())
+        if (pMD->IsVersionableWithCallerSlots())
         {
-            // The entry point for a tiered vtable method needs to be versionable, so use a FuncPtrStub similarly to what is
+            // The entry point needs to be versionable, so use a backpatchable FuncPtrStub similarly to what is
             // done in MethodDesc::GetMultiCallableAddrOfCode()
             GCX_COOP();
             pCode = pMD->GetLoaderAllocator()->GetFuncPtrStubs()->GetFuncPtrStub(pMD);
