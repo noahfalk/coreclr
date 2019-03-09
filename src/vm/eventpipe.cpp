@@ -1013,246 +1013,6 @@ const uint32_t DefaultCircularBufferMB = 1024; // 1 GB // TODO: Do we need this 
 const uint64_t DefaultMultiFileTraceLengthInSeconds = 0;
 const uint32_t DefaultProfilerSamplingRateInNanoseconds = 1000000; // TODO: Read from user input.
 
-//! x is clamped to the range [Minimum , Maximum]
-//! Returns Minimum if x is less than Minimum.
-//! Returns Maximum if x is greater than Maximum.
-//! Returns x otherwise.
-template <typename T>
-const typename std::enable_if<std::is_integral<T>::value, T>::type Clamp(const T x, const T Minimum, const T Maximum)
-{
-    return (x < Minimum) ? Minimum : (Maximum < x) ? Maximum : x;
-}
-
-template <class InputIt, class T>
-InputIt Find(InputIt first, InputIt last, const T value)
-{
-    for (; first != last; ++first)
-        if (*first == value)
-            return first;
-    return last;
-}
-
-const char *ReadEventPipeConfig(const char *first, const char *last, SString &key, SString &value)
-{
-    if (first == last)
-        return first; // Empty string.
-
-    // Key
-    const char *begin = first;
-    const char *end = Find(first, last, '=');
-
-    auto count = static_cast<COUNT_T>(end - begin);
-    key.SetANSI(begin, count);
-
-    if (end == last)
-        return last; // Reached EOL
-
-    first = end;
-    ++first;
-    if (first == last)
-        return last; // Nothing else to parse after =
-
-    // Value
-    begin = first;
-    end = Find(first, last, '\n');
-
-    count = static_cast<COUNT_T>(end - begin);
-    value.SetANSI(begin, count);
-    if (value.GetCount() > 0 && value[value.GetCount() - 1] == '\r')
-        value.Truncate(value.End() - 1); // Trim carriage return from end-of-string
-
-    if (end == last)
-        return last; // Reached EOL
-
-    first = end;
-    ++first;
-    return first;
-}
-
-inline void AnsiToUnicodeSString(const char *first, const char *last, SString &outputString)
-{
-    const int64_t count = last - first;
-
-    _ASSERTE(count >= 0);
-    if (count <= 0)
-        return;
-
-    // TODO: Error handling checking. Overflow?
-
-    SString tmpProviderName;
-    tmpProviderName.SetANSI(first, static_cast<COUNT_T>(count));
-    tmpProviderName.ConvertToUnicode(outputString);
-}
-
-inline void AnsiToInt32(const char *first, const char *last, uint32_t &integer)
-{
-    const int64_t count = last - first;
-
-    _ASSERTE(count >= 0);
-    if (count <= 0)
-        return;
-
-    StackScratchBuffer scratchBuffer;
-    SString value;
-    value.SetANSI(first, static_cast<COUNT_T>(count));
-    integer = static_cast<uint32_t>(strtoul(value.GetANSI(scratchBuffer), nullptr, 0));
-}
-
-inline void AnsiToInt64(const char *first, const char *last, uint64_t &integer)
-{
-    const int64_t count = last - first;
-
-    _ASSERTE(count >= 0);
-    if (count <= 0)
-        return;
-
-    // StackScratchBuffer scratchBuffer;
-    SString value;
-    value.SetANSI(first, static_cast<COUNT_T>(count));
-    integer = static_cast<uint64_t>(/*strtoull*/_wcstoui64(value.GetUnicode(), nullptr, 0));
-}
-
-//! Parses a string (Provider) in the following format:
-//!     Provider:       "(GUID|KnownProviderName)[:Flags[:Level][:KeyValueArgs]]"
-//!     KeyValueArgs:   "[key1=value1][;key2=value2]"
-void ProviderParser(const char *first, const char *last, EventPipeSessionProviderList &providers)
-{
-    const uint64_t DefaultKeywords = UINT64_MAX;
-    const uint32_t DefaultLevel = static_cast<uint32_t>(EventPipeEventLevel::Verbose);
-
-    // Split on:
-    //  Provider:Flags:Level
-    //      - or -
-    //  Provider:Flags:Level:KeyValueArgs
-    SString providerName;
-    uint64_t keywords = DefaultKeywords;
-    uint32_t loggingLevel = DefaultLevel;
-    SString filterData;
-    const char *iter;
-
-    iter = Find(first, last, ':'); // Provider name.
-    if (first == iter)
-        return; // Ignore undefined provider.
-    AnsiToUnicodeSString(first, iter, providerName);
-
-    // Keyword.
-    if (iter != last)
-    {
-        first = ++iter;
-        iter = Find(first, last, ':');
-        AnsiToInt64(first, iter, keywords);
-
-        // LoggingLevel.
-        if (iter != last)
-        {
-            first = ++iter;
-            iter = Find(first, last, ':');
-            AnsiToInt32(first, iter, loggingLevel);
-            loggingLevel = Clamp(loggingLevel,
-                                 static_cast<uint32_t>(EventPipeEventLevel::LogAlways),
-                                 static_cast<uint32_t>(EventPipeEventLevel::Verbose));
-
-            // FilterData
-            if (iter != last)
-            {
-                first = ++iter;
-                AnsiToUnicodeSString(first, last, filterData);
-            }
-        }
-    }
-
-    // TODO: Move to a different function?
-    if (wcslen(providerName.GetUnicode()) > 0)
-    {
-        NewHolder<EventPipeSessionProvider> hEventPipeSessionProvider = new (nothrow) EventPipeSessionProvider(
-            providerName.GetUnicode(), // TODO: Make sure we do not end up with a dangling reference.
-            keywords,
-            static_cast<EventPipeEventLevel>(loggingLevel),
-            filterData.GetCount() > 0 ? filterData.GetUnicode() : nullptr);
-        if (hEventPipeSessionProvider.IsNull())
-            return;
-        providers.AddSessionProvider(hEventPipeSessionProvider.Extract());
-    }
-}
-
-//! Parses a string (list of providers) in the following format: "Provider[,Provider]"
-void ProvidersParser(const char *first, const char *last, EventPipeSessionProviderList &providers)
-{
-    for (; first != last; ++first)
-    {
-        const char *begin = first;
-        const char *end = Find(first, last, ',');
-        ProviderParser(begin, end, providers);
-        if (end == last)
-            break;
-        first = end;
-    }
-}
-
-void ConfigurationParser(
-    const char *first,
-    const char *last,
-    SString &strOutputPath,
-    uint32_t &circularBufferSizeInMB,
-    EventPipeSessionProviderList &providers,
-    uint64_t &multiFileTraceLengthInSeconds)
-{
-    // TODO: Are the defaults below correct?
-    circularBufferSizeInMB = DefaultCircularBufferMB;
-
-    while (first != last)
-    {
-        SString key;
-        SString value;
-
-        first = ReadEventPipeConfig(first, last, key, value);
-
-        if (key.GetCount() > 0 && value.GetCount() > 0)
-        {
-            // TODO: Maybe trim white spaces, for an user friendlier experience?
-
-            StackScratchBuffer scratchBuffer; // Is there a better way of calling SString::GetANSI?
-            if (key.CompareCaseInsensitive(SString(W("Providers"))) == 0)
-            {
-                // TODO: Parse into an array of providers?
-                ProvidersParser(
-                    reinterpret_cast<const char *>(value.GetANSI(scratchBuffer)),
-                    reinterpret_cast<const char *>(value.GetANSI(scratchBuffer)) + value.GetCount(),
-                    providers);
-            }
-            else if (key.CompareCaseInsensitive(SString(W("CircularMB"))) == 0)
-            {
-                circularBufferSizeInMB = static_cast<uint32_t>(
-                    strtoul(value.GetANSI(scratchBuffer), nullptr, 0));
-            }
-            else if (key.CompareCaseInsensitive(SString(W("OutputPath"))) == 0)
-            {
-                // TODO: Generate output file name (This is just the "Directory").
-                //  Expected file name should be: "<AppName>.<Pid>.netperf"
-                // TODO: Currently user needs to pass full file name.
-                strOutputPath = value;
-            }
-            else if (key.CompareCaseInsensitive(SString(W("ProcessID"))) == 0)
-            {
-                // TODO: Add error handling (overflow?).
-                const uint32_t processId = static_cast<uint32_t>(
-                    strtoul(value.GetANSI(scratchBuffer), nullptr, 0));
-                const DWORD pid = ProcessDescriptor::FromCurrentProcess().m_Pid;
-
-                // TODO: If set, bail out early if the specified process does not match the current process.
-                //  Do we need this anymore?
-            }
-            else if (key.CompareCaseInsensitive(SString(W("MultiFileSec"))) == 0)
-            {
-                // TODO: Add error handling (overflow?).
-                multiFileTraceLengthInSeconds = static_cast<uint64_t>(
-                    /*strtoull*/_wcstoui64(value.GetUnicode(), nullptr, 0));
-            }
-        }
-    }
-
-    // TODO: Clamp values where applicable?
-}
 
 void EventPipe::EnableFileTracingEventHandler(IpcStream *pStream)
 {
@@ -1277,21 +1037,33 @@ void EventPipe::EnableFileTracingEventHandler(IpcStream *pStream)
         return;
     }
 
-    SString strOutputPath;
+    LPCWSTR strOutputPath;
     uint32_t circularBufferSizeInMB = DefaultCircularBufferMB;
     uint64_t multiFileTraceLengthInSeconds = DefaultMultiFileTraceLengthInSeconds;
-    EventPipeSessionProviderList providers(nullptr, 0);
+    CQuickArray<EventPipeProviderConfiguration> providerConfigs;
 
-    ConfigurationParser(
-        buffer,
-        buffer + nNumberOfBytesRead,
-        strOutputPath,
-        circularBufferSizeInMB,
-        providers,
-        multiFileTraceLengthInSeconds);
+    // The protocol buffer is defined as:
+    // X, Y, Z means encode bytes for X followed by bytes for Y followed by bytes for Z
+    // message = uint circularBufferMB, ulong multiFileTraceLength, string outputPath, array<provider_config> providers
+    // uint = 4 little endian bytes
+    // ulong = 8 little endian bytes
+    // wchar = 2 little endian bytes, UTF16 encoding
+    // array<T> = uint length, length # of Ts
+    // string = array<char> where the last char must = 0
+    // provider_config = ulong keywords, uint logLevel, string provider_name, string filter_data
+
+    BYTE* pBufferCursor = buffer;
+    uint32_t bufferLen = nNumberOfBytesRead;
+    if (!TryParseUInt32(bufferCursor, bufferLen, circularBufferSizeInMB) ||
+        !TryParseUInt64(bufferCursor, bufferLen, multiFileTraceLengthInSeconds) ||
+        !TryParseString(bufferCursor, bufferLen, strOutputPath) ||
+        !TryParseProviderConfigurations(bufferCursor, bufferLen, providerConfigs)
+    {
+        return; // TODO: error handling
+    }
 
     EventPipeSessionID sessionId = (EventPipeSessionID) nullptr;
-    if (!providers.IsEmpty())
+    if (!providerConfigs.Size() == 0)
     {
         LPCWSTR pStrOutputPath = wcslen(strOutputPath.GetUnicode()) > 0 ?
             strOutputPath.GetUnicode() : nullptr;
@@ -1299,7 +1071,8 @@ void EventPipe::EnableFileTracingEventHandler(IpcStream *pStream)
             pStrOutputPath,                           // outputFile
             circularBufferSizeInMB,                   // circularBufferSizeInMB
             DefaultProfilerSamplingRateInNanoseconds, // ProfilerSamplingRateInNanoseconds
-            providers,                                // pProviders
+            providerConfigs.Ptr(),                    // pConfigs
+            providerConfigs.Size(),                   // numConfigs
             multiFileTraceLengthInSeconds);           // multiFileTraceLengthInSeconds
     }
 
@@ -1318,6 +1091,74 @@ void EventPipe::EnableFileTracingEventHandler(IpcStream *pStream)
         // TODO: Add error handling.
     }
     delete pStream;
+}
+
+// Ideally at least the generic parse functions go on diagnostics server or some other spot that
+// is shared for all command handlers. ints and strings aren't going to be specific to only EventPipe.
+// I just stuck them all here for simplicity.
+
+bool TryParseUInt32(BYTE* & bufferCursor, uint32_t & bufferLen, uint32_t & result)
+{
+    if (4 > bufferLen)
+        return false;
+    result = *(uint32_t*)bufferCursor;
+    buffer += 4;
+    bufferLen -= 4;
+    return true;
+}
+
+bool TryParseUInt64(BYTE* & bufferCursor, uint32_t & bufferLen, uint64_t & result)
+{
+    if (8 > bufferLen)
+        return false;
+    result = *(uint64_t*)bufferCursor;
+    buffer += 8;
+    bufferLen -= 8;
+    return true;
+}
+
+bool TryParseString(BYTE* & bufferCursor, uint32_t & bufferLen, LPCWSTR & result)
+{
+    uint32_t stringLen = 0;
+    if (!TryParseUint32(bufferCursor, bufferLen, stringLen))
+        return false;
+    if (stringLen > bufferLen / sizeof(WCHAR))
+        return false;
+    if (((WCHAR*)bufferCursor)[stringLen - 1] != 0)
+        return false;
+    result = (LPCWSTR)bufferCursor;
+    bufferCursor += stringLen * sizeof(WCHAR);
+    bufferLen -= stringLen*sizeof(WCHAR);
+    return true;
+}
+
+bool TryParseProviderConfigurations(BYTE* & bufferCursor, uint32_t & bufferLen, CQuickArray<EventPipeProviderConfiguration> & result)
+{
+    uint32_t countConfigs = 0;
+    if (!TryParseUint32(bufferCursor, bufferLen, stringLen))
+        return false;
+    if (countConfigs > 1000) // picking an arbitrary upper bound, should be larger than any reasonable client request
+        return false; 
+    EventPipeProviderConfiguration* pConfigs = result.AllocNoThrow(countConfigs);
+    if (pConfigs == NULL)
+        return false;
+    for (uint32_t i = 0; i < countConfigs; i++)
+    {
+        uint64_t keywords = 0;
+        if (!TryParseUInt64(bufferCursor, bufferLen, keywords))
+            return false;
+        uint32_t logLevel = 0;
+        if (!TryParseUInt32(bufferCursor, bufferLen, logLevel))
+            return false;
+        LPCWSTR pProviderName = nullptr;
+        if (!TryParseString(bufferCursor, bufferLen, pProviderName))
+            return false;
+        LPCWSTR pFilterData = nullptr;
+        if (!TryParseString(bufferCursor, bufferLen, pFilterData))
+            return false;
+        pConfigs[i] = EventPiprProviderConfiguration(pProviderName, keywords, logLevel, pFilterData);
+    }
+    return true;
 }
 
 void EventPipe::DisableTracingEventHandler(IpcStream *pStream)
