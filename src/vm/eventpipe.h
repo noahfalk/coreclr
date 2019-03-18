@@ -304,6 +304,11 @@ class EventPipe
         // Get next event.
         static EventPipeEventInstance* GetNextEvent();
 
+#ifdef DEBUG
+        static bool IsLockOwnedByCurrentThread();
+        static bool IsBufferManagerLockOwnedByCurrentThread();
+#endif
+
     protected:
 
         // The counterpart to WriteEvent which after the payload is constructed

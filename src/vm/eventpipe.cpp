@@ -395,8 +395,9 @@ void EventPipe::Disable(EventPipeSessionID id)
         // Delete the file switch timer.
         DeleteFileSwitchTimer();
 
-        // Flush all write buffers to make sure that all threads see the change.
-        FlushProcessWriteBuffers();
+        // Force all in-progress writes to either finish or cancel
+        // This is required to ensure we can safely flush and delete the buffers
+        s_pBufferManager->SuspendWriteEvent();
 
         // Write to the file.
         if(s_pFile != NULL)
@@ -407,7 +408,9 @@ void EventPipe::Disable(EventPipeSessionID id)
 
             if(CLRConfig::GetConfigValue(CLRConfig::INTERNAL_EventPipeRundown) > 0)
             {
-                // Before closing the file, do rundown.
+                // Before closing the file, do rundown. We have to re-enable event writing for this.
+                s_pBufferManager->ResumeWriteEvent();
+
                 const unsigned int numRundownProviders = 2;
                 EventPipeProviderConfiguration rundownProviders[] =
                 {
@@ -430,6 +433,9 @@ void EventPipe::Disable(EventPipeSessionID id)
                 // Delete the rundown session.
                 s_pConfig->DeleteSession(s_pSession);
                 s_pSession = NULL;
+
+                // suspend again after the rundown session
+                s_pBufferManager->SuspendWriteEvent();
             }
 
             delete(s_pFile);
@@ -442,6 +448,10 @@ void EventPipe::Disable(EventPipeSessionID id)
         // Delete deferred providers.
         // Providers can't be deleted during tracing because they may be needed when serializing the file.
         s_pConfig->DeleteDeferredProviders();
+
+        // Allow WriteEvent to begin accepting work again so that sometime in the future
+        // we can re-enable events and they will be recorded.
+        s_pBufferManager->ResumeWriteEvent();
     }
 }
 
@@ -991,6 +1001,18 @@ EventPipeEventInstance* EventPipe::GetNextEvent()
 
     return pInstance;
 }
+
+#ifdef DEBUG
+/* static */ bool EventPipe::IsLockOwnedByCurrentThread()
+{
+    return GetLock()->OwnedByCurrentThread();
+}
+
+/* static */ bool EventPipe::IsBufferManagerLockOwnedByCurrentThread()
+{
+    return s_pBufferManager->IsLockOwnedByCurrentThread();
+}
+#endif
 
 UINT64 QCALLTYPE EventPipeInternal::Enable(
         __in_z LPCWSTR outputFile,

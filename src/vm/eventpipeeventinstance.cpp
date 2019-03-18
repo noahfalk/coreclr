@@ -56,11 +56,6 @@ EventPipeEventInstance::EventPipeEventInstance(
     QueryPerformanceCounter(&m_timeStamp);
     _ASSERTE(m_timeStamp.QuadPart > 0);
 
-    if(event.NeedStack() && !session.RundownEnabled())
-    {
-        EventPipe::WalkManagedStackForCurrentThread(m_stackContents);
-    }
-
 #ifdef _DEBUG
     EnsureConsistency();
 #endif // _DEBUG
