@@ -17,6 +17,7 @@ EventPipeSession::EventPipeSession(
     LPCWSTR strOutputPath,
     IpcStream *const pStream,
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     unsigned int circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
@@ -25,13 +26,15 @@ EventPipeSession::EventPipeSession(
                            m_CircularBufferSizeInBytes(static_cast<size_t>(circularBufferSizeInMB) << 20),
                            m_pBufferManager(new EventPipeBufferManager()),
                            m_rundownEnabled(rundownEnabled),
-                           m_SessionType(sessionType)
+                           m_SessionType(sessionType),
+                           m_format(format)
 {
     CONTRACTL
     {
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
         PRECONDITION(EventPipe::IsLockOwnedByCurrentThread());
@@ -46,11 +49,11 @@ EventPipeSession::EventPipeSession(
     {
     case EventPipeSessionType::File:
         if (strOutputPath != nullptr)
-            m_pFile = new EventPipeFile(new FileStreamWriter(SString(strOutputPath)));
+            m_pFile = new EventPipeFile(new FileStreamWriter(SString(strOutputPath)), format);
         break;
 
     case EventPipeSessionType::IpcStream:
-        m_pFile = new EventPipeFile(new IpcStreamWriter(m_Id, pStream));
+        m_pFile = new EventPipeFile(new IpcStreamWriter(m_Id, pStream), format);
         break;
 
     default:

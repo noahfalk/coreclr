@@ -18,9 +18,10 @@ class FastSerializer;
 class EventPipeFile final : public FastSerializableObject
 {
 public:
-    EventPipeFile(StreamWriter *pStreamWriter);
+    EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format);
     ~EventPipeFile();
 
+    EventPipeSerializationFormat GetSerializationFormat() const;
     void WriteEvent(EventPipeEventInstance &instance);
     void Flush();
     bool HasErrors() const;
@@ -63,6 +64,9 @@ private:
     void SaveMetadataId(EventPipeEvent &event, unsigned int metadataId);
 
     void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId);
+
+    // The format to serialize
+    EventPipeSerializationFormat m_format;
 
     // The object responsible for serialization.
     FastSerializer *m_pSerializer;

@@ -37,12 +37,24 @@ UINT64 QCALLTYPE EventPipeInternal::Enable(
 
     BEGIN_QCALL;
     {
+        // This was a quick and dirty mechanism for testing but it may not be the final
+        // configuration scheme we want. This path handles both the AI profiler scenario
+        // doing private reflection and the EnableEventPipe env var. If we want to flip
+        // the default for one but not the other we'll have to hoist the configuration
+        // check into managed code.
+        EventPipeSerializationFormat format = EventPipeNetPerfFormatV3;
+        if (CLRConfig::GetConfigValue(CLRConfig::INTERNAL_EventPipeNetTraceFormat) > 0)
+        {
+            format = EventPipeNetTraceFormatV4;
+        }
+
         sessionID = EventPipe::Enable(
             outputFile,
             circularBufferSizeInMB,
             pProviders,
             numProviders,
             outputFile != NULL ? EventPipeSessionType::File : EventPipeSessionType::Listener,
+            format,
             nullptr);
     }
     END_QCALL;

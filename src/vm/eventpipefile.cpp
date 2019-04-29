@@ -10,7 +10,36 @@
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter) : FastSerializableObject(3, 0)
+DWORD GetFileVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch(format)
+    {
+    case EventPipeNetPerfFormatV3:
+        return 3;
+    case EventPipeNetTraceFormatV4:
+        return 4;
+    }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+DWORD GetFileMinVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch (format)
+    {
+    case EventPipeNetPerfFormatV3:
+        return 0;
+    case EventPipeNetTraceFormatV4:
+        return 4;
+    }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format) :
+    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format))
 {
     CONTRACTL
     {
@@ -20,7 +49,8 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter) : FastSerializableObje
     }
     CONTRACTL_END;
 
-    m_pBlock = new EventPipeBlock(100 * 1024);
+    m_format = format;
+    m_pBlock = new EventPipeBlock(100 * 1024, format);
 
     // File start time information.
     GetSystemTime(&m_fileOpenSystemTime);
@@ -67,6 +97,12 @@ EventPipeFile::~EventPipeFile()
     delete m_pBlock;
     delete m_pSerializer;
     delete m_pMetadataIds;
+}
+
+EventPipeSerializationFormat EventPipeFile::GetSerializationFormat() const
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_format;
 }
 
 bool EventPipeFile::HasErrors() const

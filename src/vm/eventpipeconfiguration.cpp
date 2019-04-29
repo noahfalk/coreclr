@@ -284,6 +284,7 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
     LPCWSTR strOutputPath,
     IpcStream *const pStream,
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     unsigned int circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
@@ -294,6 +295,7 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
         PRECONDITION(EventPipe::IsLockOwnedByCurrentThread());
@@ -301,7 +303,11 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
     CONTRACTL_END;
 
     const EventPipeSessionID SessionId = GenerateSessionId();
-    return !IsValidId(SessionId) ? nullptr : new EventPipeSession(SessionId, strOutputPath, pStream, sessionType, circularBufferSizeInMB, pProviders, numProviders);
+    if (!IsValidId(SessionId))
+    {
+        return nullptr;
+    }
+    return new EventPipeSession(SessionId, strOutputPath, pStream, sessionType, format, circularBufferSizeInMB, pProviders, numProviders);
 }
 
 void EventPipeConfiguration::DeleteSession(EventPipeSession *pSession)

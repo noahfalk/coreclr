@@ -14,7 +14,7 @@
 class EventPipeBlock final : public FastSerializableObject
 {
 public:
-    EventPipeBlock(unsigned int maxBlockSize);
+    EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format);
     ~EventPipeBlock();
 
     // Write an event to the block.
@@ -67,6 +67,7 @@ private:
     BYTE *m_pBlock;
     BYTE *m_pWritePointer;
     BYTE *m_pEndOfTheBuffer;
+    EventPipeSerializationFormat m_format;
 
     unsigned int GetSize() const
     {

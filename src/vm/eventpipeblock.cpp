@@ -10,8 +10,38 @@
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize) :
-    FastSerializableObject(1, 0)
+
+
+DWORD GetBlockVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch (format)
+    {
+    case EventPipeNetPerfFormatV3:
+        return 1;
+    case EventPipeNetTraceFormatV4:
+        return 2;
+    }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+DWORD GetBlockMinVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch (format)
+    {
+    case EventPipeNetPerfFormatV3:
+        return 0;
+    case EventPipeNetTraceFormatV4:
+        return 2;
+    }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
+    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format))
 {
     CONTRACTL
     {
@@ -30,6 +60,7 @@ EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize) :
     memset(m_pBlock, 0, maxBlockSize);
     m_pWritePointer = m_pBlock;
     m_pEndOfTheBuffer = m_pBlock + maxBlockSize;
+    m_format = format;
 }
 
 EventPipeBlock::~EventPipeBlock()

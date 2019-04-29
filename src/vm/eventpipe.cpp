@@ -268,6 +268,7 @@ EventPipeSessionID EventPipe::Enable(
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     IpcStream *const pStream)
 {
     CONTRACTL
@@ -275,6 +276,7 @@ EventPipeSessionID EventPipe::Enable(
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
     }
@@ -295,6 +297,7 @@ EventPipeSessionID EventPipe::Enable(
             strOutputPath,
             pStream,
             sessionType,
+            format,
             circularBufferSizeInMB,
             pProviders,
             numProviders);

@@ -67,6 +67,7 @@ public:
         LPCWSTR strOutputPath,
         IpcStream *const pStream,
         EventPipeSessionType sessionType,
+        EventPipeSerializationFormat format,
         unsigned int circularBufferSizeInMB,
         const EventPipeProviderConfiguration *pProviders,
         uint32_t numProviders,

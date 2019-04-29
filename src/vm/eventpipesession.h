@@ -25,6 +25,23 @@ enum class EventPipeSessionType
     IpcStream
 };
 
+enum EventPipeSerializationFormat
+{
+    // Default format used in .Net Core 2.0-3.0 Preview 6
+    // TBD - it may remain the default format .Net Core 3.0 when 
+    // used with private EventPipe managed API via reflection.
+    // This format had limited official exposure in documented
+    // end-user RTM scenarios, but it is supported by PerfView,
+    // TraceEvent, and was used by AI profiler
+    EventPipeNetPerfFormatV3,
+
+    // Default format we plan to use in .Net Core 3 Preview7+
+    // for most if not all scenarios
+    EventPipeNetTraceFormatV4,
+
+    EventPipeFormatCount
+};
+
 class EventPipeSession
 {
 private:
@@ -46,6 +63,10 @@ private:
     // The type of the session.
     // This determines behavior within the system (e.g. policies around which events to drop, etc.)
     const EventPipeSessionType m_SessionType;
+
+    // For file/IPC sessions this controls the format emitted. For in-proc EventListener it is
+    // irrelevant.
+    EventPipeSerializationFormat m_format;
 
     // Start date and time in UTC.
     FILETIME m_sessionStartTime;
@@ -81,6 +102,7 @@ public:
         LPCWSTR strOutputPath,
         IpcStream *const pStream,
         EventPipeSessionType sessionType,
+        EventPipeSerializationFormat format,
         unsigned int circularBufferSizeInMB,
         const EventPipeProviderConfiguration *pProviders,
         uint32_t numProviders,
@@ -98,6 +120,13 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return m_SessionType;
+    }
+
+    // Get the format version used by the file/IPC serializer
+    EventPipeSerializationFormat GetSerializationFormat() const
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_format;
     }
 
     // Get the configured size of the circular buffer.
