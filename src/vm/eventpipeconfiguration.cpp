@@ -314,6 +314,7 @@ size_t EventPipeConfiguration::GetCircularBufferSize() const
 
 EventPipeSession *EventPipeConfiguration::CreateSession(
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     unsigned int circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders)
@@ -323,6 +324,7 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
         THROWS;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
     }
@@ -330,6 +332,7 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
 
     return new EventPipeSession(
         sessionType,
+        format,
         circularBufferSizeInMB,
         pProviders,
         numProviders);

@@ -232,6 +232,7 @@ EventPipeSessionID EventPipe::Enable(
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     IpcStream *const pStream)
 {
     CONTRACTL
@@ -239,6 +240,7 @@ EventPipeSessionID EventPipe::Enable(
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(profilerSamplingRateInNanoseconds > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
@@ -253,6 +255,7 @@ EventPipeSessionID EventPipe::Enable(
             SampleProfiler::SetSamplingRate(static_cast<unsigned long>(profilerSamplingRateInNanoseconds));
             EventPipeSession *pSession = s_pConfig->CreateSession(
                 sessionType,
+                format,
                 circularBufferSizeInMB,
                 pProviders,
                 numProviders);
@@ -308,11 +311,13 @@ EventPipeSessionID EventPipe::Enable(
     {
         case EventPipeSessionType::File:
             if (strOutputPath != nullptr)
-                s_pFile = new EventPipeFile(new FileStreamWriter(SString(strOutputPath)));
+                s_pFile = new EventPipeFile(new FileStreamWriter(SString(strOutputPath)), 
+                    s_pSession->GetSerializationFormat());
             break;
 
         case EventPipeSessionType::IpcStream:
-            s_pFile = new EventPipeFile(new IpcStreamWriter(sessionId, pStream));
+            s_pFile = new EventPipeFile(new IpcStreamWriter(sessionId, pStream),
+                s_pSession->GetSerializationFormat());
             CreateFlushTimerCallback();
             break;
 
@@ -370,6 +375,8 @@ void EventPipe::DisableInternal(EventPipeSessionID id, EventPipeProviderCallback
 
     if (s_pConfig != NULL && s_pConfig->Enabled())
     {
+        EventPipeSerializationFormat format = s_pSession->GetSerializationFormat();
+
         // Disable the profiler.
         SampleProfiler::Disable();
 
@@ -414,6 +421,7 @@ void EventPipe::DisableInternal(EventPipeSessionID id, EventPipeProviderCallback
                 // The circular buffer size doesn't matter because all events are written synchronously during rundown.
                 s_pSession = s_pConfig->CreateSession(
                     EventPipeSessionType::File,
+                    format,
                     1 /* circularBufferSizeInMB */,
                     RundownProviders,
                     sizeof(RundownProviders) / sizeof(EventPipeProviderConfiguration));

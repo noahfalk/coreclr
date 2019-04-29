@@ -12,6 +12,7 @@
 
 EventPipeSession::EventPipeSession(
     EventPipeSessionType sessionType,
+    EventPipeSerializationFormat format,
     unsigned int circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders)
@@ -21,12 +22,14 @@ EventPipeSession::EventPipeSession(
         THROWS;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
     }
     CONTRACTL_END;
 
     m_sessionType = sessionType;
+    m_format = format;
     m_circularBufferSizeInBytes = circularBufferSizeInMB * 1024 * 1024; // 1MB;
     m_rundownEnabled = false;
     m_pProviderList = new EventPipeSessionProviderList(pProviders, numProviders);

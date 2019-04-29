@@ -43,6 +43,7 @@ public:
     // Create a new session.
     EventPipeSession *CreateSession(
         EventPipeSessionType sessionType,
+        EventPipeSerializationFormat format,
         unsigned int circularBufferSizeInMB,
         const EventPipeProviderConfiguration *pProviders,
         uint32_t numProviders);

@@ -39,6 +39,12 @@ UINT64 QCALLTYPE EventPipeInternal::Enable(
 
     BEGIN_QCALL;
     {
+        EventPipeSerializationFormat format = EventPipeNetPerfFormatV3;
+        if (CLRConfig::GetConfigValue(CLRConfig::INTERNAL_EventPipeNetTraceFormat) > 0)
+        {
+            format = EventPipeNetTraceFormatV4;
+        }
+
         sessionID = EventPipe::Enable(
             outputFile,
             circularBufferSizeInMB,
@@ -46,6 +52,7 @@ UINT64 QCALLTYPE EventPipeInternal::Enable(
             pProviders,
             numProviders,
             outputFile != NULL ? EventPipeSessionType::File : EventPipeSessionType::Streaming,
+            format,
             nullptr);
     }
     END_QCALL;

@@ -9,7 +9,27 @@
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter) : FastSerializableObject(3, 0)
+DWORD GetFileMajorVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    if (format == EventPipeNetPerfFormatV3)
+    {
+        return 3;
+    }
+    else if (format == EventPipeNetTraceFormatV4)
+    {
+        return 4;
+    }
+    else
+    {
+        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+        return -1;
+    }
+}
+
+EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format) :
+    FastSerializableObject(GetFileMajorVersion(format), 0)
 {
     CONTRACTL
     {
@@ -19,7 +39,8 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter) : FastSerializableObje
     }
     CONTRACTL_END;
 
-    m_pBlock = new EventPipeBlock(100 * 1024);
+    m_format = format;
+    m_pBlock = new EventPipeBlock(100 * 1024, format);
 
     // File start time information.
     GetSystemTime(&m_fileOpenSystemTime);

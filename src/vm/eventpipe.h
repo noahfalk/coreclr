@@ -22,6 +22,7 @@ struct EventPipeProviderConfiguration;
 class EventPipeSession;
 class IpcStream;
 enum class EventPipeSessionType;
+enum EventPipeSerializationFormat;
 
 enum class EventPipeEventLevel
 {
@@ -291,6 +292,7 @@ public:
         const EventPipeProviderConfiguration *pProviders,
         uint32_t numProviders,
         EventPipeSessionType sessionType,
+        EventPipeSerializationFormat format,
         IpcStream *const pStream);
 
     // Disable tracing via the event pipe.
