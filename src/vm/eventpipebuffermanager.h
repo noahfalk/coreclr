@@ -86,6 +86,12 @@ private:
     SpinLock m_lock;
     Volatile<BOOL> m_writeEventSuspending;
 
+    // Iterator state for reader thread
+    // These are not protected by m_lock and expected to only be used on the reader thread
+    EventPipeEventInstance* m_pCurrentEvent;
+    EventPipeBuffer* m_pCurrentBuffer;
+    EventPipeBufferList* m_pCurrentBufferList;
+
 #ifdef _DEBUG
     // For debugging purposes.
     unsigned int m_numBuffersAllocated;
@@ -93,9 +99,9 @@ private:
     unsigned int m_numBuffersLeaked;
     Volatile<LONG> m_numEventsStored;
     Volatile<LONG> m_numEventsDropped;
+    unsigned long m_numEventsWritten;
 #endif // _DEBUG
 
-    unsigned long m_numEventsWritten;
     // Allocate a new buffer for the specified thread.
     // This function will store the buffer in the thread's buffer list for future use and also return it here.
     // A NULL return value means that a buffer could not be allocated.
@@ -104,11 +110,39 @@ private:
     // Add a buffer to the thread buffer list.
     void AddBufferToThreadBufferList(EventPipeBufferList *pThreadBuffers, EventPipeBuffer *pBuffer);
 
-    // Find the thread that owns the oldest buffer that is eligible to be stolen.
-    EventPipeBufferList* FindThreadToStealFrom();
-
     // De-allocates the input buffer.
     void DeAllocateBuffer(EventPipeBuffer *pBuffer);
+
+    // Detaches this buffer from an active writer thread and marks it read-only so that the reader
+    // thread can use it.
+    void ConvertBufferToReadOnly(EventPipeBuffer* pNewReadBuffer);
+
+    // Finds the first buffer in EventPipeBufferList that has a readable event prior to beforeTimeStamp,
+    // starting with pBuffer
+    EventPipeBuffer* AdvanceToNonEmptyBuffer(EventPipeBufferList* pBufferList,
+                                             EventPipeBuffer* pBuffer,
+                                             LARGE_INTEGER beforeTimeStamp);
+
+    //  -------------- Reader Iteration API ----------------
+    // An iterator that can enumerate all the events which have been written into this buffer manager.
+    // Initially the iterator starts uninitialized and GetCurrentEvent() returns NULL. Calling MoveNextXXX()
+    // attempts to advance the cursor to the next event. If there is no event prior to stopTimeStamp then
+    // the GetCurrentEvent() again returns NULL, otherwise it returns that event. The event pointer returned
+    // by GetCurrentEvent() is valid until MoveNextXXX() is called again. Once all events in a buffer have 
+    // been read the iterator will delete that buffer from the pool.
+
+    // Moves to the next oldest event searching across all threads. If there is no event older than
+    // stopTimeStamp then GetCurrentEvent() will return NULL.
+    void MoveNextEventAnyThread(LARGE_INTEGER stopTimeStamp);
+
+    // Moves to the next oldest event from the same thread as the current event. If there is no event 
+    // older than stopTimeStamp then GetCurrentEvent() will return NULL. This should only be called
+    // when GetCurrentEvent() is non-null (because we need to know what thread's events to iterate)
+    void MoveNextEventSameThread(LARGE_INTEGER stopTimeStamp);
+
+    // Returns the current event the iteration cursor is on, or NULL if the iteration is unitialized/
+    // the last call to MoveNextXXX() didn't find any suitable event.
+    EventPipeEventInstance* GetCurrentEvent();
 
 public:
 
@@ -197,18 +231,8 @@ public:
     // Get the count of buffers in the list.
     unsigned int GetCount() const;
 
-    // Pop the event from the buffer, and potentially clean-up the previous buffer
-    // pNext is expected to be the last event returned from TryGetBuffer()->PeekNext()
-    void PopNextEvent(EventPipeBuffer *pContainingBuffer, EventPipeEventInstance *pNext);
-
     // Get the thread associated with this list.
     EventPipeThread* GetThread();
-
-    // Get the first buffer that might contain the oldest event
-    EventPipeBuffer* TryGetBuffer(LARGE_INTEGER beforeTimeStamp);
-
-    // Convert the buffer into read only
-    void ConvertBufferToReadOnly(EventPipeBuffer *pNewReadBuffer);
 
 #ifdef _DEBUG
     // Validate the consistency of the list.

@@ -455,6 +455,211 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
     return !allocNewBuffer;
 }
 
+EventPipeEventInstance* EventPipeBufferManager::GetCurrentEvent()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_pCurrentEvent;
+}
+
+void EventPipeBufferManager::MoveNextEventAnyThread(LARGE_INTEGER stopTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(!m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    if (m_pCurrentEvent != nullptr)
+    {
+        m_pCurrentBuffer->MoveNextReadEvent();
+    }
+    m_pCurrentEvent = nullptr;
+    m_pCurrentBuffer = nullptr;
+    m_pCurrentBufferList = nullptr;
+    
+    // We need to do this in two steps because we can't hold m_lock and EventPipeThread::m_lock
+    // at the same time.
+
+    // Step 1 - while holding m_lock get the oldest buffer from each thread
+    CQuickArrayList<EventPipeBuffer*> bufferList;
+    CQuickArrayList<EventPipeBufferList*> bufferListList;
+    {
+        SpinLockHolder _slh(&m_lock);
+        SListElem<EventPipeBufferList*> *pElem = m_pPerThreadBufferList->GetHead();
+        while (pElem != NULL)
+        {
+            EventPipeBufferList* pBufferList = pElem->GetValue();
+            EventPipeBuffer* pBuffer = pBufferList->GetHead();
+            if (pBuffer != nullptr &&
+                pBuffer->GetCreationTimeStamp().QuadPart < stopTimeStamp.QuadPart)
+            {
+                bufferListList.Push(pBufferList);
+                bufferList.Push(pBuffer);
+            }
+            pElem = m_pPerThreadBufferList->GetNext(pElem);
+        }
+    }
+
+    // Step 2 - iterate the cached list to find the one with the oldest event. This may require
+    // converting some of the buffers from writable to readable, and that in turn requires
+    // taking the associated EventPipeThread::m_lock for thread that was writing to that buffer.
+    LARGE_INTEGER curOldestTime = stopTimeStamp;
+    for (size_t i = 0; i < bufferList.Size(); i++)
+    {
+        EventPipeBufferList* pBufferList = bufferListList[i];
+        EventPipeBuffer* pHeadBuffer = bufferList[i];
+        EventPipeBuffer* pBuffer = AdvanceToNonEmptyBuffer(pBufferList, pHeadBuffer, stopTimeStamp);
+        if (pBuffer == nullptr)
+        {
+            // there weren't any non-empty buffers in that list prior to stopTimeStamp
+            continue;
+        }
+
+        // Peek the next event out of the buffer.
+        EventPipeEventInstance *pNext = pBuffer->GetCurrentReadEvent();
+        if (pNext != NULL)
+        {
+            // If it's the oldest event we've seen, then save it.
+            if (pNext->GetTimeStamp()->QuadPart < curOldestTime.QuadPart)
+            {
+                m_pCurrentEvent = pNext;
+                m_pCurrentBuffer = pBuffer;
+                m_pCurrentBufferList = pBufferList;
+                curOldestTime = *(m_pCurrentEvent->GetTimeStamp());
+            }
+        }
+    }
+}
+
+void EventPipeBufferManager::MoveNextEventSameThread(LARGE_INTEGER beforeTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(m_pCurrentEvent != nullptr);
+        PRECONDITION(m_pCurrentBuffer != nullptr);
+        PRECONDITION(m_pCurrentBufferList != nullptr);
+        PRECONDITION(!m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    //advance past the current event
+    m_pCurrentEvent = nullptr;
+    m_pCurrentBuffer->MoveNextReadEvent();
+
+    // Find the first buffer in the list, if any, which has an event in it
+    m_pCurrentBuffer = AdvanceToNonEmptyBuffer(m_pCurrentBufferList, m_pCurrentBuffer, beforeTimeStamp);
+    if (m_pCurrentBuffer == nullptr)
+    {
+        // no more buffers prior to stopTimeStamp
+        _ASSERTE(m_pCurrentEvent == nullptr);
+        _ASSERTE(m_pCurrentBuffer == nullptr);
+        m_pCurrentBufferList = nullptr;
+    }
+
+    // get the event from that buffer
+    EventPipeEventInstance* pNextEvent = m_pCurrentBuffer->GetCurrentReadEvent();
+    LARGE_INTEGER nextTimeStamp = *pNextEvent->GetTimeStamp();
+    if (nextTimeStamp.QuadPart >= beforeTimeStamp.QuadPart)
+    {
+        // event exists, but isn't early enough
+        m_pCurrentEvent = nullptr;
+        m_pCurrentBuffer = nullptr;
+        m_pCurrentBufferList = nullptr;
+    }
+    else
+    {
+        // event is early enough, set the new cursor
+        m_pCurrentEvent = pNextEvent;
+        _ASSERTE(m_pCurrentBuffer != nullptr);
+        _ASSERTE(m_pCurrentBufferList != nullptr);
+    }
+}
+
+EventPipeBuffer* EventPipeBufferManager::AdvanceToNonEmptyBuffer(EventPipeBufferList* pBufferList, 
+                                                                 EventPipeBuffer* pBuffer,
+                                                                 LARGE_INTEGER beforeTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(!m_lock.OwnedByCurrentThread());
+        PRECONDITION(pBufferList != nullptr);
+        PRECONDITION(pBuffer != nullptr);
+        PRECONDITION(pBufferList->GetHead() == pBuffer);
+    }
+    CONTRACTL_END;
+
+    EventPipeBuffer* pCurrentBuffer = pBuffer;
+    while (pCurrentBuffer->GetCurrentReadEvent() == nullptr)
+    {
+        {
+            SpinLockHolder _slh(&m_lock);
+
+            // delete the empty buffer
+            EventPipeBuffer *pRemoved = pBufferList->GetAndRemoveHead();
+            _ASSERTE(pCurrentBuffer == pRemoved);
+            DeAllocateBuffer(pRemoved);
+
+            // get the next buffer
+            pCurrentBuffer = pBufferList->GetHead();
+            if (pCurrentBuffer == nullptr ||
+                pCurrentBuffer->GetCreationTimeStamp().QuadPart >= beforeTimeStamp.QuadPart)
+            {
+                // no more buffers in the list before this timestamp, we're done
+                return nullptr;
+            }
+        }
+        ConvertBufferToReadOnly(pCurrentBuffer);
+    }
+    return pCurrentBuffer;
+}
+
+void EventPipeBufferManager::ConvertBufferToReadOnly(EventPipeBuffer* pNewReadBuffer)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(pNewReadBuffer != nullptr);
+        PRECONDITION(!m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    // if already readable, nothing to do
+    if (pNewReadBuffer->GetVolatileState() == EventPipeBufferState::READ_ONLY)
+    {
+        return;
+    }
+
+    // if not yet readable, disable the thread from writing to it which causes
+    // it to become readable
+    {
+        EventPipeThread* pThread = pNewReadBuffer->GetWriterThread();
+        SpinLockHolder _slh(pThread->GetLock());
+        if (pThread->GetWriteBuffer() == pNewReadBuffer)
+        {
+            pThread->SetWriteBuffer(nullptr);
+        }
+        else
+        {
+            // The if condition could evaluate to false if between the initial
+            // read-only check and now the writer thread switched to a new buffer. 
+            // If that happened it also would have made pNewReadBuffer readable so 
+            // there is no work to do in this case.
+        }
+    }
+    _ASSERTE(pNewReadBuffer->GetVolatileState() == EventPipeBufferState::READ_ONLY);
+}
+
 void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp)
 {
     CONTRACTL
@@ -467,87 +672,20 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     }
     CONTRACTL_END;
 
-    // TODO: Better version of merge sort.
-    // 1. Iterate through all of the threads, adding each buffer to a temporary list.
-    // 2. While iterating, get the lowest most recent timestamp.  This is the timestamp that we want to process up to.
-    // 3. Process up to the lowest most recent timestamp for the set of buffers.
-    // 4. When we get NULLs from each of the buffers on PopNext(), we're done.
-    // 5. While iterating if PopNext() == NULL && Empty() == NULL, remove the buffer from the list.  It's empty.
-    // 6. While iterating, grab the next lowest most recent timestamp.
-    // 7. Walk through the list again and look for any buffers that have a lower most recent timestamp than the next most recent timestamp.
-    // 8. If we find one, add it to the list and select its most recent timestamp as the lowest.
-    // 9. Process again (go to 3).
-    // 10. Continue until there are no more buffers to process.
-
     // Naively walk the circular buffer, writing the event stream in timestamp order.
-    m_numEventsWritten = 0;
-    while(true)
+    _ASSERTE(GetCurrentEvent() == nullptr);
+    bool eventsWritten = false;
+    MoveNextEventAnyThread(stopTimeStamp);
+    while(GetCurrentEvent() != nullptr)
     {
-        EventPipeEventInstance *pOldestInstance = NULL;
-        EventPipeBuffer *pOldestContainingBuffer = NULL;
-        EventPipeBufferList *pOldestContainingList = NULL;
-
-        CQuickArrayList<EventPipeBuffer*> bufferList;
-        CQuickArrayList<EventPipeBufferList*> bufferListList;
-        {
-            // Take the lock before walking the buffer list.
-            SpinLockHolder _slh(&m_lock);
-            SListElem<EventPipeBufferList*> *pElem = m_pPerThreadBufferList->GetHead();
-            while(pElem != NULL)
-            {
-                EventPipeBufferList* pBufferList = pElem->GetValue();
-                EventPipeBuffer* pBuffer = pBufferList->TryGetBuffer(stopTimeStamp);
-                if (pBuffer != nullptr)
-                {
-                    bufferListList.Push(pBufferList);
-                    bufferList.Push(pBuffer);
-                }
-                pElem = m_pPerThreadBufferList->GetNext(pElem);
-            }
-        }
-
-        for (size_t i = 0 ; i < bufferList.Size(); i++)
-        {
-            EventPipeBufferList* pBufferList = bufferListList[i];
-            EventPipeBuffer* pBuffer = bufferList[i];
-            pBufferList->ConvertBufferToReadOnly(pBuffer);
-
-            // Peek the next event out of the buffer.
-            EventPipeBuffer *pContainingBuffer = pBuffer;
-            EventPipeEventInstance *pNext = pBuffer->PeekNext(stopTimeStamp);
-            if (pNext != NULL)
-            {
-                // If it's the oldest event we've seen, then save it.
-                if((pOldestInstance == NULL) ||
-                   (pOldestInstance->GetTimeStamp()->QuadPart > pNext->GetTimeStamp()->QuadPart))
-                {
-                    pOldestInstance = pNext;
-                    pOldestContainingBuffer = pContainingBuffer;
-                    pOldestContainingList = pBufferList;
-                }
-            }            
-        }
-
-        if(pOldestInstance == NULL)
-        {
-            // We're done.  There are no more events.
-            break;
-        }
-
-        // Write the oldest event.
-        pFile->WriteEvent(*pOldestInstance);
-
-        m_numEventsWritten++;
-
-        {
-            SpinLockHolder _slh(&m_lock);
-            // Pop the event from the buffer.
-            pOldestContainingList->PopNextEvent(pOldestContainingBuffer, pOldestInstance);
-        }
-    }
-
-    if (m_numEventsWritten > 0)
+        pFile->WriteEvent(*GetCurrentEvent());
+        MoveNextEventAnyThread(stopTimeStamp);
+        eventsWritten = true;
+    } 
+    if (eventsWritten)
+    {
         pFile->Flush();
+    }
 }
 
 EventPipeEventInstance* EventPipeBufferManager::GetNextEvent()
@@ -561,78 +699,19 @@ EventPipeEventInstance* EventPipeBufferManager::GetNextEvent()
     }
     CONTRACTL_END;
 
+    // PERF: This may be too aggressive? If this method is being called frequently enough to keep pace with the
+    // writing threads we could be in a state of high lock contention and lots of churning buffers. Each writer
+    // would take several locks, allocate a new buffer, write one event into it, then the reader would take the
+    // lock, convert the buffer to read-only and read the single event out of it. Allowing more events to accumulate
+    // in the buffers before converting between writable and read-only amortizes a lot of the overhead. One way 
+    // to achieve that would be picking a stopTimeStamp that was Xms in the past. This would let Xms of events
+    // to accumulate in the write buffer before we converted it and forced the writer to allocate another. Other more
+    // sophisticated approaches would probably build a low overhead synchronization mechanism to read and write the 
+    // buffer at the same time.
     LARGE_INTEGER stopTimeStamp;
     QueryPerformanceCounter(&stopTimeStamp);
-
-    EventPipeEventInstance *pOldestInstance = NULL;
-    EventPipeBuffer *pOldestContainingBuffer = NULL;
-    EventPipeBufferList *pOldestContainingList = NULL;
-
-    CQuickArrayList<EventPipeBuffer*> bufferList;
-    CQuickArrayList<EventPipeBufferList*> bufferListList;
-    {
-        // Take the lock before walking the buffer list.
-        SpinLockHolder _slh(&m_lock);
-        SListElem<EventPipeBufferList*> *pElem = m_pPerThreadBufferList->GetHead();
-        while(pElem != NULL)
-        {
-            EventPipeBufferList* pBufferList = pElem->GetValue();
-            EventPipeBuffer* pBuffer = pBufferList->TryGetBuffer(stopTimeStamp);
-            if (pBuffer != nullptr)
-            {
-                bufferListList.Push(pBufferList);
-                bufferList.Push(pBuffer);
-            }
-            pElem = m_pPerThreadBufferList->GetNext(pElem);
-        }
-    }
-
-    for (size_t i = 0 ; i < bufferList.Size(); i++)
-    {
-        EventPipeBufferList* pBufferList = bufferListList[i];
-        EventPipeBuffer* pBuffer = bufferList[i];
-        pBufferList->ConvertBufferToReadOnly(pBuffer);
-
-        // Peek the next event out of the buffer.
-        EventPipeBuffer *pContainingBuffer = pBuffer;
-        
-        // PERF: This may be too aggressive? If this method is being called frequently enough to keep pace with the
-        // writing threads we could be in a state of high lock contention and lots of churning buffers. Each writer
-        // would take several locks, allocate a new buffer, write one event into it, then the reader would take the
-        // lock, convert the buffer to read-only and read the single event out of it. Allowing more events to accumulate
-        // in the buffers before converting between writable and read-only amortizes a lot of the overhead. One way 
-        // to achieve that would be picking a stopTimeStamp that was Xms in the past. This would let Xms of events
-        // to accumulate in the write buffer before we converted it and forced the writer to allocate another. Other more
-        // sophisticated approaches would probably build a low overhead synchronization mechanism to read and write the 
-        // buffer at the same time.
-        EventPipeEventInstance *pNext = pBuffer->PeekNext(stopTimeStamp);
-        if (pNext != NULL)
-        {
-            // If it's the oldest event we've seen, then save it.
-            if((pOldestInstance == NULL) ||
-                (pOldestInstance->GetTimeStamp()->QuadPart > pNext->GetTimeStamp()->QuadPart))
-            {
-                pOldestInstance = pNext;
-                pOldestContainingBuffer = pContainingBuffer;
-                pOldestContainingList = pBufferList;
-            }
-        }            
-    }
-
-    if(pOldestInstance == NULL)
-    {
-        // We're done.  There are no more events.
-        return nullptr;
-    }
-
-    {
-        SpinLockHolder _slh(&m_lock);
-        // Pop the event from the buffer.
-        pOldestContainingList->PopNextEvent(pOldestContainingBuffer, pOldestInstance);
-    }
-    
-    // Return the oldest event that hasn't yet been processed.
-    return pOldestInstance;
+    MoveNextEventAnyThread(stopTimeStamp);
+    return GetCurrentEvent();
 }
 
 void EventPipeBufferManager::SuspendWriteEvent()
@@ -909,98 +988,6 @@ unsigned int EventPipeBufferList::GetCount() const
     LIMITED_METHOD_CONTRACT;
 
     return m_bufferCount;
-}
-
-EventPipeBuffer* EventPipeBufferList::TryGetBuffer(LARGE_INTEGER beforeTimeStamp)
-{
-    LIMITED_METHOD_CONTRACT;
-    _ASSERTE(EventPipe::IsBufferManagerLockOwnedByCurrentThread());
-    /**
-     * There are 4 cases we need to handle in this function:
-     * 1) There is no buffer in the list, in this case, return nullptr
-     * 2) The head buffer is written to but not read yet, in this case, return that buffer
-     *    2.1) It is possible that the head buffer is the only buffer that is created and is empty, or
-     *    2.2) The head buffer is written to but not read
-     *    We cannot differentiate the two cases without reading it - but it is okay, in both cases, the buffer represents the head of the buffer list. 
-     *    Note that writing to the buffer can happen after we return from this function, and it is also okay.
-     * 3.) The head buffer is read but not completely reading, and
-     * 4.) The head buffer is read completely.
-     *     This case requires special attention because it is possible that the next buffer in the list contain the oldest event. Fortunately, it is 
-     *     already read so it is safe to read it to determine this case.
-     */
-
-    if (this->m_pHeadBuffer == nullptr)
-    {
-        // Case 1
-        return nullptr;
-    }
-    if (this->m_pHeadBuffer->GetCreationTimeStamp().QuadPart >= beforeTimeStamp.QuadPart)
-    {
-        // If the oldest buffer is still newer than the beforeTimeStamp, we can stop.
-        return nullptr;
-    }
-    EventPipeBufferState bufferState = this->m_pHeadBuffer->GetVolatileState();
-    if (bufferState != EventPipeBufferState::READ_ONLY)
-    {
-        // Case 2 (2.1 or 2.2)
-        return this->m_pHeadBuffer;
-    }
-    else
-    {
-        if (this->m_pHeadBuffer->PeekNext(beforeTimeStamp))
-        {
-            // Case 3
-            return this->m_pHeadBuffer;
-        }
-        else
-        {
-            // Case 4
-            return this->m_pHeadBuffer->GetNext();
-        }
-    }
-}
-
-void EventPipeBufferList::ConvertBufferToReadOnly(EventPipeBuffer* pNewReadBuffer)
-{
-    LIMITED_METHOD_CONTRACT;
-    _ASSERTE(pNewReadBuffer != nullptr);
-    _ASSERTE(!EventPipe::IsBufferManagerLockOwnedByCurrentThread());
-    {
-        SpinLockHolder _slh(m_pThread->GetLock());
-        if (m_pThread->GetWriteBuffer() == pNewReadBuffer)
-        {
-            m_pThread->SetWriteBuffer(nullptr);
-        }
-    }
-}
-
-void EventPipeBufferList::PopNextEvent(EventPipeBuffer *pContainingBuffer, EventPipeEventInstance *pNext)
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
-
-    // Check to see if we need to clean-up the buffer that contained the previously popped event.
-    if(pContainingBuffer->GetPrevious() != NULL)
-    {
-        // Remove the previous node.  The previous node should always be the head node.
-        EventPipeBuffer *pRemoved = GetAndRemoveHead();
-        _ASSERTE(pRemoved != pContainingBuffer);
-        _ASSERTE(pContainingBuffer == GetHead());
-
-        // De-allocate the buffer.
-        m_pManager->DeAllocateBuffer(pRemoved);
-    }
-
-    // If the event is non-NULL, pop it.
-    if(pNext != NULL && pContainingBuffer != NULL)
-    {
-        pContainingBuffer->PopNext(pNext);
-    }
 }
 
 EventPipeThread* EventPipeBufferList::GetThread()
