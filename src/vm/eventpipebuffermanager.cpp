@@ -130,6 +130,10 @@ EventPipeBufferManager::EventPipeBufferManager()
     m_numEventsDropped = 0;
     m_numEventsWritten = 0;
 #endif // _DEBUG
+
+    m_pCurrentEvent = nullptr;
+    m_pCurrentBuffer = nullptr;
+    m_pCurrentBufferList = nullptr;
 }
 
 EventPipeBufferManager::~EventPipeBufferManager()
@@ -669,11 +673,11 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
         MODE_ANY;
         PRECONDITION(pFile != nullptr);
         PRECONDITION(EventPipe::GetLock()->OwnedByCurrentThread());
+        PRECONDITION(GetCurrentEvent() == nullptr);
     }
     CONTRACTL_END;
 
     // Naively walk the circular buffer, writing the event stream in timestamp order.
-    _ASSERTE(GetCurrentEvent() == nullptr);
     bool eventsWritten = false;
     MoveNextEventAnyThread(stopTimeStamp);
     while(GetCurrentEvent() != nullptr)

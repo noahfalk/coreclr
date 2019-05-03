@@ -187,11 +187,12 @@ void EventPipeBuffer::MoveNextReadEvent()
 
     // Ensure that the timestamp is valid.  The buffer is zero'd before use, so a zero timestamp is invalid.
 #ifdef DEBUG
-    LARGE_INTEGER nextTimeStamp = *m_pCurrentReadEvent->GetTimeStamp();
-    _ASSERTE(nextTimeStamp.QuadPart != 0);
+    if (m_pCurrentReadEvent != NULL)
+    {
+        LARGE_INTEGER nextTimeStamp = *m_pCurrentReadEvent->GetTimeStamp();
+        _ASSERTE(nextTimeStamp.QuadPart != 0);
+    }
 #endif
-
-    // Ensure that the timestamp is earlier than the beforeTimeStamp.
 }
 
 EventPipeEventInstance* EventPipeBuffer::GetCurrentReadEvent()
