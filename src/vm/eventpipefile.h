@@ -20,6 +20,7 @@ public:
     EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format);
     ~EventPipeFile();
 
+    EventPipeSerializationFormat GetSerializationFormat() const;
     void WriteEvent(EventPipeEventInstance &instance);
     void Flush();
     bool HasErrors() const;
@@ -50,6 +51,27 @@ public:
         pSerializer->WriteBuffer((BYTE *)&m_currentProcessId, sizeof(m_currentProcessId));
         pSerializer->WriteBuffer((BYTE *)&m_numberOfProcessors, sizeof(m_numberOfProcessors));
         pSerializer->WriteBuffer((BYTE *)&m_samplingRateInNs, sizeof(m_samplingRateInNs));
+
+        // the beginning of V4
+        // Technically these changes in the EventPipeFile object aren't breaking for 
+        // FastSerialization but we increased the major version anyways. If a 
+        // reader doesn't understand the new data added here they will fail to
+        // correctly interpret other parts of the file. There is no point to delaying
+        // that failure.
+        if (m_format == EventPipeNetTraceFormatV4)
+        {
+            // Keep this descriptive information in-sync with EventPipeBlock::GetHeaderSize and FastSerializeHeader
+            unsigned int blockEntryAlignment = ALIGNMENT_SIZE;
+            unsigned int eventBlockHeaderSize = 12;
+            unsigned int eventBlockHeaderThreadIdOffset = 0;
+            unsigned int eventBlockHeaderThreadIdSize = 8;
+            unsigned int eventBlockHeaderFlagsOffset = 8;
+            pSerializer->WriteBuffer((BYTE*)&blockEntryAlignment, sizeof(blockEntryAlignment));
+            pSerializer->WriteBuffer((BYTE*)&eventBlockHeaderSize, sizeof(eventBlockHeaderSize));
+            pSerializer->WriteBuffer((BYTE*)&eventBlockHeaderThreadIdOffset, sizeof(eventBlockHeaderThreadIdOffset));
+            pSerializer->WriteBuffer((BYTE*)&eventBlockHeaderThreadIdSize, sizeof(eventBlockHeaderThreadIdSize));
+            pSerializer->WriteBuffer((BYTE*)&eventBlockHeaderFlagsOffset, sizeof(eventBlockHeaderFlagsOffset));
+        }
     }
 
 private:

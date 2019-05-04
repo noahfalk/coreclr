@@ -10,6 +10,10 @@
 
 #ifdef FEATURE_PERFTRACING
 
+// This is the maxmimum number of events we'll emit from a single thread before
+// switching to another thread that has older events.
+#define MAX_SAME_THREAD_EVENT_RUN 10000
+
 void ReleaseEventPipeThreadRef(EventPipeThread* pThread) { LIMITED_METHOD_CONTRACT; pThread->Release(); }
 void AcquireEventPipeThreadRef(EventPipeThread* pThread) { LIMITED_METHOD_CONTRACT; pThread->AddRef(); } 
 
@@ -483,7 +487,7 @@ void EventPipeBufferManager::MoveNextEventAnyThread(LARGE_INTEGER stopTimeStamp)
     m_pCurrentEvent = nullptr;
     m_pCurrentBuffer = nullptr;
     m_pCurrentBufferList = nullptr;
-    
+
     // We need to do this in two steps because we can't hold m_lock and EventPipeThread::m_lock
     // at the same time.
 
@@ -564,6 +568,7 @@ void EventPipeBufferManager::MoveNextEventSameThread(LARGE_INTEGER beforeTimeSta
         _ASSERTE(m_pCurrentEvent == nullptr);
         _ASSERTE(m_pCurrentBuffer == nullptr);
         m_pCurrentBufferList = nullptr;
+        return;
     }
 
     // get the event from that buffer
@@ -585,9 +590,9 @@ void EventPipeBufferManager::MoveNextEventSameThread(LARGE_INTEGER beforeTimeSta
     }
 }
 
-EventPipeBuffer* EventPipeBufferManager::AdvanceToNonEmptyBuffer(EventPipeBufferList* pBufferList, 
-                                                                 EventPipeBuffer* pBuffer,
-                                                                 LARGE_INTEGER beforeTimeStamp)
+EventPipeBuffer* EventPipeBufferManager::AdvanceToNonEmptyBuffer(EventPipeBufferList* pBufferList,
+    EventPipeBuffer* pBuffer,
+    LARGE_INTEGER beforeTimeStamp)
 {
     CONTRACTL
     {
@@ -670,6 +675,32 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     {
         THROWS;
         GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(pFile != nullptr);
+    }
+    CONTRACTL_END;
+
+    EventPipeSerializationFormat format = pFile->GetSerializationFormat();
+    if (format == EventPipeNetPerfFormatV3)
+    {
+        WriteAllBuffersToFileV3(pFile, stopTimeStamp);
+    }
+    else if (format == EventPipeNetTraceFormatV4)
+    {
+        WriteAllBuffersToFileV4(pFile, stopTimeStamp);
+    }
+    else
+    {
+        _ASSERTE(!"Invalid EventPipe Serialization format");
+    }
+}
+
+void EventPipeBufferManager::WriteAllBuffersToFileV3(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
         MODE_ANY;
         PRECONDITION(pFile != nullptr);
         PRECONDITION(EventPipe::GetLock()->OwnedByCurrentThread());
@@ -680,17 +711,113 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     // Naively walk the circular buffer, writing the event stream in timestamp order.
     bool eventsWritten = false;
     MoveNextEventAnyThread(stopTimeStamp);
-    while(GetCurrentEvent() != nullptr)
+    while (GetCurrentEvent() != nullptr)
     {
         pFile->WriteEvent(*GetCurrentEvent());
         MoveNextEventAnyThread(stopTimeStamp);
         eventsWritten = true;
-    } 
+    }
     if (eventsWritten)
     {
         pFile->Flush();
     }
 }
+
+
+
+void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(pFile != nullptr);
+        PRECONDITION(EventPipe::GetLock()->OwnedByCurrentThread());
+        PRECONDITION(GetCurrentEvent() == nullptr);
+    }
+    CONTRACTL_END;
+
+    // PERF and ALGORITHMS :)
+    // Apologies in advance, there is probably a proper CS name for the algorithm below but I don't know what it is
+    // and my web searching hasn't been fruitful. If anyone knows it maybe we can replace big comment with a link.
+    //
+    // In V3 of the format this code does a full timestamp order sort on the events which made the file easier to consume, 
+    // but the perf implications for emitting the file aren't that good. Imagine an application with 500 threads emitting
+    // 10 events per sec per thread. A nieve sort of 500 ordered lists is going to pull the oldest event from each of 500
+    // lists, compare all the timestamps, then emit the oldest one. This could easily add thousands of CPU cycles
+    // per-event. A better implementation could get fancy by maintaining a min-heap, leverage caches, maybe rely on the
+    // fact that parallelism is per-core rather than per-thread, but fundamentally sorting has a cost. I'd guess we have
+    // to try hard to get it under ~100 cycles per-event when large numbers of threads were in use.
+    // 
+    // Instead of doing fine-grained sorting we can eliminate almost all the cost by doing 'chunky' sorting. Consider
+    // two threads A and B that are emitting events and each event has a timestamp. A_19 = event from thread A at time 19.
+    //
+    //                  Time --->
+    // Thread A events: A_1     A_4     A_9 A_10 A_11 A_12 A_13      A_15
+    // Thread B events:     B_2     B_6                         B_14      B_20
+    //
+    // Our 'chunky' sort is a simple loop:
+    // a) Pick thread with oldest event not yet written
+    // b) Serialize events from this thread until either X events have been recorded OR the thread has no more events
+    //
+    // In the example above if we assume X=3 the sequence would be:
+    //    A_1 A_4 A_9    B_2 B_6 B_14   A_10 A_11 A_12   A_13 A_15     B_20
+    //   /|\            /|\            /|\              /|\           /|\
+    //    |              |              |                |             |
+    //    Iteration 1    Iteration 2    Iteration 3      Iteration 4   Iteration 5
+    // 
+    //
+    // How does this make the perf better?
+    // The expensive cross-thread timestamp comparison now only occurs 1 in every X events. Although this doesn't change
+    // the algorithmic complexity, practically it makes the constant so small that it doesn't matter. The number of threads
+    // on a modern OS doesn't realistically go above 10,000 and most sane apps stay below 1000 so scaling higher isn't a
+    // problem we are going to hit unless something fundametal changes in OS design.
+    // There is also a pretty solid side-benefit, sorting this way means that long runs of events in the file tend to
+    // be on the same thread and we can leverage that locality to make the format more efficient.
+    //
+    // Why bother to sort at all? We could just enumerate all threads and dump all the events?
+    // By bounding the number of events between re-scanning the threads we bound the amount of memory the reader needs to
+    // precisely sort the list. Imagine if thread A had 50 million events and B had none. The reader which doesn't know
+    // how many events B has wants to produce a time ordered list. No matter how many events from A it reads and caches 
+    // there is still the possibility that the next event will be from B and it has to be inserted at the front of the 
+    // list. OTOH using bounded chunks the reader can create a precise sort by looping:
+    // a) Observe timestamp T is the timestamp of the first event in a new chunk
+    // b) Mergesort all cached chunks up to timestamp T, emit these events and remove them from the cache
+    // c) Insert the new chunk into the cache
+    // Because all events in a new chunk have timestamps after the events in the last chunk from the same thread, this
+    // ensures that the sort in step (b) will completely consume the thread's previous chunk. Thus the cache will never
+    // need to store more than one chunk per thread.
+
+
+    do
+    {
+        // chunky sort part (a) - pick the thread that has the oldest event
+        MoveNextEventAnyThread(stopTimeStamp);
+
+        //chunky sort step (b) - emit up to MAX_SAME_THREAD_EVENT_RUN events from our selected thread
+        int eventsWritten = 0;
+        while(GetCurrentEvent() != nullptr)
+        {
+            pFile->WriteEvent(*GetCurrentEvent());
+            if (++eventsWritten == MAX_SAME_THREAD_EVENT_RUN)
+            {
+                break;
+            }
+            MoveNextEventSameThread(stopTimeStamp);
+        }
+
+        // This finishes any current partially filled EventPipeBlock, flushes it to
+        // the stream, and marks the next block as a sequence point. This is how the
+        // reader knows that the next event is the oldest one across all threads.
+        if (eventsWritten > 0)
+        {
+            pFile->Flush();
+        }
+    } while (GetCurrentEvent() != nullptr);
+}
+
+
 
 EventPipeEventInstance* EventPipeBufferManager::GetNextEvent()
 {

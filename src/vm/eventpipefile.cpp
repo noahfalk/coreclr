@@ -9,27 +9,36 @@
 
 #ifdef FEATURE_PERFTRACING
 
-DWORD GetFileMajorVersion(EventPipeSerializationFormat format)
+DWORD GetFileVersion(EventPipeSerializationFormat format)
 {
     LIMITED_METHOD_CONTRACT;
-
-    if (format == EventPipeNetPerfFormatV3)
+    switch(format)
     {
+    case EventPipeNetPerfFormatV3:
         return 3;
-    }
-    else if (format == EventPipeNetTraceFormatV4)
-    {
+    case EventPipeNetTraceFormatV4:
         return 4;
     }
-    else
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+DWORD GetFileMinVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch (format)
     {
-        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-        return -1;
+    case EventPipeNetPerfFormatV3:
+        return 0;
+    case EventPipeNetTraceFormatV4:
+        return 4;
     }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
 }
 
 EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetFileMajorVersion(format), 0)
+    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format))
 {
     CONTRACTL
     {
@@ -87,6 +96,12 @@ EventPipeFile::~EventPipeFile()
     delete m_pSerializer;
 }
 
+EventPipeSerializationFormat EventPipeFile::GetSerializationFormat() const
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_format;
+}
+
 bool EventPipeFile::HasErrors() const
 {
     LIMITED_METHOD_CONTRACT;
@@ -135,6 +150,7 @@ void EventPipeFile::Flush()
     CONTRACTL_END;
     m_pSerializer->WriteObject(m_pBlock); // we write current block to the disk, whether it's full or not
     m_pBlock->Clear();
+    m_pBlock->SetSequencePointBit();
 }
 
 void EventPipeFile::WriteEnd()

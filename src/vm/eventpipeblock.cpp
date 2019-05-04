@@ -10,27 +10,38 @@
 
 #ifdef FEATURE_PERFTRACING
 
-DWORD GetBlockMajorVersion(EventPipeSerializationFormat format)
+
+
+DWORD GetBlockVersion(EventPipeSerializationFormat format)
 {
     LIMITED_METHOD_CONTRACT;
-
-    if (format == EventPipeNetPerfFormatV3)
+    switch (format)
     {
+    case EventPipeNetPerfFormatV3:
         return 1;
-    }
-    else if (format == EventPipeNetTraceFormatV4)
-    {
+    case EventPipeNetTraceFormatV4:
         return 2;
     }
-    else
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
+}
+
+DWORD GetBlockMinVersion(EventPipeSerializationFormat format)
+{
+    LIMITED_METHOD_CONTRACT;
+    switch (format)
     {
-        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-        return -1;
+    case EventPipeNetPerfFormatV3:
+        return 0;
+    case EventPipeNetTraceFormatV4:
+        return 2;
     }
+    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+    return 0;
 }
 
 EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetBlockMajorVersion(format), 0)
+    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format))
 {
     CONTRACTL
     {
@@ -50,6 +61,8 @@ EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize, EventPipeSerialization
     m_pWritePointer = m_pBlock;
     m_pEndOfTheBuffer = m_pBlock + maxBlockSize;
     m_format = format;
+    m_threadId = -1;
+    m_flags = 0;
 }
 
 EventPipeBlock::~EventPipeBlock()
@@ -86,7 +99,27 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
         return false;
     }
 
-    unsigned int totalSize = instance.GetAlignedTotalSize();
+    // In NetTraceV4 all events in the block belong to the same thread. If this block has
+    // already recorded events from another thread it needs to be flushed and we start a
+    // new block. If this block has never logged an event then we assign it to the thread
+    // from this event.
+    if (m_format == EventPipeNetTraceFormatV4 && m_threadId != instance.GetThreadId())
+    {
+        
+        if (m_threadId == -1)
+        {
+            m_threadId = instance.GetThreadId();
+        }
+        else
+        {
+            // TODO: assert this once we aren't putting metadata in the same block
+            //_ASSERTE(!"In EventPipe V4 format it is illegal to reuse a block for events on different threads");
+            return false;
+        }
+    }
+
+
+    unsigned int totalSize = instance.GetAlignedTotalSize(m_format);
     if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
     {
         return false;
@@ -101,9 +134,12 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
     memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
     m_pWritePointer += sizeof(metadataId);
 
-    DWORD threadId = instance.GetThreadId();
-    memcpy(m_pWritePointer, &threadId, sizeof(threadId));
-    m_pWritePointer += sizeof(threadId);
+    if (m_format == EventPipeNetPerfFormatV3)
+    {
+        DWORD threadId = instance.GetThreadId();
+        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+        m_pWritePointer += sizeof(threadId);
+    }
 
     const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
     memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
@@ -145,6 +181,12 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
     return true;
 }
 
+void EventPipeBlock::SetSequencePointBit()
+{
+    LIMITED_METHOD_CONTRACT;
+    m_flags |= IsSequencePoint;
+}
+
 void EventPipeBlock::Clear()
 {
     CONTRACTL
@@ -162,6 +204,8 @@ void EventPipeBlock::Clear()
 
     memset(m_pBlock, 0, GetSize());
     m_pWritePointer = m_pBlock;
+    m_threadId = -1;
+    m_flags = 0;
 }
 
 #endif // FEATURE_PERFTRACING

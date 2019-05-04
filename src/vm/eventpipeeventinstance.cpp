@@ -68,7 +68,7 @@ void EventPipeEventInstance::EnsureStack(const EventPipeSession &session)
     }
 }
 
-unsigned int EventPipeEventInstance::GetAlignedTotalSize() const
+unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationFormat format) const
 {
     CONTRACT(unsigned int)
     {
@@ -80,16 +80,34 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize() const
     CONTRACT_END;
 
     // Calculate the size of the total payload so that it can be written to the file.
-    unsigned int payloadLength =
-        sizeof(m_metadataId) +          // Metadata ID
-        sizeof(m_threadID) +            // Thread ID
-        sizeof(m_timeStamp) +           // TimeStamp
-        sizeof(m_activityId) +          // Activity ID
-        sizeof(m_relatedActivityId) +   // Related Activity ID
-        sizeof(m_dataLength) +          // Data payload length
-        m_dataLength +                  // Event payload data
-        sizeof(unsigned int) +          // Prepended stack payload size in bytes
-        m_stackContents.GetSize();      // Stack payload size
+    unsigned int payloadLength = 0;
+
+    if (format == EventPipeNetPerfFormatV3)
+    {
+        payloadLength =
+            sizeof(m_metadataId) +          // Metadata ID
+            sizeof(m_threadID) +            // Thread ID
+            sizeof(m_timeStamp) +           // TimeStamp
+            sizeof(m_activityId) +          // Activity ID
+            sizeof(m_relatedActivityId) +   // Related Activity ID
+            sizeof(m_dataLength) +          // Data payload length
+            m_dataLength +                  // Event payload data
+            sizeof(unsigned int) +          // Prepended stack payload size in bytes
+            m_stackContents.GetSize();      // Stack payload size
+    }
+    else if (format == EventPipeNetTraceFormatV4)
+    {
+        payloadLength =
+            sizeof(m_metadataId) +          // Metadata ID
+            sizeof(m_timeStamp) +           // TimeStamp
+            sizeof(m_activityId) +          // Activity ID
+            sizeof(m_relatedActivityId) +   // Related Activity ID
+            sizeof(m_dataLength) +          // Data payload length
+            m_dataLength +                  // Event payload data
+            sizeof(unsigned int) +          // Prepended stack payload size in bytes
+            m_stackContents.GetSize();      // Stack payload size
+    }
+
 
     // round up to ALIGNMENT_SIZE bytes
     if (payloadLength % ALIGNMENT_SIZE != 0)

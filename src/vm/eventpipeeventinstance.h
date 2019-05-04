@@ -104,7 +104,7 @@ public:
         return m_stackContents.GetSize();
     }
 
-    unsigned int GetAlignedTotalSize() const;
+    unsigned int GetAlignedTotalSize(EventPipeSerializationFormat format) const;
 
 #ifdef _DEBUG
     // Serialize this event to the JSON file.
