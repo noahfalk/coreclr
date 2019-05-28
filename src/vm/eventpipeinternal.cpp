@@ -273,7 +273,7 @@ bool QCALLTYPE EventPipeInternal::GetNextEvent(UINT64 sessionID, EventPipeEventI
     {
         pInstance->ProviderID = pNextInstance->GetEvent()->GetProvider();
         pInstance->EventID = pNextInstance->GetEvent()->GetEventID();
-        pInstance->ThreadID = pNextInstance->GetThreadId();
+        pInstance->ThreadID = pNextInstance->GetThreadId32();
         pInstance->TimeStamp.QuadPart = pNextInstance->GetTimeStamp()->QuadPart;
         pInstance->ActivityId = *pNextInstance->GetActivityId();
         pInstance->RelatedActivityId = *pNextInstance->GetRelatedActivityId();

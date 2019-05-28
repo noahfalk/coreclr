@@ -702,7 +702,7 @@ void EventPipe::WriteEventInternal(
             //    as opposed a a buffer copy here
             EventPipeEventInstance instance(
                 event,
-                pThread->GetOSThreadId(),
+                pThread->GetOSThreadId64(),
                 pData,
                 payload.GetSize(),
                 pActivityId,

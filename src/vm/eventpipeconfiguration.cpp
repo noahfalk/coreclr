@@ -445,7 +445,11 @@ EventPipeEventInstance *EventPipeConfiguration::BuildEventMetadataEvent(EventPip
     // Construct the event instance.
     EventPipeEventInstance *pInstance = new EventPipeEventInstance(
         *m_pMetadataEvent,
+#ifdef FEATURE_PAL
+        PAL_GetCurrentOSThreadId(),
+#else
         GetCurrentThreadId(),
+#endif
         pInstancePayload,
         instancePayloadSize,
         NULL /* pActivityId */,

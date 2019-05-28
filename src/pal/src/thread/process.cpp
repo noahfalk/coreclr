@@ -1734,7 +1734,7 @@ public:
 
         // Add a reference for the thread handler
         AddRef();
-
+        SIZE_T osThreadId = 0;
         pe = InternalCreateThread(
             pThread,
             NULL,
@@ -1743,7 +1743,7 @@ public:
             this,
             0,
             UserCreatedThread,
-            &m_threadId,
+            &osThreadId,
             &m_threadHandle);
 
         if (NO_ERROR != pe)
@@ -1752,7 +1752,7 @@ public:
             Release();
             goto exit;
         }
-
+        m_threadId = (DWORD)osThreadId;
     exit:
         return pe;
     }

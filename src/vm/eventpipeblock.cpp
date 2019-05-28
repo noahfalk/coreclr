@@ -91,7 +91,7 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
         return false;
     }
 
-    unsigned int totalSize = instance.GetAlignedTotalSize();
+    unsigned int totalSize = instance.GetAlignedTotalSize(m_format);
     if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
     {
         return false;
@@ -106,9 +106,18 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
     memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
     m_pWritePointer += sizeof(metadataId);
 
-    DWORD threadId = instance.GetThreadId();
-    memcpy(m_pWritePointer, &threadId, sizeof(threadId));
-    m_pWritePointer += sizeof(threadId);
+    if (m_format == EventPipeNetPerfFormatV3)
+    {
+        DWORD threadId = instance.GetThreadId32();
+        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+        m_pWritePointer += sizeof(threadId);
+    }
+    else if(m_format == EventPipeNetTraceFormatV4)
+    {
+        ULONGLONG threadId = instance.GetThreadId64();
+        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+        m_pWritePointer += sizeof(threadId);
+    }
 
     const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
     memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));

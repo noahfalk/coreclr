@@ -23,7 +23,7 @@ class EventPipeEventInstance
 
 public:
 
-    EventPipeEventInstance(EventPipeEvent &event, DWORD threadID, BYTE *pData, unsigned int length, LPCGUID pActivityId, LPCGUID pRelatedActivityId);
+    EventPipeEventInstance(EventPipeEvent &event, ULONGLONG threadID, BYTE *pData, unsigned int length, LPCGUID pActivityId, LPCGUID pRelatedActivityId);
 
     void EnsureStack(const EventPipeSession &session);
 
@@ -62,11 +62,18 @@ public:
         m_metadataId = metadataId;
     }
 
-    DWORD GetThreadId() const
+    DWORD GetThreadId32() const
     {
         LIMITED_METHOD_CONTRACT;
 
-        return m_threadID;
+        return (DWORD)m_threadId;
+    }
+
+    ULONGLONG GetThreadId64() const
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        return m_threadId;
     }
 
     const GUID* GetActivityId() const
@@ -104,7 +111,7 @@ public:
         return m_stackContents.GetSize();
     }
 
-    unsigned int GetAlignedTotalSize() const;
+    unsigned int GetAlignedTotalSize(EventPipeSerializationFormat format) const;
 
 #ifdef _DEBUG
     // Serialize this event to the JSON file.
@@ -121,7 +128,7 @@ protected:
 
     EventPipeEvent *m_pEvent;
     unsigned int m_metadataId;
-    DWORD m_threadID;
+    ULONGLONG m_threadId;
     LARGE_INTEGER m_timeStamp;
     GUID m_activityId;
     GUID m_relatedActivityId;
