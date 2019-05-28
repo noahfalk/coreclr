@@ -14,6 +14,7 @@
 class EventPipeConfiguration;
 class EventPipeEventInstance;
 class FastSerializer;
+struct EventPipeSequencePoint;
 
 class EventPipeFile final : public FastSerializableObject
 {
@@ -22,7 +23,8 @@ public:
     ~EventPipeFile();
 
     EventPipeSerializationFormat GetSerializationFormat() const;
-    void WriteEvent(EventPipeEventInstance &instance);
+    void WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent);
+    void WriteSequencePoint(EventPipeSequencePoint* pSequencePoint);
     enum FlushFlags
     {
         FlushEventBlock = 1,
@@ -69,7 +71,7 @@ private:
 
     void SaveMetadataId(EventPipeEvent &event, unsigned int metadataId);
 
-    void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId);
+    void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId, ULONGLONG captureThreadId, BOOL isSortedEvent = TRUE);
 
     // The format to serialize
     EventPipeSerializationFormat m_format;

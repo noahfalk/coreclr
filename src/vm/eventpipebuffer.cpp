@@ -10,7 +10,7 @@
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize DEBUG_ARG(EventPipeThread *pWriterThread))
+EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread)
 {
     CONTRACTL
     {
@@ -20,9 +20,7 @@ EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize DEBUG_ARG(EventPipeThre
     }
     CONTRACTL_END;
     m_state = EventPipeBufferState::WRITABLE;
-#ifdef DEBUG
     m_pWriterThread = pWriterThread;
-#endif
     m_pBuffer = new BYTE[bufferSize];
     memset(m_pBuffer, 0, bufferSize);
     m_pLimit = m_pBuffer + bufferSize;

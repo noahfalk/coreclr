@@ -8,6 +8,7 @@
 #ifdef FEATURE_PERFTRACING
 
 #include "eventpipe.h"
+#include "eventpipeeventinstance.h"
 #include "spinlock.h"
 
 class EventPipeBuffer;
@@ -16,6 +17,7 @@ class EventPipeBufferManager;
 class EventPipeFile;
 class EventPipeSession;
 class EventPipeThread;
+struct EventPipeSequencePoint;
 
 void ReleaseEventPipeThreadRef(EventPipeThread* pThread);
 void AcquireEventPipeThreadRef(EventPipeThread* pThread);
@@ -57,6 +59,10 @@ class EventPipeThread
     // buffers from all threads.
     SpinLock m_lock;
 
+    // This is initialized when the Thread object is first constructed and remains
+    // immutable afterwards
+    SIZE_T m_osThreadId;
+    
     //
     EventPipeSession *m_pRundownSession = nullptr;
 
@@ -105,6 +111,7 @@ public:
     void SetWriteBuffer(EventPipeBufferManager *pBufferManager, EventPipeBuffer *pNewBuffer);
     EventPipeBufferList *GetBufferList(EventPipeBufferManager *pBufferManager);
     void SetBufferList(EventPipeBufferManager *pBufferManager, EventPipeBufferList *pBufferList);
+    SIZE_T GetOSThreadId();
     void Remove(EventPipeBufferManager *pBufferManager);
 
     void SetSessionWriteInProgress(uint64_t index)
@@ -139,6 +146,22 @@ private:
     // The total allocation size of buffers under management.
     size_t m_sizeOfAllBuffers;
 
+    // The maximum allowable size of buffers under management.
+    // Attempted allocations above this threshold result in
+    // dropped events.
+    size_t m_maxSizeOfAllBuffers;
+
+    // The amount of allocations we can do at this moment before
+    // triggering a sequence point
+    size_t m_remainingSequencePointAllocationBudget;
+
+    // The total amount of allocations we can do after one sequence
+    // point before triggering the next one
+    size_t m_sequencePointAllocationBudget;
+
+    // A queue of sequence points.
+    SList<EventPipeSequencePoint> m_sequencePoints;
+
     // Lock to protect access to the per-thread buffer list and total allocation size.
     SpinLock m_lock;
     Volatile<BOOL> m_writeEventSuspending;
@@ -162,10 +185,19 @@ private:
     // Allocate a new buffer for the specified thread.
     // This function will store the buffer in the thread's buffer list for future use and also return it here.
     // A NULL return value means that a buffer could not be allocated.
-    EventPipeBuffer* AllocateBufferForThread(EventPipeSession &session, unsigned int requestSize, BOOL & writeSuspended);
+    EventPipeBuffer* AllocateBufferForThread(unsigned int requestSize, BOOL & writeSuspended);
 
     // Add a buffer to the thread buffer list.
     void AddBufferToThreadBufferList(EventPipeBufferList *pThreadBuffers, EventPipeBuffer *pBuffer);
+
+    // Enqueue a sequence point into the queue.
+    void EnqueueSequencePoint(EventPipeSequencePoint* pEnqueuedSequencePoint);
+
+    // Dequeue a sequence point from the queue. This is a no-op if the queue is empty.
+    void DequeueSequencePoint();
+
+    // Peek the first sequence point in the queue. Returns FALSE if the queue is empty.
+    bool TryPeekSequencePoint(EventPipeSequencePoint** ppSequencePoint);
 
     // De-allocates the input buffer.
     void DeAllocateBuffer(EventPipeBuffer *pBuffer);
@@ -203,9 +235,12 @@ private:
     // the last call to MoveNextXXX() didn't find any suitable event.
     EventPipeEventInstance* GetCurrentEvent();
 
+    // Gets the buffer corresponding to event from GetCurrentEvent()
+    EventPipeBuffer* GetCurrentEventBuffer();
+
 public:
 
-    EventPipeBufferManager();
+    EventPipeBufferManager(EventPipeSession* pEventSession);
     ~EventPipeBufferManager();
 
     // Write an event to the input thread's current event buffer.
@@ -230,6 +265,8 @@ public:
     // The stopTimeStamp is used to determine when tracing was stopped to ensure that we
     // skip any events that might be partially written due to races when tracing is stopped.
     void WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp);
+    void WriteAllBuffersToFileV3(EventPipeFile *pFastSerializableObject, LARGE_INTEGER stopTimeStamp);
+    void WriteAllBuffersToFileV4(EventPipeFile *pFastSerializableObject, LARGE_INTEGER stopTimeStamp);
 
     // Attempt to de-allocate resources as best we can.  It is possible for some buffers to leak because
     // threads can be in the middle of a write operation and get blocked, and we may not get an opportunity

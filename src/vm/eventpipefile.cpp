@@ -113,7 +113,7 @@ bool EventPipeFile::HasErrors() const
     return (m_pSerializer == nullptr) || m_pSerializer->HasWriteErrors();
 }
 
-void EventPipeFile::WriteEvent(EventPipeEventInstance &instance)
+void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -132,7 +132,7 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance)
 
         EventPipeEventInstance* pMetadataInstance = EventPipe::BuildEventMetadataEvent(instance, metadataId);
 
-        WriteToBlock(*pMetadataInstance, 0); // 0 breaks recursion and represents the metadata event.
+        WriteToBlock(*pMetadataInstance, 0, 0, TRUE); // metadataId=0 breaks recursion and represents the metadata event.
 
         SaveMetadataId(*instance.GetEvent(), metadataId);
 
@@ -140,7 +140,22 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance)
         delete pMetadataInstance;
     }
 
-    WriteToBlock(instance, metadataId);
+    WriteToBlock(instance, metadataId, captureThreadId, isSortedEvent);
+}
+
+void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    Flush(FlushAllBlocks);
+    EventPipeSequencePointBlock sequencePointBlock(pSequencePoint);
+    m_pSerializer->WriteObject(&sequencePointBlock);
 }
 
 void EventPipeFile::Flush(FlushFlags flags)
@@ -183,7 +198,7 @@ void EventPipeFile::WriteEnd()
     m_pSerializer->WriteTag(FastSerializerTags::NullReference);
 }
 
-void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId)
+void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId, ULONGLONG captureThreadId, BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -201,14 +216,14 @@ void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance, unsigned int 
     EventPipeEventBlockBase* pBlock = (metadataId == 0) ? 
         (EventPipeEventBlockBase*) m_pMetadataBlock : (EventPipeEventBlockBase*) m_pBlock;
 
-    if (pBlock->WriteEvent(instance))
+    if (pBlock->WriteEvent(instance, captureThreadId, isSortedEvent))
         return; // the block is not full, we added the event and continue
 
     // we can't write this event to the current block (it's full)
     // so we write what we have in the block to the serializer
     Flush(flags);
 
-    bool result = pBlock->WriteEvent(instance);
+    bool result = pBlock->WriteEvent(instance, captureThreadId, isSortedEvent);
 
     _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
 }

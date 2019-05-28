@@ -11,6 +11,8 @@
 #include "fastserializableobject.h"
 #include "fastserializer.h"
 
+struct EventPipeSequencePoint;
+
 // The base class for all file blocks in the Nettrace file format
 // This class handles memory management to buffer the block data,
 // bookkeeping, block version numbers, and serializing the data 
@@ -85,7 +87,7 @@ public:
     // Returns:
     //  - true: The write succeeded.
     //  - false: The write failed.  In this case, the block should be considered full.
-    bool WriteEvent(EventPipeEventInstance &instance);
+    bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent);
 
 };
 
@@ -110,6 +112,18 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return "MetadataBlock";
+    }
+};
+
+class EventPipeSequencePointBlock : public EventPipeBlock
+{
+public:
+    EventPipeSequencePointBlock(EventPipeSequencePoint* sequencePoint);
+
+    const char *GetTypeName() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        return "SPBlock";
     }
 };
 

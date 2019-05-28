@@ -149,6 +149,21 @@ private:
     void SetTimeStamp(LARGE_INTEGER timeStamp);
 };
 
+// A point in time marker that is used as a boundary when emitting events.
+// The events in a Nettrace file are not emitted in a fully sorted order
+// but we do guarantee that all events before a sequence point are emitted
+// prior to any events after the sequence point
+struct EventPipeSequencePoint
+{
+    // Entry in EventPipeBufferManager m_sequencePointList 
+    SLink m_Link;
+
+    // The timestamp the sequence point was captured
+    LARGE_INTEGER TimeStamp;
+
+    EventPipeSequencePoint();
+};
+
 #endif // FEATURE_PERFTRACING
 
 #endif // __EVENTPIPE_EVENTINSTANCE_H__

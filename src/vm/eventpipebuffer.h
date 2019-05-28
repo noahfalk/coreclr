@@ -124,7 +124,7 @@ private:
 
 public:
 
-    EventPipeBuffer(unsigned int bufferSize DEBUG_ARG(EventPipeThread* pWriterThread));
+    EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread);
     ~EventPipeBuffer();
 
     // Write an event to the buffer.

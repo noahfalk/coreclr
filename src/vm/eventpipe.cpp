@@ -481,6 +481,10 @@ void EventPipe::DisableInternal(EventPipeSessionID id, EventPipeProviderCallback
         return;
     }
 
+    // Write a final sequence point to the file now that all events have
+    // been emitted
+    pSession->WriteSequencePointUnbuffered();
+
     // Remove the session.
     s_config.DeleteSession(pSession);
 
@@ -716,7 +720,7 @@ void EventPipe::WriteEventInternal(
             {
                 _ASSERTE(pRundownSession != nullptr);
                 if (pRundownSession != nullptr)
-                    pRundownSession->WriteEvent(instance);
+                    pRundownSession->WriteEventUnbuffered(instance, pThread->GetOSThreadId64());
             }
             EX_CATCH {}
             EX_END_CATCH(SwallowAllExceptions);
@@ -745,7 +749,7 @@ void EventPipe::WriteEventInternal(
                 // allowed to set s_pSessions[i] = NULL at any time and that may have occured in between
                 // the check and the load
                 if (pSession != nullptr)
-                    pSession->WriteEvent(
+                    pSession->WriteEventBuffered(
                         pThread,
                         event,
                         payload,

@@ -55,7 +55,7 @@ private:
     const size_t m_CircularBufferSizeInBytes;
 
     // Session buffer manager.
-    EventPipeBufferManager *const m_pBufferManager;
+    EventPipeBufferManager * m_pBufferManager;
 
     // True if rundown is enabled.
     Volatile<bool> m_rundownEnabled;
@@ -136,6 +136,28 @@ public:
         return m_CircularBufferSizeInBytes;
     }
 
+    // The SequencePoint allocation budget controls the amount
+    // of buffer space that is distributed to threads before
+    // creating a sequence point. This impacts the size of the
+    // cache the reader needs to store and sort the events
+    // that are emitted between consecutive sequence points.
+    size_t GetSequencePointAllocationBudget() const
+    {
+        LIMITED_METHOD_CONTRACT;
+
+        // Hard coded 10MB for now, we'll probably want to make
+        // this configurable later.
+        if (GetSessionType() == EventPipeSessionType::Listener ||
+            GetSerializationFormat() == EventPipeNetPerfFormatV3)
+        {
+            return 0;
+        }
+        else
+        {
+            return 10 * 1024 * 1024;
+        }
+    }
+
     // Determine if rundown is enabled.
     bool RundownEnabled() const
     {
@@ -171,7 +193,7 @@ public:
 
     bool WriteAllBuffersToFile();
 
-    bool WriteEvent(
+    bool WriteEventBuffered(
         Thread *pThread,
         EventPipeEvent &event,
         EventPipeEventPayload &payload,
@@ -180,7 +202,10 @@ public:
         Thread *pEventThread = nullptr,
         StackContents *pStack = nullptr);
 
-    void WriteEvent(EventPipeEventInstance &instance);
+    void WriteEventUnbuffered(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent = TRUE);
+
+    // Write a sequence point into the output stream synchronously
+    void WriteSequencePointUnbuffered();
 
     EventPipeEventInstance *GetNextEvent();
 

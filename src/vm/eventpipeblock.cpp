@@ -99,13 +99,14 @@ EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, Even
     EventPipeBlock(maxBlockSize, format)
 {}
 
-bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance)
+bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent)
 {
     CONTRACTL
     {
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(isSortedEvent || m_format >= EventPipeNetTraceFormatV4);
     }
     CONTRACTL_END;
 
@@ -126,6 +127,8 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance)
     m_pWritePointer += sizeof(totalSize);
 
     unsigned int metadataId = instance.GetMetadataId();
+    _ASSERTE((metadataId & (1 << 31)) == 0);
+    metadataId |= (!isSortedEvent ? 1 << 31 : 0);
     memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
     m_pWritePointer += sizeof(metadataId);
 
@@ -140,6 +143,9 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance)
         ULONGLONG threadId = instance.GetThreadId64();
         memcpy(m_pWritePointer, &threadId, sizeof(threadId));
         m_pWritePointer += sizeof(threadId);
+
+        memcpy(m_pWritePointer, &captureThreadId, sizeof(captureThreadId));
+        m_pWritePointer += sizeof(captureThreadId);
     }
 
     const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
@@ -190,6 +196,19 @@ EventPipeEventBlock::EventPipeEventBlock(unsigned int maxBlockSize, EventPipeSer
 EventPipeMetadataBlock::EventPipeMetadataBlock(unsigned int maxBlockSize) :
     EventPipeEventBlockBase(maxBlockSize, EventPipeNetTraceFormatV4)
 {}
+
+unsigned int GetSequencePointBlockSize(EventPipeSequencePoint* pSequencePoint)
+{
+    return sizeof(pSequencePoint->TimeStamp);
+}
+
+EventPipeSequencePointBlock::EventPipeSequencePointBlock(EventPipeSequencePoint* pSequencePoint) :
+    EventPipeBlock(GetSequencePointBlockSize(pSequencePoint))
+{
+    const LARGE_INTEGER* timeStamp = &pSequencePoint->TimeStamp;
+    memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
+    m_pWritePointer += sizeof(*timeStamp);
+}
 
 
 #endif // FEATURE_PERFTRACING

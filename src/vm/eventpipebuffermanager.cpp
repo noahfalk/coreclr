@@ -12,6 +12,13 @@
 
 #ifdef FEATURE_PERFTRACING
 
+#ifndef MIN
+#define MIN(a,b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
 void ReleaseEventPipeThreadRef(EventPipeThread *pThread)
 {
     LIMITED_METHOD_CONTRACT;
@@ -41,6 +48,11 @@ EventPipeThread::EventPipeThread() : m_writingEventInProgress(UINT64_MAX)
 
     m_pWriteBuffers = new EventPipeWriteBuffers();
     m_pBufferLists = new EventPipeBufferLists();
+#ifdef FEATURE_PAL
+    m_osThreadId = ::PAL_GetCurrentOSThreadId();
+#else
+    m_osThreadId = ::GetCurrentThreadId();
+#endif
 }
 
 EventPipeThread::~EventPipeThread()
@@ -181,6 +193,12 @@ void EventPipeThread::SetBufferList(EventPipeBufferManager *pBufferManager, Even
     EX_END_CATCH(SwallowAllExceptions);
 }
 
+SIZE_T EventPipeThread::GetOSThreadId()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_osThreadId;
+}
+
 void EventPipeThread::Remove(EventPipeBufferManager *pBufferManager)
 {
     CONTRACTL
@@ -200,7 +218,7 @@ void EventPipeThread::Remove(EventPipeBufferManager *pBufferManager)
         m_pBufferLists->Remove(pBufferManager);
 }
 
-EventPipeBufferManager::EventPipeBufferManager()
+EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession)
 {
     CONTRACTL
     {
@@ -227,6 +245,21 @@ EventPipeBufferManager::EventPipeBufferManager()
     m_pCurrentEvent = nullptr;
     m_pCurrentBuffer = nullptr;
     m_pCurrentBufferList = nullptr;
+
+    m_maxSizeOfAllBuffers = MIN(MAX(100 * 1024, pSession->GetCircularBufferSize()), (ULONGLONG)10 * 1024 * 1024 * 1024);
+
+    if (pSession->GetSequencePointAllocationBudget() == 0)
+    {
+        // sequence points disabled
+        m_sequencePointAllocationBudget = 0;
+        m_remainingSequencePointAllocationBudget = 0;
+    }
+    else
+    {
+        m_sequencePointAllocationBudget = MIN(MAX(1024 * 1024, pSession->GetSequencePointAllocationBudget()), 1024 * 1024 * 1024);
+        m_remainingSequencePointAllocationBudget = m_sequencePointAllocationBudget;
+    }
+    m_sequencePoints.Init();
 }
 
 EventPipeBufferManager::~EventPipeBufferManager()
@@ -251,7 +284,7 @@ bool EventPipeBufferManager::IsLockOwnedByCurrentThread()
 }
 #endif
 
-EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSession &session, unsigned int requestSize, BOOL &writeSuspended)
+EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(unsigned int requestSize, BOOL & writeSuspended)
 {
     CONTRACTL
     {
@@ -272,8 +305,6 @@ EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSessio
         return NULL;
     }
 
-    // Determine if the requesting thread has at least one buffer.
-    // If not, we guarantee that each thread gets at least one (to prevent thrashing when the circular buffer size is too small).
     bool allocateNewBuffer = false;
 
     EventPipeThread *const pEventPipeThread = EventPipeThread::GetOrCreate();
@@ -298,19 +329,15 @@ EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSessio
 
         m_pPerThreadBufferList->InsertTail(pElem);
         pEventPipeThread->SetBufferList(this, pThreadBufferList);
-        allocateNewBuffer = true;
     }
 
     // Determine if policy allows us to allocate another buffer
-    if (!allocateNewBuffer)
+    size_t availableBufferSize = m_maxSizeOfAllBuffers - m_sizeOfAllBuffers;
+    if (requestSize <= availableBufferSize)
     {
-        if (m_sizeOfAllBuffers < session.GetCircularBufferSize())
-        {
-            // We don't worry about the fact that a new buffer could put us over the circular buffer size.
-            // This is OK, and we won't do it again if we actually go over.
-            allocateNewBuffer = true;
-        }
+        allocateNewBuffer = true;
     }
+
     EventPipeBuffer *pNewBuffer = NULL;
     if (allocateNewBuffer)
     {
@@ -328,24 +355,20 @@ EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSessio
 
         // Make sure that buffer size >= request size so that the buffer size does not
         // determine the max event size.
-        if (bufferSize < requestSize)
-        {
-            bufferSize = requestSize;
-        }
-
+        _ASSERTE(requestSize <= availableBufferSize);
+        bufferSize = MAX(requestSize, bufferSize);
+        bufferSize = (unsigned int) MIN(bufferSize, availableBufferSize);
+        
         // Don't allow the buffer size to exceed 1MB.
         const unsigned int maxBufferSize = 1024 * 1024;
-        if (bufferSize > maxBufferSize)
-        {
-            bufferSize = maxBufferSize;
-        }
+        bufferSize = MIN(bufferSize, maxBufferSize);
 
         // EX_TRY is used here as opposed to new (nothrow) because
         // the constructor also allocates a private buffer, which
         // could throw, and cannot be easily checked
         EX_TRY
         {
-            pNewBuffer = new EventPipeBuffer(bufferSize DEBUG_ARG(pEventPipeThread));
+            pNewBuffer = new EventPipeBuffer(bufferSize, pEventPipeThread);
         }
         EX_CATCH
         {
@@ -359,6 +382,23 @@ EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSessio
         }
 
         m_sizeOfAllBuffers += bufferSize;
+        if (m_sequencePointAllocationBudget != 0)
+        {
+            // sequence point bookkeeping
+            if (bufferSize >= m_remainingSequencePointAllocationBudget)
+            {
+                EventPipeSequencePoint* pSequencePoint = new (nothrow) EventPipeSequencePoint();
+                if (pSequencePoint != NULL)
+                {
+                    EnqueueSequencePoint(pSequencePoint);
+                }
+                m_remainingSequencePointAllocationBudget = m_sequencePointAllocationBudget;
+            }
+            else
+            {
+                m_remainingSequencePointAllocationBudget -= bufferSize;
+            }
+        }
 #ifdef _DEBUG
         m_numBuffersAllocated++;
 #endif // _DEBUG
@@ -372,6 +412,49 @@ EventPipeBuffer *EventPipeBufferManager::AllocateBufferForThread(EventPipeSessio
     }
 
     return NULL;
+}
+
+void EventPipeBufferManager::EnqueueSequencePoint(EventPipeSequencePoint* pSequencePoint)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    m_sequencePoints.InsertTail(pSequencePoint);
+}
+
+void EventPipeBufferManager::DequeueSequencePoint()
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    delete m_sequencePoints.RemoveHead();
+}
+
+bool EventPipeBufferManager::TryPeekSequencePoint(EventPipeSequencePoint** ppSequencePoint)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(m_lock.OwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    *ppSequencePoint = m_sequencePoints.GetHead();
+    return *ppSequencePoint != NULL;
 }
 
 void EventPipeBufferManager::DeAllocateBuffer(EventPipeBuffer *pBuffer)
@@ -463,7 +546,7 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
 
         unsigned int requestSize = sizeof(EventPipeEventInstance) + payload.GetSize();
         BOOL writeSuspended = FALSE;
-        pBuffer = AllocateBufferForThread(session, requestSize, writeSuspended);
+        pBuffer = AllocateBufferForThread(requestSize, writeSuspended);
         if (pBuffer == NULL)
         {
             // We treat this as the WriteEvent() call occurring after this session stopped listening for events, effectively the
@@ -526,18 +609,161 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     }
     CONTRACTL_END;
 
+    // The V4 format doesn't require full event sorting as V3 did
+    // See the comments in WriteAllBufferToFileV4 for more details
+    if (pFile->GetSerializationFormat() >= EventPipeNetTraceFormatV4)
+    {
+        WriteAllBuffersToFileV4(pFile, stopTimeStamp);
+    }
+    else
+    {
+        WriteAllBuffersToFileV3(pFile, stopTimeStamp);
+    }
+}
+
+void EventPipeBufferManager::WriteAllBuffersToFileV3(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp)
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(pFile != nullptr);
+        PRECONDITION(GetCurrentEvent() == nullptr);
+    }
+    CONTRACTL_END;
+
     // Naively walk the circular buffer, writing the event stream in timestamp order.
-    bool eventsWritten = false;
     MoveNextEventAnyThread(stopTimeStamp);
     while (GetCurrentEvent() != nullptr)
     {
-        pFile->WriteEvent(*GetCurrentEvent());
+        pFile->WriteEvent(*GetCurrentEvent(), /*CaptureThreadId=*/0, /*IsSorted=*/TRUE);
         MoveNextEventAnyThread(stopTimeStamp);
-        eventsWritten = true;
     }
-    if (eventsWritten)
+    pFile->Flush();
+}
+
+void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp)
+{
+    CONTRACTL
     {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_PREEMPTIVE;
+        PRECONDITION(pFile != nullptr);
+        PRECONDITION(GetCurrentEvent() == nullptr);
+    }
+    CONTRACTL_END;
+
+    //
+    // In V3 of the format this code does a full timestamp order sort on the events which made the file easier to consume, 
+    // but the perf implications for emitting the file are less desirable. Imagine an application with 500 threads emitting
+    // 10 events per sec per thread (granted this is a questionable number of threads to use in an app, but that isn't
+    // under our control). A nieve sort of 500 ordered lists is going to pull the oldest event from each of 500 lists,
+    // compare all the timestamps, then emit the oldest one. This could easily add a thousand CPU cycles per-event. A
+    // better implementation could maintain a min-heap so that we scale O(log(N)) instead of O(N)but fundamentally sorting 
+    // has a cost and we didn't want a file format that forces the runtime to pay it on every event.
+    // 
+    // We minimize sorting using two mechanisms:
+    // 1) Explicit sequence points - Every X MB of buffer space that is distributed to threads we record the current
+    // timestamp. We ensure when writing events in the file that all events before the sequence point time are written
+    // prior to the sequence point and all events with later timestamps are written afterwards. For example assume
+    // two threads emitted events like this(B_14 = event on thread B with timestamp 14):
+    //
+    //                    Time --->
+    //   Thread A events: A_1     A_4     A_9 A_10 A_11 A_12 A_13      A_15
+    //   Thread B events:     B_2     B_6                         B_14      B_20
+    //                                             /|\
+    //                                              |
+    //                                            Assume sequence point was triggered here
+    // Then we promise that events A_1, A_4, A_9, A_10, B_2_ and B_6 will be written in one or more event blocks,
+    // (not necessarily in sorted order) then a sequence point block is written, then events A_11, A_12, A_13, B_14,
+    // A_15, and B_20 will be written. The reader can cache all the events between sequence points, sort them, and
+    // then emit them in a total order. Triggering sequence points based on buffer allocation ensures that we won't
+    // need an arbitrarily large cache in the reader to store all the events, however there is a fair amount of slop
+    // in the current scheme. In the worst case you could imagine N threads, each of which was already allocated a
+    // max size buffer (currently 1MB) but only an insignificant portion has been used. Even if the trigger
+    // threshhold is a modest amount such as 10MB, the threads could first write 1MB * N bytes to the stream 
+    // beforehand. I'm betting on these extreme cases being very rare and even something like 1GB isn't a crazy
+    // amount of virtual memory to use on to parse an extreme trace. However if I am wrong we can control
+    // both the allocation policy and the triggering instrumentation. Nothing requires us to give out 1MB buffers to
+    // 1000 threads simulatneously, nor are we prevented from observing buffer usage at finer granularity than we
+    // allocated.
+    //
+    // 2) We mark which events are the oldest ones in the stream at the time we emit them and we do this at regular
+    // intervals of time. When we emit all the events every X ms, there will be at least one event in there with
+    // a marker showing that all events older than that one have already been emitted. As soon as the reader sees
+    // this it can sort the events which have older timestamps and emit them. 
+    //
+    // Why have both mechanisms? The sequence points in #1 worked fine to guarantee that given the whole trace you 
+    // could  sort it with a bounded cache, but it doesn't help much for real-time usage. Imagine that we have two 
+    // threads emitting 1KB/sec of events and sequence points occur every 10MB. The reader would need to wait for 
+    // 10,000 seconds to accumulate all the events before it could sort and process them. On the other hand if we
+    // only had mechanism #2 the reader can generate the sort quickly in real-time, but it is messy to do the buffer
+    // management. The reader reads in a bunch of event block buffers and starts emitting events from sub-sections
+    // of each of them and needs to know when each buffer can be released. The explicit sequence point makes that
+    // very easy - every sequence point all buffers can be released and no further bookkeeping is required.
+
+    EventPipeSequencePoint* pSequencePoint;
+    LARGE_INTEGER curTimestampBoundary;
+    curTimestampBoundary.QuadPart = stopTimeStamp.QuadPart;
+    {
+        SpinLockHolder _slh(&m_lock);
+        if (TryPeekSequencePoint(&pSequencePoint))
+        {
+            curTimestampBoundary.QuadPart = MIN(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
+        }
+    }
+
+    while(true) // loop across sequence points
+    {
+        while (true) // loop across events within a sequence point boundary
+        {
+            // pick the thread that has the oldest event
+            MoveNextEventAnyThread(curTimestampBoundary);
+            if (GetCurrentEvent() == nullptr)
+            {
+                break;
+            }
+            ULONGLONG captureThreadId = GetCurrentEventBuffer()->GetWriterThread()->GetOSThreadId();
+
+            // loop across events on this thread
+            bool eventsWritten = false;
+            while (GetCurrentEvent() != nullptr) 
+            {
+                pFile->WriteEvent(*GetCurrentEvent(), captureThreadId, !eventsWritten);
+                eventsWritten = true;
+                MoveNextEventSameThread(curTimestampBoundary);
+            }
+        }
+
+        // This finishes any current partially filled EventPipeBlock, and flushes it to the stream
         pFile->Flush();
+
+        // there are no more events prior to curTimestampBoundary
+        if (curTimestampBoundary.QuadPart == stopTimeStamp.QuadPart)
+        {
+            // We are done
+            break;
+        }
+        else // (curTimestampBoundary.QuadPart < stopTimeStamp.QuadPart)
+        {
+            // we must have stopped at a sequence point, emit a sequence point block and then resume
+            // iterating events in the next sequence point range
+            pFile->WriteSequencePoint(pSequencePoint);
+
+            {
+                SpinLockHolder _slh(&m_lock);
+
+                // advance to the next sequence point, if any
+                DequeueSequencePoint();
+                curTimestampBoundary.QuadPart = stopTimeStamp.QuadPart;
+                if (TryPeekSequencePoint(&pSequencePoint))
+                {
+                    curTimestampBoundary.QuadPart = MIN(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
+                }
+            }
+        }
     }
 }
 
@@ -571,6 +797,12 @@ EventPipeEventInstance* EventPipeBufferManager::GetCurrentEvent()
 {
     LIMITED_METHOD_CONTRACT;
     return m_pCurrentEvent;
+}
+
+EventPipeBuffer* EventPipeBufferManager::GetCurrentEventBuffer()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_pCurrentBuffer;
 }
 
 void EventPipeBufferManager::MoveNextEventAnyThread(LARGE_INTEGER stopTimeStamp)

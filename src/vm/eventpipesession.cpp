@@ -24,7 +24,6 @@ EventPipeSession::EventPipeSession(
     bool rundownEnabled) : m_Id(id),
                            m_pProviderList(new EventPipeSessionProviderList(pProviders, numProviders)),
                            m_CircularBufferSizeInBytes(static_cast<size_t>(circularBufferSizeInMB) << 20),
-                           m_pBufferManager(new EventPipeBufferManager()),
                            m_rundownEnabled(rundownEnabled),
                            m_SessionType(sessionType),
                            m_format(format)
@@ -40,6 +39,8 @@ EventPipeSession::EventPipeSession(
         PRECONDITION(EventPipe::IsLockOwnedByCurrentThread());
     }
     CONTRACTL_END;
+
+    m_pBufferManager = new EventPipeBufferManager(this);
 
     // Create the event pipe file.
     // A NULL output path means that we should not write the results to a file.
@@ -292,7 +293,7 @@ bool EventPipeSession::WriteAllBuffersToFile()
     return !m_pFile->HasErrors();
 }
 
-bool EventPipeSession::WriteEvent(
+bool EventPipeSession::WriteEventBuffered(
     Thread *pThread,
     EventPipeEvent &event,
     EventPipeEventPayload &payload,
@@ -315,7 +316,7 @@ bool EventPipeSession::WriteEvent(
         false;
 }
 
-void EventPipeSession::WriteEvent(EventPipeEventInstance &instance)
+void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -327,7 +328,23 @@ void EventPipeSession::WriteEvent(EventPipeEventInstance &instance)
 
     if (m_pFile == nullptr)
         return;
-    m_pFile->WriteEvent(instance);
+    m_pFile->WriteEvent(instance, captureThreadId, isSortedEvent);
+}
+
+void EventPipeSession::WriteSequencePointUnbuffered()
+{
+    CONTRACTL
+    {
+        THROWS;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    if (m_pFile == nullptr)
+        return;
+    EventPipeSequencePoint sequencePoint;
+    m_pFile->WriteSequencePoint(&sequencePoint);
 }
 
 EventPipeEventInstance *EventPipeSession::GetNextEvent()

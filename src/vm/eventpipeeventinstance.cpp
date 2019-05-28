@@ -99,6 +99,7 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
         payloadLength =
             sizeof(m_metadataId) +          // Metadata ID
             sizeof(m_threadId) +            // Thread ID
+            sizeof(ULONGLONG) +             // Capture Thread ID (implied by the buffer containing the event instance)
             sizeof(m_timeStamp) +           // TimeStamp
             sizeof(m_activityId) +          // Activity ID
             sizeof(m_relatedActivityId) +   // Related Activity ID
@@ -174,5 +175,12 @@ bool EventPipeEventInstance::EnsureConsistency()
     return true;
 }
 #endif // _DEBUG
+
+EventPipeSequencePoint::EventPipeSequencePoint()
+{
+    LIMITED_METHOD_CONTRACT;
+    QueryPerformanceCounter(&TimeStamp);
+}
+
 
 #endif // FEATURE_PERFTRACING
