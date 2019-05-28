@@ -39,7 +39,7 @@ DWORD GetFileMinVersion(EventPipeSerializationFormat format)
 }
 
 EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format))
+    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format), format >= EventPipeNetTraceFormatV4)
 {
     CONTRACTL
     {

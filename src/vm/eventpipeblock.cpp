@@ -41,7 +41,7 @@ DWORD GetBlockMinVersion(EventPipeSerializationFormat format)
 }
 
 EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format))
+    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format), format >= EventPipeNetTraceFormatV4)
 {
     CONTRACTL
     {
