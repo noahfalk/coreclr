@@ -76,7 +76,30 @@ EventPipeBlock::~EventPipeBlock()
     delete[] m_pBlock;
 }
 
-bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
+void EventPipeBlock::Clear()
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    if (m_pBlock == NULL)
+    {
+        return;
+    }
+
+    memset(m_pBlock, 0, GetSize());
+    m_pWritePointer = m_pBlock;
+}
+
+EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
+    EventPipeBlock(maxBlockSize, format)
+{}
+
+bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance)
 {
     CONTRACTL
     {
@@ -112,7 +135,7 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
         memcpy(m_pWritePointer, &threadId, sizeof(threadId));
         m_pWritePointer += sizeof(threadId);
     }
-    else if(m_format == EventPipeNetTraceFormatV4)
+    else if (m_format == EventPipeNetTraceFormatV4)
     {
         ULONGLONG threadId = instance.GetThreadId64();
         memcpy(m_pWritePointer, &threadId, sizeof(threadId));
@@ -159,23 +182,14 @@ bool EventPipeBlock::WriteEvent(EventPipeEventInstance &instance)
     return true;
 }
 
-void EventPipeBlock::Clear()
-{
-    CONTRACTL
-    {
-        NOTHROW;
-        GC_NOTRIGGER;
-        MODE_ANY;
-    }
-    CONTRACTL_END;
+EventPipeEventBlock::EventPipeEventBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
+    EventPipeEventBlockBase(maxBlockSize, format)
+{}
 
-    if (m_pBlock == NULL)
-    {
-        return;
-    }
 
-    memset(m_pBlock, 0, GetSize());
-    m_pWritePointer = m_pBlock;
-}
+EventPipeMetadataBlock::EventPipeMetadataBlock(unsigned int maxBlockSize) :
+    EventPipeEventBlockBase(maxBlockSize, EventPipeNetTraceFormatV4)
+{}
+
 
 #endif // FEATURE_PERFTRACING

@@ -11,24 +11,23 @@
 #include "fastserializableobject.h"
 #include "fastserializer.h"
 
-class EventPipeBlock final : public FastSerializableObject
+// The base class for all file blocks in the Nettrace file format
+// This class handles memory management to buffer the block data,
+// bookkeeping, block version numbers, and serializing the data 
+// to the file with correct alignment.
+// Sub-classes decide the format of the block contents and how
+// the blocks are named.
+class EventPipeBlock : public FastSerializableObject
 {
 public:
-    EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format);
+    EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format = EventPipeNetTraceFormatV4);
     ~EventPipeBlock();
-
-    // Write an event to the block.
-    // Returns:
-    //  - true: The write succeeded.
-    //  - false: The write failed.  In this case, the block should be considered full.
-    bool WriteEvent(EventPipeEventInstance &instance);
 
     void Clear();
 
-    const char *GetTypeName() override
+    unsigned int GetBytesWritten() const
     {
-        LIMITED_METHOD_CONTRACT;
-        return "EventBlock";
+        return m_pBlock == nullptr ? 0 : (unsigned int)(m_pWritePointer - m_pBlock);
     }
 
     void FastSerialize(FastSerializer *pSerializer) override
@@ -45,10 +44,10 @@ public:
         if (m_pBlock == NULL)
             return;
 
-        unsigned int eventsSize = (unsigned int)(m_pWritePointer - m_pBlock);
-        pSerializer->WriteBuffer((BYTE *)&eventsSize, sizeof(eventsSize));
+        unsigned int dataSize = GetBytesWritten();
+        pSerializer->WriteBuffer((BYTE *)&dataSize, sizeof(dataSize));
 
-        if (eventsSize == 0)
+        if (dataSize == 0)
             return;
 
         unsigned int requiredPadding = pSerializer->GetRequiredPadding();
@@ -60,10 +59,10 @@ public:
             _ASSERTE(pSerializer->HasWriteErrors() || (pSerializer->GetRequiredPadding() == 0));
         }
 
-        pSerializer->WriteBuffer(m_pBlock, eventsSize);
+        pSerializer->WriteBuffer(m_pBlock, dataSize);
     }
 
-private:
+protected:
     BYTE *m_pBlock;
     BYTE *m_pWritePointer;
     BYTE *m_pEndOfTheBuffer;
@@ -73,6 +72,44 @@ private:
     {
         LIMITED_METHOD_CONTRACT;
         return m_pBlock == nullptr ? 0 : (unsigned int)(m_pEndOfTheBuffer - m_pBlock);
+    }
+};
+
+// The base type for blocks that contain events (EventBlock and EventMetadataBlock)
+class EventPipeEventBlockBase : public EventPipeBlock
+{
+public:
+    EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format);
+
+    // Write an event to the block.
+    // Returns:
+    //  - true: The write succeeded.
+    //  - false: The write failed.  In this case, the block should be considered full.
+    bool WriteEvent(EventPipeEventInstance &instance);
+
+};
+
+class EventPipeEventBlock : public EventPipeEventBlockBase
+{
+public:
+    EventPipeEventBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format);
+
+    const char *GetTypeName() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        return "EventBlock";
+    }
+};
+
+class EventPipeMetadataBlock : public EventPipeEventBlockBase
+{
+public:
+    EventPipeMetadataBlock(unsigned int maxBlockSize);
+
+    const char *GetTypeName() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        return "MetadataBlock";
     }
 };
 

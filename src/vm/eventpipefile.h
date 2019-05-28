@@ -23,7 +23,13 @@ public:
 
     EventPipeSerializationFormat GetSerializationFormat() const;
     void WriteEvent(EventPipeEventInstance &instance);
-    void Flush();
+    enum FlushFlags
+    {
+        FlushEventBlock = 1,
+        FlushMetadataBlock = 2,
+        FlushAllBlocks = FlushEventBlock | FlushMetadataBlock
+    };
+    void Flush(FlushFlags flags = FlushAllBlocks);
     bool HasErrors() const;
 
     const char *GetTypeName() override
@@ -71,7 +77,8 @@ private:
     // The object responsible for serialization.
     FastSerializer *m_pSerializer;
 
-    EventPipeBlock *m_pBlock;
+    EventPipeEventBlock *m_pBlock;
+    EventPipeMetadataBlock *m_pMetadataBlock;
 
     // The system time when the file was opened.
     SYSTEMTIME m_fileOpenSystemTime;

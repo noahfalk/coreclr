@@ -50,7 +50,8 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
     CONTRACTL_END;
 
     m_format = format;
-    m_pBlock = new EventPipeBlock(100 * 1024, format);
+    m_pBlock = new EventPipeEventBlock(100 * 1024, format);
+    m_pMetadataBlock = new EventPipeMetadataBlock(100 * 1024);
 
     // File start time information.
     GetSystemTime(&m_fileOpenSystemTime);
@@ -95,6 +96,7 @@ EventPipeFile::~EventPipeFile()
         WriteEnd();
 
     delete m_pBlock;
+    delete m_pMetadataBlock;
     delete m_pSerializer;
     delete m_pMetadataIds;
 }
@@ -141,7 +143,7 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance)
     WriteToBlock(instance, metadataId);
 }
 
-void EventPipeFile::Flush()
+void EventPipeFile::Flush(FlushFlags flags)
 {
     // Write existing buffer to the stream/file regardless of whether it is full or not.
     CONTRACTL
@@ -151,8 +153,17 @@ void EventPipeFile::Flush()
         MODE_ANY;
     }
     CONTRACTL_END;
-    m_pSerializer->WriteObject(m_pBlock); // we write current block to the disk, whether it's full or not
-    m_pBlock->Clear();
+    // we write current blocks to the disk, whether they are full or not
+    if ((m_pMetadataBlock->GetBytesWritten() != 0) && ((flags & FlushMetadataBlock) != 0))
+    {
+        m_pSerializer->WriteObject(m_pMetadataBlock);
+        m_pMetadataBlock->Clear();
+    }
+    if ((m_pBlock->GetBytesWritten() != 0) && ((flags & FlushEventBlock) != 0))
+    {
+        m_pSerializer->WriteObject(m_pBlock);
+        m_pBlock->Clear();
+    }
 }
 
 void EventPipeFile::WriteEnd()
@@ -165,9 +176,7 @@ void EventPipeFile::WriteEnd()
     }
     CONTRACTL_END;
 
-    m_pSerializer->WriteObject(m_pBlock); // we write current block to the disk, whether it's full or not
-
-    m_pBlock->Clear();
+    Flush();
 
     // "After the last EventBlock is emitted, the stream is ended by emitting a NullReference Tag which indicates that there are no more objects in the stream to read."
     // see https://github.com/Microsoft/perfview/blob/master/src/TraceEvent/EventPipe/EventPipeFormat.md for more
@@ -186,16 +195,20 @@ void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance, unsigned int 
 
     instance.SetMetadataId(metadataId);
 
-    if (m_pBlock->WriteEvent(instance))
+    // If we are writing events we need to flush metadata as well because the
+    // metadata we want to refer to might be in the pending metadata block
+    FlushFlags flags = (metadataId == 0) ? FlushMetadataBlock : FlushAllBlocks;
+    EventPipeEventBlockBase* pBlock = (metadataId == 0) ? 
+        (EventPipeEventBlockBase*) m_pMetadataBlock : (EventPipeEventBlockBase*) m_pBlock;
+
+    if (pBlock->WriteEvent(instance))
         return; // the block is not full, we added the event and continue
 
     // we can't write this event to the current block (it's full)
     // so we write what we have in the block to the serializer
-    m_pSerializer->WriteObject(m_pBlock);
+    Flush(flags);
 
-    m_pBlock->Clear();
-
-    bool result = m_pBlock->WriteEvent(instance);
+    bool result = pBlock->WriteEvent(instance);
 
     _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
 }
