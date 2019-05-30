@@ -52,6 +52,7 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
     m_format = format;
     m_pBlock = new EventPipeEventBlock(100 * 1024, format);
     m_pMetadataBlock = new EventPipeMetadataBlock(100 * 1024);
+    m_pStackBlock = new EventPipeStackBlock(100 * 1024);
 
     // File start time information.
     GetSystemTime(&m_fileOpenSystemTime);
@@ -75,8 +76,11 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
 
     m_pMetadataIds = new MapSHashWithRemove<EventPipeEvent*, unsigned int>();
 
-    // Start and 0 - The value is always incremented prior to use, so the first ID will be 1.
+    // Start at 0 - The value is always incremented prior to use, so the first ID will be 1.
     m_metadataIdCounter = 0;
+
+    // Start at 0 - The value is always incremented prior to use, so the first ID will be 1.
+    m_stackIdCounter = 0;
 
 #ifdef DEBUG
     QueryPerformanceCounter(&m_lastSortedTimestamp);
@@ -101,6 +105,7 @@ EventPipeFile::~EventPipeFile()
 
     delete m_pBlock;
     delete m_pMetadataBlock;
+    delete m_pStackBlock;
     delete m_pSerializer;
     delete m_pMetadataIds;
 }
@@ -128,12 +133,14 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
     CONTRACTL_END;
 
 #ifdef DEBUG
-    _ASSERTE(instance.GetTimeStamp()->QuadPart > m_lastSortedTimestamp.QuadPart);
+    _ASSERTE(instance.GetTimeStamp()->QuadPart >= m_lastSortedTimestamp.QuadPart);
     if (isSortedEvent)
     {
         m_lastSortedTimestamp = *(instance.GetTimeStamp());
     }
 #endif
+
+    unsigned int stackId = GetStackId(instance);
 
     // Check to see if we've seen this event type before.
     // If not, then write the event metadata to the event stream first.
@@ -144,7 +151,7 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
 
         EventPipeEventInstance* pMetadataInstance = EventPipe::BuildEventMetadataEvent(instance, metadataId);
 
-        WriteToBlock(*pMetadataInstance, 0, 0, 0, TRUE); // metadataId=0 breaks recursion and represents the metadata event.
+        WriteEventToBlock(*pMetadataInstance, 0); // metadataId=0 breaks recursion and represents the metadata event.
 
         SaveMetadataId(*instance.GetEvent(), metadataId);
 
@@ -152,7 +159,7 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
         delete pMetadataInstance;
     }
 
-    WriteToBlock(instance, metadataId, captureThreadId, sequenceNumber, isSortedEvent);
+    WriteEventToBlock(instance, metadataId, captureThreadId, sequenceNumber, stackId, isSortedEvent);
 }
 
 void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
@@ -168,6 +175,9 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
     Flush(FlushAllBlocks);
     EventPipeSequencePointBlock sequencePointBlock(pSequencePoint);
     m_pSerializer->WriteObject(&sequencePointBlock);
+
+    // stack cache resets on sequence points
+    m_stackIdCounter = 0;
 }
 
 void EventPipeFile::Flush(FlushFlags flags)
@@ -185,6 +195,11 @@ void EventPipeFile::Flush(FlushFlags flags)
     {
         m_pSerializer->WriteObject(m_pMetadataBlock);
         m_pMetadataBlock->Clear();
+    }
+    if ((m_pStackBlock->GetBytesWritten() != 0) && ((flags & FlushStackBlock) != 0))
+    {
+        m_pSerializer->WriteObject(m_pStackBlock);
+        m_pStackBlock->Clear();
     }
     if ((m_pBlock->GetBytesWritten() != 0) && ((flags & FlushEventBlock) != 0))
     {
@@ -210,11 +225,12 @@ void EventPipeFile::WriteEnd()
     m_pSerializer->WriteTag(FastSerializerTags::NullReference);
 }
 
-void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance, 
-                                 unsigned int metadataId,
-                                 ULONGLONG captureThreadId,
-                                 unsigned int sequenceNumber,
-                                 BOOL isSortedEvent)
+void EventPipeFile::WriteEventToBlock(EventPipeEventInstance &instance, 
+                                      unsigned int metadataId,
+                                      ULONGLONG captureThreadId,
+                                      unsigned int sequenceNumber,
+                                      unsigned int stackId,
+                                      BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -226,20 +242,21 @@ void EventPipeFile::WriteToBlock(EventPipeEventInstance &instance,
 
     instance.SetMetadataId(metadataId);
 
-    // If we are writing events we need to flush metadata as well because the
-    // metadata we want to refer to might be in the pending metadata block
+    // If we are flushing events we need to flush metadata and stacks as well
+    // to ensure referenced metadata/stacks were written to the file before the
+    // event which referenced them.
     FlushFlags flags = (metadataId == 0) ? FlushMetadataBlock : FlushAllBlocks;
     EventPipeEventBlockBase* pBlock = (metadataId == 0) ? 
         (EventPipeEventBlockBase*) m_pMetadataBlock : (EventPipeEventBlockBase*) m_pBlock;
 
-    if (pBlock->WriteEvent(instance, captureThreadId, sequenceNumber, isSortedEvent))
+    if (pBlock->WriteEvent(instance, captureThreadId, sequenceNumber, stackId, isSortedEvent))
         return; // the block is not full, we added the event and continue
 
     // we can't write this event to the current block (it's full)
     // so we write what we have in the block to the serializer
     Flush(flags);
 
-    bool result = pBlock->WriteEvent(instance, captureThreadId, sequenceNumber, isSortedEvent);
+    bool result = pBlock->WriteEvent(instance, captureThreadId, sequenceNumber, stackId, isSortedEvent);
 
     _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
 }
@@ -298,6 +315,30 @@ void EventPipeFile::SaveMetadataId(EventPipeEvent &event, unsigned int metadataI
 
     // Add the metadata label.
     m_pMetadataIds->Add(&event, metadataId);
+}
+
+unsigned int EventPipeFile::GetStackId(EventPipeEventInstance &instance)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    unsigned int stackId = ++m_stackIdCounter;
+    if (m_pStackBlock->WriteStack(stackId, instance.GetStack()))
+        return stackId; 
+
+    // we can't write this stack to the current block (it's full)
+    // so we write what we have in the block to the serializer
+    Flush(FlushStackBlock);
+
+    bool result = m_pStackBlock->WriteStack(stackId, instance.GetStack());
+    _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
+
+    return stackId;
 }
 
 #endif // FEATURE_PERFTRACING

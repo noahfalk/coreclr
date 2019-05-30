@@ -99,7 +99,11 @@ EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, Even
     EventPipeBlock(maxBlockSize, format)
 {}
 
-bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent)
+bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, 
+                                         ULONGLONG captureThreadId,
+                                         unsigned int sequenceNumber,
+                                         DWORD stackId,
+                                         BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -149,6 +153,9 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONG
 
         memcpy(m_pWritePointer, &captureThreadId, sizeof(captureThreadId));
         m_pWritePointer += sizeof(captureThreadId);
+
+        memcpy(m_pWritePointer, &stackId, sizeof(stackId));
+        m_pWritePointer += sizeof(stackId);
     }
 
     const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
@@ -173,14 +180,17 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONG
         m_pWritePointer += dataLength;
     }
 
-    unsigned int stackSize = instance.GetStackSize();
-    memcpy(m_pWritePointer, &stackSize, sizeof(stackSize));
-    m_pWritePointer += sizeof(stackSize);
-
-    if (stackSize > 0)
+    if (m_format == EventPipeNetPerfFormatV3)
     {
-        memcpy(m_pWritePointer, instance.GetStack(), stackSize);
-        m_pWritePointer += stackSize;
+        unsigned int stackSize = instance.GetStackSize();
+        memcpy(m_pWritePointer, &stackSize, sizeof(stackSize));
+        m_pWritePointer += sizeof(stackSize);
+
+        if (stackSize > 0)
+        {
+            memcpy(m_pWritePointer, instance.GetStack(), stackSize);
+            m_pWritePointer += stackSize;
+        }
     }
 
     while (m_pWritePointer < alignedEnd)
@@ -206,15 +216,20 @@ unsigned int GetSequencePointBlockSize(EventPipeSequencePoint* pSequencePoint)
         sizeof(ULONGLONG) +    // thread id
         sizeof(unsigned int);  // sequence number
     return sizeof(pSequencePoint->TimeStamp) +
+        sizeof(unsigned int) + // thread count
         pSequencePoint->ThreadSequenceNumbers.GetCount() * sizeOfSequenceNumber;
 }
 
 EventPipeSequencePointBlock::EventPipeSequencePointBlock(EventPipeSequencePoint* pSequencePoint) :
     EventPipeBlock(GetSequencePointBlockSize(pSequencePoint))
 {
-    const LARGE_INTEGER* timeStamp = &pSequencePoint->TimeStamp;
-    memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
-    m_pWritePointer += sizeof(*timeStamp);
+    const LARGE_INTEGER timeStamp = pSequencePoint->TimeStamp;
+    memcpy(m_pWritePointer, &timeStamp, sizeof(timeStamp));
+    m_pWritePointer += sizeof(timeStamp);
+
+    const unsigned int threadCount = pSequencePoint->ThreadSequenceNumbers.GetCount();
+    memcpy(m_pWritePointer, &threadCount, sizeof(threadCount));
+    m_pWritePointer += sizeof(threadCount);
 
     for (ThreadSequenceNumberMap::Iterator pCur = pSequencePoint->ThreadSequenceNumbers.Begin();
         pCur != pSequencePoint->ThreadSequenceNumbers.End();
@@ -228,6 +243,61 @@ EventPipeSequencePointBlock::EventPipeSequencePointBlock(EventPipeSequencePoint*
         memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
         m_pWritePointer += sizeof(sequenceNumber);
     }
+}
+
+EventPipeStackBlock::EventPipeStackBlock(unsigned int maxBlockSize) :
+    EventPipeBlock(maxBlockSize)
+{
+    Clear();
+}
+
+void EventPipeStackBlock::Clear()
+{
+    m_hasInitialIndex = false;
+    m_initialIndex = 0;
+    m_count = 0;
+    EventPipeBlock::Clear();
+}
+
+bool EventPipeStackBlock::WriteStack(DWORD stackId, StackContents* pStack)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    if (m_pBlock == NULL)
+    {
+        return false;
+    }
+
+    unsigned int stackSize = pStack->GetSize();
+    unsigned int totalSize = sizeof(stackSize) + stackSize;
+    if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
+    {
+        return false;
+    }
+
+    if (!m_hasInitialIndex)
+    {
+        m_hasInitialIndex = true;
+        m_initialIndex = stackId;
+    }
+    m_count++;
+
+    memcpy(m_pWritePointer, &stackSize, sizeof(stackSize));
+    m_pWritePointer += sizeof(stackSize);
+
+    if (stackSize > 0)
+    {
+        memcpy(m_pWritePointer, pStack->GetPointer(), stackSize);
+        m_pWritePointer += stackSize;
+    }
+
+    return true;
 }
 
 

@@ -101,13 +101,12 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
             sizeof(unsigned int) +          // Sequence number (implied by the buffer containing the event instance)
             sizeof(m_threadId) +            // Thread ID
             sizeof(ULONGLONG) +             // Capture Thread ID (implied by the buffer containing the event instance)
+            sizeof(unsigned int) +          // Stack intern table id
             sizeof(m_timeStamp) +           // TimeStamp
             sizeof(m_activityId) +          // Activity ID
             sizeof(m_relatedActivityId) +   // Related Activity ID
             sizeof(m_dataLength) +          // Data payload length
-            m_dataLength +                  // Event payload data
-            sizeof(unsigned int) +          // Prepended stack payload size in bytes
-            m_stackContents.GetSize();      // Stack payload size
+            m_dataLength;                   // Event payload data
     }
 
 

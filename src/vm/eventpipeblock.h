@@ -25,11 +25,22 @@ public:
     EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format = EventPipeNetTraceFormatV4);
     ~EventPipeBlock();
 
-    void Clear();
+    virtual void Clear();
 
     unsigned int GetBytesWritten() const
     {
         return m_pBlock == nullptr ? 0 : (unsigned int)(m_pWritePointer - m_pBlock);
+    }
+
+    // The size of the header for this block, if any
+    virtual unsigned int GetHeaderSize()
+    {
+        return 0;
+    }
+
+    // Write the header to the stream
+    virtual void SerializeHeader(FastSerializer *pSerializer)
+    {
     }
 
     void FastSerialize(FastSerializer *pSerializer) override
@@ -47,10 +58,11 @@ public:
             return;
 
         unsigned int dataSize = GetBytesWritten();
-        pSerializer->WriteBuffer((BYTE *)&dataSize, sizeof(dataSize));
-
-        if (dataSize == 0)
-            return;
+        // We shouldn't attempt to write blocks that have no data
+        _ASSERTE(dataSize != 0);
+        unsigned int headerSize = GetHeaderSize();
+        unsigned int totalSize = dataSize + headerSize;
+        pSerializer->WriteBuffer((BYTE *)&totalSize, sizeof(totalSize));
 
         unsigned int requiredPadding = pSerializer->GetRequiredPadding();
         if (requiredPadding != 0)
@@ -61,6 +73,7 @@ public:
             _ASSERTE(pSerializer->HasWriteErrors() || (pSerializer->GetRequiredPadding() == 0));
         }
 
+        SerializeHeader(pSerializer);
         pSerializer->WriteBuffer(m_pBlock, dataSize);
     }
 
@@ -87,7 +100,7 @@ public:
     // Returns:
     //  - true: The write succeeded.
     //  - false: The write failed.  In this case, the block should be considered full.
-    bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent);
+    bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, DWORD stackId, BOOL isSortedEvent);
 
 };
 
@@ -125,6 +138,44 @@ public:
         LIMITED_METHOD_CONTRACT;
         return "SPBlock";
     }
+};
+
+// The block that contains interned stacks
+class EventPipeStackBlock : public EventPipeBlock
+{
+public:
+    EventPipeStackBlock(unsigned int maxBlockSize);
+
+    unsigned int GetHeaderSize() override
+    {
+        return sizeof(unsigned int) + // start index 
+               sizeof(unsigned int);  // count of indices
+    }
+
+    void SerializeHeader(FastSerializer* pSerializer) override
+    {
+        pSerializer->WriteBuffer((BYTE *)&m_initialIndex, sizeof(m_initialIndex));
+        pSerializer->WriteBuffer((BYTE *)&m_count, sizeof(m_count));
+    }
+
+    void Clear() override;
+
+    // Write a stack to the block
+    // Returns:
+    //  - true: The write succeeded.
+    //  - false: The write failed.  In this case, the block should be considered full.
+    bool WriteStack(DWORD stackId, StackContents* pStack);
+
+    const char *GetTypeName() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        return "StackBlock";
+    }
+
+private:
+    bool m_hasInitialIndex;
+    unsigned int m_initialIndex;
+    unsigned int m_count;
 };
 
 #endif // FEATURE_PERFTRACING

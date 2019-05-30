@@ -29,7 +29,8 @@ public:
     {
         FlushEventBlock = 1,
         FlushMetadataBlock = 2,
-        FlushAllBlocks = FlushEventBlock | FlushMetadataBlock
+        FlushStackBlock = 4,
+        FlushAllBlocks = FlushEventBlock | FlushMetadataBlock | FlushStackBlock
     };
     void Flush(FlushFlags flags = FlushAllBlocks);
     bool HasErrors() const;
@@ -69,9 +70,16 @@ private:
 
     unsigned int GetMetadataId(EventPipeEvent &event);
 
+    unsigned int GetStackId(EventPipeEventInstance &instance);
+
     void SaveMetadataId(EventPipeEvent &event, unsigned int metadataId);
 
-    void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent = TRUE);
+    void WriteEventToBlock(EventPipeEventInstance &instance,
+                           unsigned int metadataId,
+                           ULONGLONG captureThreadId = 0,
+                           unsigned int sequenceNumber = 0,
+                           unsigned int stackId = 0,
+                           BOOL isSortedEvent = TRUE);
 
     // The format to serialize
     EventPipeSerializationFormat m_format;
@@ -81,6 +89,7 @@ private:
 
     EventPipeEventBlock *m_pBlock;
     EventPipeMetadataBlock *m_pMetadataBlock;
+    EventPipeStackBlock *m_pStackBlock;
 
     // The system time when the file was opened.
     SYSTEMTIME m_fileOpenSystemTime;
@@ -107,6 +116,8 @@ private:
     MapSHashWithRemove<EventPipeEvent *, unsigned int> *m_pMetadataIds;
 
     Volatile<LONG> m_metadataIdCounter;
+
+    unsigned int m_stackIdCounter;
 
 #ifdef DEBUG
     LARGE_INTEGER m_lastSortedTimestamp;
