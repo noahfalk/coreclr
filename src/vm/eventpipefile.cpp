@@ -10,6 +10,42 @@
 
 #ifdef FEATURE_PERFTRACING
 
+
+StackHashEntry* StackHashEntry::CreateNew(StackContents* pStack, ULONG id, ULONG hash)
+{
+    LIMITED_METHOD_CONTRACT;
+
+    StackHashEntry* pEntry = (StackHashEntry*) new (nothrow) BYTE[offsetof(StackHashEntry, StackBytes) + pStack->GetSize()];
+    if (pEntry == NULL)
+    {
+        return NULL;
+    }
+    pEntry->Id = id;
+    pEntry->Hash = hash;
+    pEntry->StackSizeInBytes = pStack->GetSize();
+    memcpy_s(pEntry->StackBytes, pStack->GetSize(), pStack->GetPointer(), pStack->GetSize());
+    return pEntry;
+}
+
+StackHashKey StackHashEntry::GetKey() const
+{
+    LIMITED_METHOD_CONTRACT;
+    StackHashKey key((BYTE*)StackBytes, StackSizeInBytes, Hash);
+    return key;
+}
+
+StackHashKey::StackHashKey(StackContents* pStack) :
+    Hash(HashBytes(pStack->GetPointer(), pStack->GetSize())),
+    StackSizeInBytes(pStack->GetSize()),
+    pStackBytes(pStack->GetPointer())
+{}
+
+StackHashKey::StackHashKey(BYTE* pStackBytes, ULONG stackSizeInBytes, ULONG hash) :
+    Hash(hash),
+    StackSizeInBytes(stackSizeInBytes),
+    pStackBytes(pStackBytes)
+{}
+
 DWORD GetFileVersion(EventPipeSerializationFormat format)
 {
     LIMITED_METHOD_CONTRACT;
@@ -103,6 +139,11 @@ EventPipeFile::~EventPipeFile()
     if (m_pBlock != NULL && m_pSerializer != NULL)
         WriteEnd();
 
+    for (EventPipeStackHash::Iterator pCur = m_stackHash.Begin(); pCur != m_stackHash.End(); pCur++)
+    {
+        delete *pCur;
+    }
+
     delete m_pBlock;
     delete m_pMetadataBlock;
     delete m_pStackBlock;
@@ -178,6 +219,11 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
 
     // stack cache resets on sequence points
     m_stackIdCounter = 0;
+    for (EventPipeStackHash::Iterator pCur = m_stackHash.Begin(); pCur != m_stackHash.End(); pCur++)
+    {
+        delete *pCur;
+    }
+    m_stackHash.RemoveAll();
 }
 
 void EventPipeFile::Flush(FlushFlags flags)
@@ -327,16 +373,40 @@ unsigned int EventPipeFile::GetStackId(EventPipeEventInstance &instance)
     }
     CONTRACTL_END;
 
-    unsigned int stackId = ++m_stackIdCounter;
-    if (m_pStackBlock->WriteStack(stackId, instance.GetStack()))
-        return stackId; 
+    unsigned int stackId = 0;
+    StackHashEntry* pEntry = NULL;
+    StackHashKey key(instance.GetStack());
+    if (NULL == (pEntry = m_stackHash.Lookup(key)))
+    {
+        stackId = ++m_stackIdCounter;
 
-    // we can't write this stack to the current block (it's full)
-    // so we write what we have in the block to the serializer
-    Flush(FlushStackBlock);
+        pEntry = StackHashEntry::CreateNew(instance.GetStack(), stackId, key.Hash);
+        if (pEntry != NULL)
+        {
+            EX_TRY
+            {
+                m_stackHash.Add(pEntry);
+            }
+            EX_CATCH
+            {
+            }
+            EX_END_CATCH(SwallowAllExceptions);
+        }
 
-    bool result = m_pStackBlock->WriteStack(stackId, instance.GetStack());
-    _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
+        if (m_pStackBlock->WriteStack(stackId, instance.GetStack()))
+            return stackId;
+
+        // we can't write this stack to the current block (it's full)
+        // so we write what we have in the block to the serializer
+        Flush(FlushStackBlock);
+
+        bool result = m_pStackBlock->WriteStack(stackId, instance.GetStack());
+        _ASSERTE(result == true); // we should never fail to add event to a clear block (if we do the max size is too small)
+    }
+    else
+    {
+        stackId = pEntry->Id;
+    }
 
     return stackId;
 }

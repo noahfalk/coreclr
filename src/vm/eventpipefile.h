@@ -16,6 +16,59 @@ class EventPipeEventInstance;
 class FastSerializer;
 struct EventPipeSequencePoint;
 
+struct StackHashKey
+{
+    BYTE* pStackBytes;
+    ULONG Hash;
+    ULONG StackSizeInBytes;
+
+    StackHashKey(StackContents* pStack);
+    StackHashKey(BYTE* pStack, ULONG stackSizeInBytes, ULONG hash);
+};
+
+struct StackHashEntry
+{
+    ULONG Id;
+    ULONG Hash;
+    ULONG StackSizeInBytes;
+    // This is the first byte of StackSizeInBytes bytes of stack data
+    BYTE StackBytes[1];
+
+    static StackHashEntry* CreateNew(StackContents* pStack, ULONG id, ULONG hash);
+    StackHashKey GetKey() const;
+};
+
+class EventPipeStackHashTraits : public NoRemoveSHashTraits<DefaultSHashTraits<StackHashEntry*>>
+{
+public:
+    typedef typename DefaultSHashTraits<StackHashEntry*>::element_t element_t;
+    typedef typename DefaultSHashTraits<StackHashEntry*>::count_t count_t;
+
+    typedef const StackHashKey key_t;
+
+    static key_t GetKey(element_t e)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return e->GetKey();
+    }
+    static BOOL Equals(key_t k1, key_t k2)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return k1.StackSizeInBytes == k2.StackSizeInBytes &&
+            memcmp(k1.pStackBytes, k2.pStackBytes, k1.StackSizeInBytes) == 0;
+    }
+    static count_t Hash(key_t k)
+    {
+        LIMITED_METHOD_CONTRACT;
+        return (count_t)(size_t)k.Hash;
+    }
+
+    static element_t Null() { LIMITED_METHOD_CONTRACT; return nullptr; }
+    static bool IsNull(const element_t &e) { LIMITED_METHOD_CONTRACT; return e == nullptr; }
+};
+
+typedef SHash<EventPipeStackHashTraits> EventPipeStackHash;
+
 class EventPipeFile final : public FastSerializableObject
 {
 public:
@@ -118,7 +171,7 @@ private:
     Volatile<LONG> m_metadataIdCounter;
 
     unsigned int m_stackIdCounter;
-
+    EventPipeStackHash m_stackHash;
 #ifdef DEBUG
     LARGE_INTEGER m_lastSortedTimestamp;
 #endif
