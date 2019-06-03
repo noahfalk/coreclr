@@ -105,8 +105,18 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
 
     m_samplingRateInNs = SampleProfiler::GetSamplingRate();
 
-    // Create the file stream and write the header.
-    m_pSerializer = new FastSerializer(pStreamWriter);
+    const char* pHeader = "Nettrace";
+    uint32_t bytesWritten = 0;
+    bool fSuccess = pStreamWriter->Write(pHeader, 8, bytesWritten);
+    if (fSuccess && bytesWritten == 8)
+    {
+        // Create the file stream and write the FastSerialization header.
+        m_pSerializer = new FastSerializer(pStreamWriter);
+    }
+    else
+    {
+        m_pSerializer = nullptr;
+    }
 
     m_serializationLock.Init(LOCK_TYPE_DEFAULT);
 
