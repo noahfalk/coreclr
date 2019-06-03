@@ -95,9 +95,50 @@ void EventPipeBlock::Clear()
     m_pWritePointer = m_pBlock;
 }
 
-EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
-    EventPipeBlock(maxBlockSize, format)
-{}
+EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format, bool fUseHeaderCompression) :
+    EventPipeBlock(maxBlockSize, format), m_fUseHeaderCompression(fUseHeaderCompression)
+{
+    memset(m_compressedHeader, 0, 100);
+    Clear();
+}
+
+void EventPipeEventBlockBase::Clear()
+{
+    EventPipeBlock::Clear();
+    m_lastHeader.MetadataId = 0;
+    m_lastHeader.SequenceNumber = 0;
+    m_lastHeader.ThreadId = 0;
+    m_lastHeader.CaptureThreadId = 0;
+    m_lastHeader.StackId = 0;
+    m_lastHeader.TimeStamp.QuadPart = 0;
+    m_lastHeader.ActivityId = { 0 };
+    m_lastHeader.RelatedActivityId = { 0 };
+    m_lastHeader.DataLength = 0;
+}
+
+void WriteVarUInt32(BYTE* & pWritePointer, unsigned int value)
+{
+    while (value >= 0x80)
+    {
+        *pWritePointer = (BYTE)(value | 0x80);
+        pWritePointer++;
+        value >>= 7;
+    }
+    *pWritePointer = (BYTE)value;
+    pWritePointer++;
+}
+
+void WriteVarUInt64(BYTE* & pWritePointer, ULONGLONG value)
+{
+    while (value >= 0x80)
+    {
+        *pWritePointer = (BYTE)(value | 0x80);
+        pWritePointer++;
+        value >>= 7;
+    }
+    *pWritePointer = (BYTE)value;
+    pWritePointer++;
+}
 
 bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, 
                                          ULONGLONG captureThreadId,
@@ -119,60 +160,148 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
         return false;
     }
 
-    unsigned int totalSize = instance.GetAlignedTotalSize(m_format);
-    if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
+    unsigned int dataLength = 0;
+    BYTE* alignedEnd = NULL;
+
+    if (!m_fUseHeaderCompression)
     {
-        return false;
+        unsigned int totalSize = instance.GetAlignedTotalSize(m_format);
+        if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
+        {
+            return false;
+        }
+
+        alignedEnd = m_pWritePointer + totalSize + sizeof(totalSize);
+
+        memcpy(m_pWritePointer, &totalSize, sizeof(totalSize));
+        m_pWritePointer += sizeof(totalSize);
+
+        unsigned int metadataId = instance.GetMetadataId();
+        _ASSERTE((metadataId & (1 << 31)) == 0);
+        metadataId |= (!isSortedEvent ? 1 << 31 : 0);
+        memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
+        m_pWritePointer += sizeof(metadataId);
+
+        if (m_format == EventPipeNetPerfFormatV3)
+        {
+            DWORD threadId = instance.GetThreadId32();
+            memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+            m_pWritePointer += sizeof(threadId);
+        }
+        else if (m_format == EventPipeNetTraceFormatV4)
+        {
+            memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
+            m_pWritePointer += sizeof(sequenceNumber);
+
+            ULONGLONG threadId = instance.GetThreadId64();
+            memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+            m_pWritePointer += sizeof(threadId);
+
+            memcpy(m_pWritePointer, &captureThreadId, sizeof(captureThreadId));
+            m_pWritePointer += sizeof(captureThreadId);
+
+            memcpy(m_pWritePointer, &stackId, sizeof(stackId));
+            m_pWritePointer += sizeof(stackId);
+        }
+
+        const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
+        memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
+        m_pWritePointer += sizeof(*timeStamp);
+
+        const GUID* activityId = instance.GetActivityId();
+        memcpy(m_pWritePointer, activityId, sizeof(*activityId));
+        m_pWritePointer += sizeof(*activityId);
+
+        const GUID* relatedActivityId = instance.GetRelatedActivityId();
+        memcpy(m_pWritePointer, relatedActivityId, sizeof(*relatedActivityId));
+        m_pWritePointer += sizeof(*relatedActivityId);
+
+        unsigned int dataLength = instance.GetDataLength();
+        memcpy(m_pWritePointer, &dataLength, sizeof(dataLength));
+        m_pWritePointer += sizeof(dataLength);
     }
-
-    BYTE* alignedEnd = m_pWritePointer + totalSize + sizeof(totalSize);
-
-    memcpy(m_pWritePointer, &totalSize, sizeof(totalSize));
-    m_pWritePointer += sizeof(totalSize);
-
-    unsigned int metadataId = instance.GetMetadataId();
-    _ASSERTE((metadataId & (1 << 31)) == 0);
-    metadataId |= (!isSortedEvent ? 1 << 31 : 0);
-    memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
-    m_pWritePointer += sizeof(metadataId);
-
-    if (m_format == EventPipeNetPerfFormatV3)
+    else // using header compression
     {
-        DWORD threadId = instance.GetThreadId32();
-        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
-        m_pWritePointer += sizeof(threadId);
+        BYTE flags = 0;
+        BYTE* pWritePointer = m_compressedHeader;
+
+        if (instance.GetMetadataId() != m_lastHeader.MetadataId)
+        {
+            WriteVarUInt32(pWritePointer, instance.GetMetadataId());
+            flags |= 1;
+        }
+        if (isSortedEvent)
+        {
+            flags |= (1 << 6);
+        }
+        
+        if (m_lastHeader.SequenceNumber + (instance.GetMetadataId() != 0 ? 1 : 0) != sequenceNumber ||
+            m_lastHeader.CaptureThreadId != captureThreadId)
+        {
+            WriteVarUInt32(pWritePointer, sequenceNumber - m_lastHeader.SequenceNumber - 1);
+            WriteVarUInt64(pWritePointer, captureThreadId);
+            flags |= (1 << 1);
+        }
+
+        if (m_lastHeader.ThreadId != instance.GetThreadId64())
+        {
+            WriteVarUInt64(pWritePointer, instance.GetThreadId64());
+            flags |= (1 << 2);
+        }
+
+        if (m_lastHeader.StackId != stackId)
+        {
+            WriteVarUInt32(pWritePointer, stackId);
+            flags |= (1 << 3);
+        }
+
+        const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
+        WriteVarUInt64(pWritePointer, timeStamp->QuadPart - m_lastHeader.TimeStamp.QuadPart);
+
+        if (memcmp(&m_lastHeader.ActivityId, instance.GetActivityId(), sizeof(GUID)) != 0)
+        {
+            memcpy(pWritePointer, instance.GetActivityId(), sizeof(GUID));
+            pWritePointer += sizeof(GUID);
+            flags |= (1 << 4);
+        }
+
+        if (memcmp(&m_lastHeader.RelatedActivityId, instance.GetRelatedActivityId(), sizeof(GUID)) != 0)
+        {
+            memcpy(pWritePointer, instance.GetRelatedActivityId(), sizeof(GUID));
+            pWritePointer += sizeof(GUID);
+            flags |= (1 << 5);
+        }
+
+        dataLength = instance.GetDataLength();
+        if (m_lastHeader.DataLength != dataLength)
+        {
+            WriteVarUInt32(pWritePointer, dataLength);
+            flags |= (1 << 7);
+        }
+
+        unsigned int bytesWritten = (unsigned int)(pWritePointer - m_compressedHeader);
+        unsigned int totalSize = 1 + bytesWritten + dataLength;
+        if (m_pWritePointer + totalSize >= m_pEndOfTheBuffer)
+        {
+            return false;
+        }
+
+        m_lastHeader.MetadataId = instance.GetMetadataId();
+        m_lastHeader.SequenceNumber = sequenceNumber;
+        m_lastHeader.ThreadId = instance.GetThreadId64();
+        m_lastHeader.CaptureThreadId = captureThreadId;
+        m_lastHeader.StackId = stackId;
+        m_lastHeader.TimeStamp.QuadPart = timeStamp->QuadPart;
+        memcpy(&m_lastHeader.ActivityId, instance.GetActivityId(), sizeof(GUID));
+        memcpy(&m_lastHeader.RelatedActivityId, instance.GetRelatedActivityId(), sizeof(GUID));
+        m_lastHeader.DataLength = dataLength;
+
+        alignedEnd = m_pWritePointer + totalSize;
+        *m_pWritePointer = flags;
+        m_pWritePointer++;
+        memcpy(m_pWritePointer, m_compressedHeader, bytesWritten);
+        m_pWritePointer += bytesWritten;
     }
-    else if (m_format == EventPipeNetTraceFormatV4)
-    {
-        memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
-        m_pWritePointer += sizeof(sequenceNumber);
-
-        ULONGLONG threadId = instance.GetThreadId64();
-        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
-        m_pWritePointer += sizeof(threadId);
-
-        memcpy(m_pWritePointer, &captureThreadId, sizeof(captureThreadId));
-        m_pWritePointer += sizeof(captureThreadId);
-
-        memcpy(m_pWritePointer, &stackId, sizeof(stackId));
-        m_pWritePointer += sizeof(stackId);
-    }
-
-    const LARGE_INTEGER* timeStamp = instance.GetTimeStamp();
-    memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
-    m_pWritePointer += sizeof(*timeStamp);
-
-    const GUID* activityId = instance.GetActivityId();
-    memcpy(m_pWritePointer, activityId, sizeof(*activityId));
-    m_pWritePointer += sizeof(*activityId);
-
-    const GUID* relatedActivityId = instance.GetRelatedActivityId();
-    memcpy(m_pWritePointer, relatedActivityId, sizeof(*relatedActivityId));
-    m_pWritePointer += sizeof(*relatedActivityId);
-
-    unsigned int dataLength = instance.GetDataLength();
-    memcpy(m_pWritePointer, &dataLength, sizeof(dataLength));
-    m_pWritePointer += sizeof(dataLength);
 
     if (dataLength > 0)
     {

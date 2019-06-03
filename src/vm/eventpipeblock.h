@@ -90,11 +90,40 @@ protected:
     }
 };
 
+struct EventPipeEventHeader
+{
+    DWORD MetadataId;
+    DWORD SequenceNumber;
+    ULONGLONG ThreadId;
+    ULONGLONG CaptureThreadId;
+    DWORD StackId;
+    LARGE_INTEGER TimeStamp;
+    GUID ActivityId;
+    GUID RelatedActivityId;
+    DWORD DataLength;
+}; 
+
 // The base type for blocks that contain events (EventBlock and EventMetadataBlock)
 class EventPipeEventBlockBase : public EventPipeBlock
 {
 public:
-    EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format);
+    EventPipeEventBlockBase(unsigned int maxBlockSize, EventPipeSerializationFormat format, bool fUseHeaderCompression = true);
+
+    void Clear() override;
+
+    unsigned int GetHeaderSize() override
+    {
+        return sizeof(unsigned short) + // header size
+               sizeof(unsigned short); // flags
+    }
+
+    void SerializeHeader(FastSerializer* pSerializer) override
+    {
+        const unsigned short headerSize = GetHeaderSize();
+        pSerializer->WriteBuffer((BYTE *)&headerSize, sizeof(headerSize));
+        const unsigned short flags = m_fUseHeaderCompression ? 1 : 0;
+        pSerializer->WriteBuffer((BYTE *)&flags, sizeof(flags));
+    }
 
     // Write an event to the block.
     // Returns:
@@ -102,6 +131,10 @@ public:
     //  - false: The write failed.  In this case, the block should be considered full.
     bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, DWORD stackId, BOOL isSortedEvent);
 
+private:
+    EventPipeEventHeader m_lastHeader;
+    BYTE m_compressedHeader[100];
+    bool m_fUseHeaderCompression;
 };
 
 class EventPipeEventBlock : public EventPipeEventBlockBase
