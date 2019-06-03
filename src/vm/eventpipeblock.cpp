@@ -114,6 +114,9 @@ void EventPipeEventBlockBase::Clear()
     m_lastHeader.ActivityId = { 0 };
     m_lastHeader.RelatedActivityId = { 0 };
     m_lastHeader.DataLength = 0;
+
+    m_minTimeStamp.QuadPart = LLONG_MAX;
+    m_maxTimeStamp.QuadPart = LLONG_MIN;
 }
 
 void WriteVarUInt32(BYTE* & pWritePointer, unsigned int value)
@@ -325,6 +328,15 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
     while (m_pWritePointer < alignedEnd)
     {
         *m_pWritePointer++ = (BYTE)0; // put padding at the end to get 4 bytes alignment of the payload
+    }
+
+    if (m_minTimeStamp.QuadPart > instance.GetTimeStamp()->QuadPart)
+    {
+        m_minTimeStamp.QuadPart = instance.GetTimeStamp()->QuadPart;
+    }
+    if (m_maxTimeStamp.QuadPart < instance.GetTimeStamp()->QuadPart)
+    {
+        m_maxTimeStamp.QuadPart = instance.GetTimeStamp()->QuadPart;
     }
 
     return true;

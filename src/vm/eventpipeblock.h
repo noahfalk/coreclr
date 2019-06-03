@@ -114,7 +114,9 @@ public:
     unsigned int GetHeaderSize() override
     {
         return sizeof(unsigned short) + // header size
-               sizeof(unsigned short); // flags
+               sizeof(unsigned short) + // flags
+               sizeof(LARGE_INTEGER)  + // min timestamp
+               sizeof(LARGE_INTEGER);   // max timestamp
     }
 
     void SerializeHeader(FastSerializer* pSerializer) override
@@ -123,6 +125,8 @@ public:
         pSerializer->WriteBuffer((BYTE *)&headerSize, sizeof(headerSize));
         const unsigned short flags = m_fUseHeaderCompression ? 1 : 0;
         pSerializer->WriteBuffer((BYTE *)&flags, sizeof(flags));
+        pSerializer->WriteBuffer((BYTE *)&m_minTimeStamp, sizeof(m_minTimeStamp));
+        pSerializer->WriteBuffer((BYTE *)&m_maxTimeStamp, sizeof(m_maxTimeStamp));
     }
 
     // Write an event to the block.
@@ -135,6 +139,8 @@ private:
     EventPipeEventHeader m_lastHeader;
     BYTE m_compressedHeader[100];
     bool m_fUseHeaderCompression;
+    LARGE_INTEGER m_minTimeStamp;
+    LARGE_INTEGER m_maxTimeStamp;
 };
 
 class EventPipeEventBlock : public EventPipeEventBlockBase
