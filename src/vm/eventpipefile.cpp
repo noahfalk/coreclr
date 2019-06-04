@@ -78,6 +78,10 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
     // Start and 0 - The value is always incremented prior to use, so the first ID will be 1.
     m_metadataIdCounter = 0;
 
+#ifdef DEBUG
+    QueryPerformanceCounter(&m_lastSortedTimestamp);
+#endif
+
     // Write the first object to the file.
     m_pSerializer->WriteObject(this);
 }
@@ -122,6 +126,14 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
         MODE_ANY;
     }
     CONTRACTL_END;
+
+#ifdef DEBUG
+    _ASSERTE(instance.GetTimeStamp()->QuadPart > m_lastSortedTimestamp.QuadPart);
+    if (isSortedEvent)
+    {
+        m_lastSortedTimestamp = *(instance.GetTimeStamp());
+    }
+#endif
 
     // Check to see if we've seen this event type before.
     // If not, then write the event metadata to the event stream first.

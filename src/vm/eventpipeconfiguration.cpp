@@ -302,12 +302,12 @@ EventPipeSession *EventPipeConfiguration::CreateSession(
     }
     CONTRACTL_END;
 
-    const EventPipeSessionID SessionId = GenerateSessionId();
-    if (!IsValidId(SessionId))
+    const unsigned int index = GenerateSessionIndex();
+    if (index >= EventPipe::MaxNumberOfSessions)
     {
         return nullptr;
     }
-    return new EventPipeSession(SessionId, strOutputPath, pStream, sessionType, format, circularBufferSizeInMB, pProviders, numProviders);
+    return new EventPipeSession(index, strOutputPath, pStream, sessionType, format, circularBufferSizeInMB, pProviders, numProviders);
 }
 
 void EventPipeConfiguration::DeleteSession(EventPipeSession *pSession)

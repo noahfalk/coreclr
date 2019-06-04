@@ -13,7 +13,7 @@
 #ifdef FEATURE_PERFTRACING
 
 EventPipeSession::EventPipeSession(
-    EventPipeSessionID id,
+    unsigned int index,
     LPCWSTR strOutputPath,
     IpcStream *const pStream,
     EventPipeSessionType sessionType,
@@ -21,7 +21,8 @@ EventPipeSession::EventPipeSession(
     unsigned int circularBufferSizeInMB,
     const EventPipeProviderConfiguration *pProviders,
     uint32_t numProviders,
-    bool rundownEnabled) : m_Id(id),
+    bool rundownEnabled) : m_Id((EventPipeSessionID)1 << index),
+                           m_index(index),
                            m_pProviderList(new EventPipeSessionProviderList(pProviders, numProviders)),
                            m_CircularBufferSizeInBytes(static_cast<size_t>(circularBufferSizeInMB) << 20),
                            m_rundownEnabled(rundownEnabled),
@@ -33,6 +34,8 @@ EventPipeSession::EventPipeSession(
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
+        PRECONDITION(index < EventPipe::MaxNumberOfSessions);
+        PRECONDITION(EventPipe::MaxNumberOfSessions == 64); // If MaxNumberOfSessions ever changed, fix the m_id calculation above
         PRECONDITION(format < EventPipeFormatCount);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
@@ -316,7 +319,7 @@ bool EventPipeSession::WriteEventBuffered(
         false;
 }
 
-void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent)
+void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, EventPipeThread* pThread)
 {
     CONTRACTL
     {
@@ -328,7 +331,18 @@ void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, UL
 
     if (m_pFile == nullptr)
         return;
-    m_pFile->WriteEvent(instance, captureThreadId, isSortedEvent);
+    EventPipeThreadSessionState* pState = nullptr;
+    ULONGLONG captureThreadId;
+    {
+        SpinLockHolder _slh(pThread->GetLock());
+        pState = pThread->GetSessionState(this);
+        if (pState == nullptr)
+        {
+            return;
+        }
+        captureThreadId = pThread->GetOSThreadId();
+    }
+    m_pFile->WriteEvent(instance, captureThreadId, TRUE);
 }
 
 void EventPipeSession::WriteSequencePointUnbuffered()

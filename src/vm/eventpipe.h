@@ -273,6 +273,8 @@ class EventPipe
     friend class EventPipeProvider;
 
 public:
+    static const uint32_t MaxNumberOfSessions = 64;
+
     // Initialize the event pipe.
     static void Initialize();
 
@@ -408,7 +410,6 @@ private:
     static CrstStatic s_configCrst;
     static Volatile<bool> s_tracingInitialized;
     static EventPipeConfiguration s_config;
-    static const uint32_t MaxNumberOfSessions = 64;
     static VolatilePtr<EventPipeSession> s_pSessions[MaxNumberOfSessions];
     static EventPipeEventSource *s_pEventSource;
     static HANDLE s_fileSwitchTimerHandle;

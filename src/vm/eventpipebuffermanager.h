@@ -9,6 +9,7 @@
 
 #include "eventpipe.h"
 #include "eventpipeeventinstance.h"
+#include "eventpipethread.h"
 #include "spinlock.h"
 
 class EventPipeBuffer;
@@ -19,114 +20,6 @@ class EventPipeSession;
 class EventPipeThread;
 struct EventPipeSequencePoint;
 
-void ReleaseEventPipeThreadRef(EventPipeThread* pThread);
-void AcquireEventPipeThreadRef(EventPipeThread* pThread);
-typedef Wrapper<EventPipeThread*, AcquireEventPipeThreadRef, ReleaseEventPipeThreadRef> EventPipeThreadHolder;
-
-typedef MapSHashWithRemove<EventPipeBufferManager *, EventPipeBuffer *> EventPipeWriteBuffers;
-typedef MapSHashWithRemove<EventPipeBufferManager *, EventPipeBufferList *> EventPipeBufferLists;
-
-#ifndef __GNUC__
-  #define EVENTPIPE_THREAD_LOCAL __declspec(thread)
-#else  // !__GNUC__
-  #define EVENTPIPE_THREAD_LOCAL thread_local
-#endif // !__GNUC__
-
-class EventPipeThread
-{
-    static EVENTPIPE_THREAD_LOCAL EventPipeThreadHolder gCurrentEventPipeThreadHolder;
-
-    ~EventPipeThread();
-
-    // The EventPipeThreadHolder maintains one count while the thread is alive
-    // and each session's EventPipeBufferList maintains one count while it
-    // exists
-    LONG m_refCount;
-
-    // this is a dictionary of { buffer-manager, buffer } this thread is
-    // allowed to write to if exists or non-null, it must match the tail of the
-    // m_bufferList
-    // this pointer is protected by m_lock
-    EventPipeWriteBuffers *m_pWriteBuffers = nullptr;
-
-    // this is a dictionary of { buffer-manager, list of buffers } that were
-    // written to by this thread
-    // it is protected by EventPipeBufferManager::m_lock
-    EventPipeBufferLists *m_pBufferLists = nullptr;
-
-    // This lock is designed to have low contention. Normally it is only taken by this thread,
-    // but occasionally it may also be taken by another thread which is trying to collect and drain
-    // buffers from all threads.
-    SpinLock m_lock;
-
-    // This is initialized when the Thread object is first constructed and remains
-    // immutable afterwards
-    SIZE_T m_osThreadId;
-    
-    //
-    EventPipeSession *m_pRundownSession = nullptr;
-
-#ifdef DEBUG
-    template <typename T>
-    static bool AllValuesAreNull(T &map)
-    {
-        LIMITED_METHOD_CONTRACT;
-        for (typename T::Iterator iter = map.Begin(); iter != map.End(); ++iter)
-            if (iter->Value() != nullptr)
-                return false;
-        return true;
-    }
-#endif // DEBUG
-
-public:
-    static EventPipeThread *Get();
-    static EventPipeThread *GetOrCreate();
-    static void Set(EventPipeThread *pThread);
-
-    bool IsRundownThread() const
-    {
-        LIMITED_METHOD_CONTRACT;
-        return (m_pRundownSession != nullptr);
-    }
-
-    void SetAsRundownThread(EventPipeSession *pSession)
-    {
-        LIMITED_METHOD_CONTRACT;
-        m_pRundownSession = pSession;
-    }
-
-    EventPipeSession *GetRundownSession() const
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_pRundownSession;
-    }
-
-    EventPipeThread();
-    void AddRef();
-    void Release();
-    SpinLock *GetLock();
-    Volatile<EventPipeSessionID> m_writingEventInProgress;
-
-    EventPipeBuffer *GetWriteBuffer(EventPipeBufferManager *pBufferManager);
-    void SetWriteBuffer(EventPipeBufferManager *pBufferManager, EventPipeBuffer *pNewBuffer);
-    EventPipeBufferList *GetBufferList(EventPipeBufferManager *pBufferManager);
-    void SetBufferList(EventPipeBufferManager *pBufferManager, EventPipeBufferList *pBufferList);
-    SIZE_T GetOSThreadId();
-    void Remove(EventPipeBufferManager *pBufferManager);
-
-    void SetSessionWriteInProgress(uint64_t index)
-    {
-        LIMITED_METHOD_CONTRACT;
-        m_writingEventInProgress.Store((index < 64) ? (1ULL << index) : UINT64_MAX);
-    }
-
-    EventPipeSessionID GetSessionWriteInProgress() const
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_writingEventInProgress.Load();
-    }
-};
-
 class EventPipeBufferManager
 {
 
@@ -134,14 +27,18 @@ class EventPipeBufferManager
     friend class EventPipeBufferList;
 
 private:
+    // The session this buffer manager belongs to
+    EventPipeSession* m_pSession;
 
-    // A list of linked-lists of buffer objects.
-    // Each entry in this list represents a set of buffers owned by a single thread.
-    // The actual Thread object has a pointer to the object contained in this list.  This ensures that
-    // each thread can access its own list, while at the same time, ensuring that when
-    // a thread is destroyed, we keep the buffers around without having to perform any
-    // migration or book-keeping.
-    SList<SListElem<EventPipeBufferList*>> *m_pPerThreadBufferList;
+    // A list of per-thread session state
+    // Each entry in this list represents the session state owned by a single thread
+    // which includes the list of buffers the thread has written and its current
+    // event sequence number. The EventPipeThread object also has a pointer to the
+    // session state contained in this list.  This ensures that each thread can access
+    // its own data, while at the same time, ensuring that when a thread is destroyed,
+    // we keep the buffers around without having to perform any migration or
+    // book-keeping.
+    SList<SListElem<EventPipeThreadSessionState*>> *m_pThreadSessionStateList;
 
     // The total allocation size of buffers under management.
     size_t m_sizeOfAllBuffers;
@@ -185,7 +82,7 @@ private:
     // Allocate a new buffer for the specified thread.
     // This function will store the buffer in the thread's buffer list for future use and also return it here.
     // A NULL return value means that a buffer could not be allocated.
-    EventPipeBuffer* AllocateBufferForThread(unsigned int requestSize, BOOL & writeSuspended);
+    EventPipeBuffer* AllocateBufferForThread(EventPipeThreadSessionState* pSessionState, unsigned int requestSize, BOOL & writeSuspended);
 
     // Add a buffer to the thread buffer list.
     void AddBufferToThreadBufferList(EventPipeBufferList *pThreadBuffers, EventPipeBuffer *pBuffer);

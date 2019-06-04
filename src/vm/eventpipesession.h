@@ -16,6 +16,7 @@ class EventPipeEventInstance;
 class EventPipeFile;
 class EventPipeSessionProvider;
 class EventPipeSessionProviderList;
+class EventPipeThread;
 
 // TODO: Revisit the need of this enum and its usage.
 enum class EventPipeSessionType
@@ -47,6 +48,7 @@ class EventPipeSession
 private:
 
     const EventPipeSessionID m_Id;
+    const unsigned int m_index;
 
     // The set of configurations for each provider in the session.
     EventPipeSessionProviderList *const m_pProviderList;
@@ -98,7 +100,7 @@ private:
 
 public:
     EventPipeSession(
-        EventPipeSessionID id,
+        unsigned int index,
         LPCWSTR strOutputPath,
         IpcStream *const pStream,
         EventPipeSessionType sessionType,
@@ -113,6 +115,12 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return m_Id;
+    }
+
+    unsigned int GetIndex() const
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_index;
     }
 
     // Get the session type.
@@ -185,6 +193,14 @@ public:
         return m_ipcStreamingEnabled;
     }
 
+#ifdef DEBUG
+    EventPipeBufferManager* GetBufferManager() const
+    {
+        LIMITED_METHOD_CONTRACT;
+        return m_pBufferManager;
+    }
+#endif
+
     // Add a new provider to the session.
     void AddSessionProvider(EventPipeSessionProvider *pProvider);
 
@@ -202,7 +218,7 @@ public:
         Thread *pEventThread = nullptr,
         StackContents *pStack = nullptr);
 
-    void WriteEventUnbuffered(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent = TRUE);
+    void WriteEventUnbuffered(EventPipeEventInstance &instance, EventPipeThread* pThread);
 
     // Write a sequence point into the output stream synchronously
     void WriteSequencePointUnbuffered();

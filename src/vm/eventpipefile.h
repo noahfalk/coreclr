@@ -107,6 +107,10 @@ private:
     MapSHashWithRemove<EventPipeEvent *, unsigned int> *m_pMetadataIds;
 
     Volatile<LONG> m_metadataIdCounter;
+
+#ifdef DEBUG
+    LARGE_INTEGER m_lastSortedTimestamp;
+#endif
 };
 
 #endif // FEATURE_PERFTRACING

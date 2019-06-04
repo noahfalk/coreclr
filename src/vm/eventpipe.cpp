@@ -706,7 +706,7 @@ void EventPipe::WriteEventInternal(
             //    as opposed a a buffer copy here
             EventPipeEventInstance instance(
                 event,
-                pThread->GetOSThreadId64(),
+                pEventPipeThread->GetOSThreadId(),
                 pData,
                 payload.GetSize(),
                 pActivityId,
@@ -720,7 +720,7 @@ void EventPipe::WriteEventInternal(
             {
                 _ASSERTE(pRundownSession != nullptr);
                 if (pRundownSession != nullptr)
-                    pRundownSession->WriteEventUnbuffered(instance, pThread->GetOSThreadId64());
+                    pRundownSession->WriteEventUnbuffered(instance, pEventPipeThread);
             }
             EX_CATCH {}
             EX_END_CATCH(SwallowAllExceptions);
