@@ -98,6 +98,7 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
     {
         payloadLength =
             sizeof(m_metadataId) +          // Metadata ID
+            sizeof(unsigned int) +          // Sequence number (implied by the buffer containing the event instance)
             sizeof(m_threadId) +            // Thread ID
             sizeof(ULONGLONG) +             // Capture Thread ID (implied by the buffer containing the event instance)
             sizeof(m_timeStamp) +           // TimeStamp
@@ -179,8 +180,18 @@ bool EventPipeEventInstance::EnsureConsistency()
 EventPipeSequencePoint::EventPipeSequencePoint()
 {
     LIMITED_METHOD_CONTRACT;
-    QueryPerformanceCounter(&TimeStamp);
+    TimeStamp.QuadPart = 0;
 }
 
+EventPipeSequencePoint::~EventPipeSequencePoint()
+{
+    // Each entry in the map owns a ref-count on the corresponding thread
+    for (ThreadSequenceNumberMap::Iterator pCur = ThreadSequenceNumbers.Begin();
+        pCur != ThreadSequenceNumbers.End();
+        pCur++)
+    {
+        pCur->Key()->GetThread()->Release();
+    }
+}
 
 #endif // FEATURE_PERFTRACING

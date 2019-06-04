@@ -46,6 +46,26 @@ class EventPipeThreadSessionState
     EventPipeBufferManager* m_pBufferManager;
 #endif
 
+    // The number of events that were attempted to be written by this
+    // thread. Each event was either succesfully recorded in a buffer
+    // or it was dropped.
+    //
+    // Only updated by the current thread under m_pThread::GetLock(). Other
+    // event writer threads are allowed to do unsychronized reads when
+    // capturing a sequence point but this does not provide any consistency
+    // guarantee. In particular there is no promise that the other thread
+    // is observing the most recent sequence number, nor is there a promise
+    // that the observable number of events in the write buffer matches the
+    // sequence number. A writer thread will always update the sequence
+    // number in tandem with an event write or drop, but without a write
+    // barrier between those memory writes they might observed out-of-order
+    // by the thread capturing the sequence point. The only utility this
+    // unsychronized read has is that if some other thread observes a sequence
+    // number X, it knows this thread must have attempted to write at least
+    // X events prior to the moment in time when the read occured. If the event
+    // buffers are later read and there are fewer than X events timestamped
+    // prior to the sequence point we can be certain the others were dropped.
+    Volatile<unsigned int> m_sequenceNumber;
 
 public:
     EventPipeThreadSessionState(EventPipeThread* pThread, EventPipeSession* pSession DEBUG_ARG(EventPipeBufferManager* pBufferManager));
@@ -56,6 +76,9 @@ public:
     void SetWriteBuffer(EventPipeBuffer *pNewBuffer);
     EventPipeBufferList *GetBufferList();
     void SetBufferList(EventPipeBufferList *pBufferList);
+    unsigned int GetVolatileSequenceNumber();
+    unsigned int GetSequenceNumber();
+    void IncrementSequenceNumber();
 };
 
 #ifndef __GNUC__

@@ -10,7 +10,7 @@
 
 #ifdef FEATURE_PERFTRACING
 
-EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread)
+EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread, unsigned int eventSequenceNumber)
 {
     CONTRACTL
     {
@@ -21,6 +21,7 @@ EventPipeBuffer::EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWrit
     CONTRACTL_END;
     m_state = EventPipeBufferState::WRITABLE;
     m_pWriterThread = pWriterThread;
+    m_eventSequenceNumber = eventSequenceNumber;
     m_pBuffer = new BYTE[bufferSize];
     memset(m_pBuffer, 0, bufferSize);
     m_pLimit = m_pBuffer + bufferSize;
@@ -170,6 +171,8 @@ void EventPipeBuffer::MoveNextReadEvent()
             // In case we do not have a payload, the next instance is right after the current instance
             m_pCurrentReadEvent = (EventPipeEventInstance*)GetNextAlignedAddress((BYTE*)(m_pCurrentReadEvent + 1));
         }
+        // this may roll over and that is fine
+        m_eventSequenceNumber++;
 
         // Check to see if we've reached the end of the written portion of the buffer.
         if ((BYTE*)m_pCurrentReadEvent >= m_pCurrent)
@@ -200,6 +203,21 @@ EventPipeEventInstance* EventPipeBuffer::GetCurrentReadEvent()
     CONTRACTL_END;
 
     return m_pCurrentReadEvent;
+}
+
+unsigned int EventPipeBuffer::GetCurrentSequenceNumber()
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+    }
+    CONTRACTL_END;
+
+    _ASSERTE(m_state == READ_ONLY);
+
+    return m_eventSequenceNumber;
 }
 
 EventPipeThread* EventPipeBuffer::GetWriterThread()

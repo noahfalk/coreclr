@@ -23,7 +23,7 @@ public:
     ~EventPipeFile();
 
     EventPipeSerializationFormat GetSerializationFormat() const;
-    void WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent);
+    void WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent);
     void WriteSequencePoint(EventPipeSequencePoint* pSequencePoint);
     enum FlushFlags
     {
@@ -71,7 +71,7 @@ private:
 
     void SaveMetadataId(EventPipeEvent &event, unsigned int metadataId);
 
-    void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId, ULONGLONG captureThreadId, BOOL isSortedEvent = TRUE);
+    void WriteToBlock(EventPipeEventInstance &instance, unsigned int metadataId, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent = TRUE);
 
     // The format to serialize
     EventPipeSerializationFormat m_format;

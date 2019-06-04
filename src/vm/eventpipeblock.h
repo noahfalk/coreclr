@@ -87,7 +87,7 @@ public:
     // Returns:
     //  - true: The write succeeded.
     //  - false: The write failed.  In this case, the block should be considered full.
-    bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent);
+    bool WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent);
 
 };
 

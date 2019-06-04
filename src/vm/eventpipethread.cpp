@@ -15,8 +15,9 @@ EventPipeThreadSessionState::EventPipeThreadSessionState(EventPipeThread* pThrea
     m_pWriteBuffer(nullptr),
     m_pBufferList(nullptr),
 #ifdef DEBUG
-    m_pBufferManager(pBufferManager)
+    m_pBufferManager(pBufferManager),
 #endif
+    m_sequenceNumber(1)
 {
 }
 
@@ -66,6 +67,27 @@ void EventPipeThreadSessionState::SetBufferList(EventPipeBufferList *pNewBufferL
     _ASSERTE(m_pBufferManager->IsLockOwnedByCurrentThread());
     m_pBufferList = pNewBufferList;
 }
+
+unsigned int EventPipeThreadSessionState::GetVolatileSequenceNumber()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_sequenceNumber.LoadWithoutBarrier();
+}
+
+unsigned int EventPipeThreadSessionState::GetSequenceNumber()
+{
+    LIMITED_METHOD_CONTRACT;
+    _ASSERTE(m_pThread->IsLockOwnedByCurrentThread());
+    return m_sequenceNumber.LoadWithoutBarrier();
+}
+
+void EventPipeThreadSessionState::IncrementSequenceNumber()
+{
+    LIMITED_METHOD_CONTRACT;
+    _ASSERTE(m_pThread->IsLockOwnedByCurrentThread());
+    m_sequenceNumber++;
+}
+
 
 
 void ReleaseEventPipeThreadRef(EventPipeThread *pThread)

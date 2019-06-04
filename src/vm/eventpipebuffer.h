@@ -58,6 +58,10 @@ private:
 
     // Thread that is/was allowed to write into this buffer when m_state == WRITABLE
     EventPipeThread* m_pWriterThread;
+
+    // The sequence number corresponding to m_pCurrentReadEvent
+    // Prior to read iteration it is the sequence number of the first event in the buffer
+    unsigned int m_eventSequenceNumber;
     
     // A pointer to the actual buffer.
     BYTE *m_pBuffer;
@@ -124,7 +128,7 @@ private:
 
 public:
 
-    EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread);
+    EventPipeBuffer(unsigned int bufferSize, EventPipeThread* pWriterThread, unsigned int eventSequenceNumber);
     ~EventPipeBuffer();
 
     // Write an event to the buffer.
@@ -146,6 +150,9 @@ public:
     // Returns the event at the current read cursor. The returned event pointer is valid
     // until the buffer is deleted.
     EventPipeEventInstance* GetCurrentReadEvent();
+
+    // Gets the sequence number of the event corresponding to GetCurrentReadEvent();
+    unsigned int GetCurrentSequenceNumber();
 
     // Get the thread that is (or was) assigned to write to this buffer
     EventPipeThread* GetWriterThread();

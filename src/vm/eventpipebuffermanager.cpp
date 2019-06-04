@@ -170,7 +170,10 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
         // could throw, and cannot be easily checked
         EX_TRY
         {
-            pNewBuffer = new EventPipeBuffer(bufferSize, pSessionState->GetThread());
+            // The sequence counter is exclusively mutated on this thread so this is a thread-local
+            // read.
+            unsigned int sequenceNumber = pSessionState->GetVolatileSequenceNumber();
+            pNewBuffer = new EventPipeBuffer(bufferSize, pSessionState->GetThread(), sequenceNumber);
         }
         EX_CATCH
         {
@@ -192,6 +195,7 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
                 EventPipeSequencePoint* pSequencePoint = new (nothrow) EventPipeSequencePoint();
                 if (pSequencePoint != NULL)
                 {
+                    InitSequencePointThreadListHaveLock(pSequencePoint);
                     EnqueueSequencePoint(pSequencePoint);
                 }
                 m_remainingSequencePointAllocationBudget = m_sequencePointAllocationBudget;
@@ -228,6 +232,65 @@ void EventPipeBufferManager::EnqueueSequencePoint(EventPipeSequencePoint* pSeque
     CONTRACTL_END;
 
     m_sequencePoints.InsertTail(pSequencePoint);
+}
+
+void EventPipeBufferManager::InitSequencePointThreadList(EventPipeSequencePoint* pSequencePoint)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(!IsLockOwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    SpinLockHolder __slh(&m_lock);
+    InitSequencePointThreadListHaveLock(pSequencePoint);
+}
+
+void EventPipeBufferManager::InitSequencePointThreadListHaveLock(EventPipeSequencePoint* pSequencePoint)
+{
+    CONTRACTL
+    {
+        NOTHROW;
+        GC_NOTRIGGER;
+        MODE_ANY;
+        PRECONDITION(IsLockOwnedByCurrentThread());
+    }
+    CONTRACTL_END;
+
+    SListElem<EventPipeThreadSessionState*> *pElem = m_pThreadSessionStateList->GetHead();
+    while (pElem != NULL)
+    {
+        EventPipeThreadSessionState* pSessionState = pElem->GetValue();
+
+        // The sequence number captured here is not guaranteed to be the most recent sequence number, nor
+        // is it guaranteed to match the number of events we would observe in the thread's write buffer
+        // memory. This is only used as a lower bound on the number of events the thread has attempted to
+        // write at the timestamp we will capture below.
+        //
+        // The sequence number is the value that will be used by the next event, so the last written
+        // event is one less. Sequence numbers are allowed to overflow, so going backwards is allowed to
+        // underflow.
+        unsigned int sequenceNumber = pSessionState->GetVolatileSequenceNumber() - 1;
+        EX_TRY
+        {
+            pSequencePoint->ThreadSequenceNumbers.Add(pSessionState, sequenceNumber);
+            pSessionState->GetThread()->AddRef();
+        }
+        EX_CATCH
+        {
+        }
+        EX_END_CATCH(SwallowAllExceptions);
+
+        pElem = m_pThreadSessionStateList->GetNext(pElem);
+    }
+
+    // This needs to come after querying the thread sequence numbers to ensure that any recorded
+    // sequence number is <= the actual sequence number at this timestamp
+    PRECONDITION(m_lock.OwnedByCurrentThread());
+    QueryPerformanceCounter(&pSequencePoint->TimeStamp);
 }
 
 void EventPipeBufferManager::DequeueSequencePoint()
@@ -342,7 +405,14 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
         else
         {
             // Attempt to write the event to the buffer.  If this fails, we should allocate a new buffer.
-            allocNewBuffer = !pBuffer->WriteEvent(pEventThread, session, event, payload, pActivityId, pRelatedActivityId, pStack);
+            if (pBuffer->WriteEvent(pEventThread, session, event, payload, pActivityId, pRelatedActivityId, pStack))
+            {
+                pSessionState->IncrementSequenceNumber();
+            }
+            else
+            {
+                allocNewBuffer = true;
+            }
         }
     }
 
@@ -391,6 +461,8 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
                     // This is the first time if the thread had no buffers before the call to this function.
                     // This is the second time if this thread did have one or more buffers, but they were full.
                     allocNewBuffer = !pBuffer->WriteEvent(pEventThread, session, event, payload, pActivityId, pRelatedActivityId, pStack);
+                    _ASSERTE(!allocNewBuffer);
+                    pSessionState->IncrementSequenceNumber();
                 }
             }
         }
@@ -449,7 +521,7 @@ void EventPipeBufferManager::WriteAllBuffersToFileV3(EventPipeFile *pFile, LARGE
     MoveNextEventAnyThread(stopTimeStamp);
     while (GetCurrentEvent() != nullptr)
     {
-        pFile->WriteEvent(*GetCurrentEvent(), /*CaptureThreadId=*/0, /*IsSorted=*/TRUE);
+        pFile->WriteEvent(*GetCurrentEvent(), /*CaptureThreadId=*/0, /*sequenceNumber=*/0, /*IsSorted=*/TRUE);
         MoveNextEventAnyThread(stopTimeStamp);
     }
     pFile->Flush();
@@ -538,15 +610,23 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
                 break;
             }
             ULONGLONG captureThreadId = GetCurrentEventBuffer()->GetWriterThread()->GetOSThreadId();
+            EventPipeBufferList* pBufferList = GetCurrentEventBufferList();
 
             // loop across events on this thread
             bool eventsWritten = false;
+            unsigned int sequenceNumber = 0;
             while (GetCurrentEvent() != nullptr) 
             {
-                pFile->WriteEvent(*GetCurrentEvent(), captureThreadId, !eventsWritten);
+                // The first event emitted on each thread (detected by !eventsWritten) is guaranteed to 
+                // be the oldest  event cached in our buffers so we mark it. This implements mechanism #2
+                // in the big comment above.
+
+                sequenceNumber = GetCurrentSequenceNumber();
+                pFile->WriteEvent(*GetCurrentEvent(), captureThreadId, sequenceNumber, !eventsWritten);
                 eventsWritten = true;
                 MoveNextEventSameThread(curTimestampBoundary);
             }
+            pBufferList->SetLastReadSequenceNumber(sequenceNumber);
         }
 
         // This finishes any current partially filled EventPipeBlock, and flushes it to the stream
@@ -560,10 +640,37 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
         }
         else // (curTimestampBoundary.QuadPart < stopTimeStamp.QuadPart)
         {
-            // we must have stopped at a sequence point, emit a sequence point block and then resume
-            // iterating events in the next sequence point range
+            // stopped at sequence point case
+
+            // the sequence point captured a lower bound for sequence number on each thread, but iterating
+            // through the events we may have observed that a higher numbered event was recorded. If so we
+            // should adjust the sequence numbers upwards to ensure the data in the stream is consistent.
+            {
+                SpinLockHolder _slh(&m_lock);
+
+                SListElem<EventPipeThreadSessionState*> *pElem = m_pThreadSessionStateList->GetHead();
+                while (pElem != NULL)
+                {
+                    EventPipeThreadSessionState* pSessionState = pElem->GetValue();
+                    unsigned int threadSequenceNumber = 0;
+                    pSequencePoint->ThreadSequenceNumbers.Lookup(pSessionState, &threadSequenceNumber);
+                    unsigned int lastReadSequenceNumber = pSessionState->GetBufferList()->GetLastReadSequenceNumber();
+                    // Sequence numbers can overflow so we can't use a direct lastRead > sequenceNumber comparison
+                    // If a thread is able to drop more than 0x80000000 events in between sequence points then we will
+                    // miscategorize it, but that seems unlikely.
+                    unsigned int lastReadDelta = lastReadSequenceNumber - threadSequenceNumber;
+                    if (0 < lastReadDelta && lastReadDelta < 0x80000000)
+                    {
+                        pSequencePoint->ThreadSequenceNumbers.AddOrReplace(ThreadSequenceNumberMap::element_t(pSessionState, lastReadSequenceNumber));
+                    }
+                    pElem = m_pThreadSessionStateList->GetNext(pElem);
+                }
+            }
+
+            // emit the sequence point into the file
             pFile->WriteSequencePoint(pSequencePoint);
 
+            // move to the next sequence point if any
             {
                 SpinLockHolder _slh(&m_lock);
 
@@ -611,10 +718,22 @@ EventPipeEventInstance* EventPipeBufferManager::GetCurrentEvent()
     return m_pCurrentEvent;
 }
 
+unsigned int EventPipeBufferManager::GetCurrentSequenceNumber()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_pCurrentBuffer->GetCurrentSequenceNumber();
+}
+
 EventPipeBuffer* EventPipeBufferManager::GetCurrentEventBuffer()
 {
     LIMITED_METHOD_CONTRACT;
     return m_pCurrentBuffer;
+}
+
+EventPipeBufferList* EventPipeBufferManager::GetCurrentEventBufferList()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_pCurrentBufferList;
 }
 
 void EventPipeBufferManager::MoveNextEventAnyThread(LARGE_INTEGER stopTimeStamp)
@@ -1026,6 +1145,7 @@ EventPipeBufferList::EventPipeBufferList(EventPipeBufferManager *pManager, Event
     m_pHeadBuffer = NULL;
     m_pTailBuffer = NULL;
     m_bufferCount = 0;
+    m_lastReadSequenceNumber = 0;
 }
 
 EventPipeBuffer *EventPipeBufferList::GetHead()
@@ -1132,6 +1252,18 @@ EventPipeThread *EventPipeBufferList::GetThread()
 {
     LIMITED_METHOD_CONTRACT;
     return m_pThread;
+}
+
+unsigned int EventPipeBufferList::GetLastReadSequenceNumber()
+{
+    LIMITED_METHOD_CONTRACT;
+    return m_lastReadSequenceNumber;
+}
+
+void EventPipeBufferList::SetLastReadSequenceNumber(unsigned int sequenceNumber)
+{
+    LIMITED_METHOD_CONTRACT;
+    m_lastReadSequenceNumber = sequenceNumber;
 }
 
 #ifdef _DEBUG

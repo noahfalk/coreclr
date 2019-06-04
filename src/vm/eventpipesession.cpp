@@ -333,6 +333,7 @@ void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, Ev
         return;
     EventPipeThreadSessionState* pState = nullptr;
     ULONGLONG captureThreadId;
+    unsigned int sequenceNumber;
     {
         SpinLockHolder _slh(pThread->GetLock());
         pState = pThread->GetSessionState(this);
@@ -341,8 +342,10 @@ void EventPipeSession::WriteEventUnbuffered(EventPipeEventInstance &instance, Ev
             return;
         }
         captureThreadId = pThread->GetOSThreadId();
+        sequenceNumber = pState->GetSequenceNumber();
+        pState->IncrementSequenceNumber();
     }
-    m_pFile->WriteEvent(instance, captureThreadId, TRUE);
+    m_pFile->WriteEvent(instance, captureThreadId, sequenceNumber, TRUE);
 }
 
 void EventPipeSession::WriteSequencePointUnbuffered()
@@ -358,6 +361,7 @@ void EventPipeSession::WriteSequencePointUnbuffered()
     if (m_pFile == nullptr)
         return;
     EventPipeSequencePoint sequencePoint;
+    m_pBufferManager->InitSequencePointThreadList(&sequencePoint);
     m_pFile->WriteSequencePoint(&sequencePoint);
 }
 

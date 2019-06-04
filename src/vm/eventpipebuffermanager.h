@@ -96,6 +96,10 @@ private:
     // Peek the first sequence point in the queue. Returns FALSE if the queue is empty.
     bool TryPeekSequencePoint(EventPipeSequencePoint** ppSequencePoint);
 
+    // Inits a sequence point that has the list of current threads and sequence
+    // numbers (Requires m_lock is already held)
+    void InitSequencePointThreadListHaveLock(EventPipeSequencePoint* pSequencePoint);
+
     // De-allocates the input buffer.
     void DeAllocateBuffer(EventPipeBuffer *pBuffer);
 
@@ -132,8 +136,14 @@ private:
     // the last call to MoveNextXXX() didn't find any suitable event.
     EventPipeEventInstance* GetCurrentEvent();
 
+    // Gets the sequence number corresponding to event from GetCurrentEvent()
+    unsigned int GetCurrentSequenceNumber();
+
     // Gets the buffer corresponding to event from GetCurrentEvent()
     EventPipeBuffer* GetCurrentEventBuffer();
+
+    // Gets the buffer list corresponding to event from GetCurrentEvent()
+    EventPipeBufferList* GetCurrentEventBufferList();
 
 public:
 
@@ -147,7 +157,10 @@ public:
     // Otherwise, if a stack trace is needed, one will be automatically collected.
     bool WriteEvent(Thread *pThread, EventPipeSession &session, EventPipeEvent &event, EventPipeEventPayload &payload, LPCGUID pActivityId, LPCGUID pRelatedActivityId, Thread *pEventThread = NULL, StackContents *pStack = NULL);
 
-    // Suspends all WriteEvent activity. All existing buffers will be in the
+    // Inits a sequence point that has the list of current threads and sequence
+    // numbers
+    void InitSequencePointThreadList(EventPipeSequencePoint* pSequencePoint);
+
     // READ_ONLY state and no new EventPipeBuffers or EventPipeBufferLists can be created. Calls to
     // WriteEvent that start during the suspension period or were in progress but hadn't yet recorded
     // their event into a buffer before the start of the suspension period will return false and the
@@ -198,6 +211,10 @@ private:
     // The number of buffers in the list.
     unsigned int m_bufferCount;
 
+    // The sequence number of the last event that was read, only
+    // updated/read by the reader thread. 
+    unsigned int m_lastReadSequenceNumber;
+
 public:
 
     EventPipeBufferList(EventPipeBufferManager *pManager, EventPipeThread* pThread);
@@ -219,6 +236,10 @@ public:
 
     // Get the thread associated with this list.
     EventPipeThread* GetThread();
+
+    // Read/Write the last read sequence number
+    unsigned int GetLastReadSequenceNumber();
+    void SetLastReadSequenceNumber(unsigned int sequenceNumber);
 
 #ifdef _DEBUG
     // Validate the consistency of the list.

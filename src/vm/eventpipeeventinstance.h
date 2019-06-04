@@ -11,6 +11,7 @@
 #include "eventpipeevent.h"
 #include "eventpipesession.h"
 #include "eventpipeblock.h"
+#include "eventpipethread.h"
 #include "fastserializableobject.h"
 #include "fastserializer.h"
 
@@ -149,6 +150,8 @@ private:
     void SetTimeStamp(LARGE_INTEGER timeStamp);
 };
 
+typedef MapSHash<EventPipeThreadSessionState *, unsigned int> ThreadSequenceNumberMap;
+
 // A point in time marker that is used as a boundary when emitting events.
 // The events in a Nettrace file are not emitted in a fully sorted order
 // but we do guarantee that all events before a sequence point are emitted
@@ -160,8 +163,10 @@ struct EventPipeSequencePoint
 
     // The timestamp the sequence point was captured
     LARGE_INTEGER TimeStamp;
+    ThreadSequenceNumberMap ThreadSequenceNumbers;
 
     EventPipeSequencePoint();
+    ~EventPipeSequencePoint();
 };
 
 #endif // FEATURE_PERFTRACING

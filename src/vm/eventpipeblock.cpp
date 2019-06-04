@@ -99,7 +99,7 @@ EventPipeEventBlockBase::EventPipeEventBlockBase(unsigned int maxBlockSize, Even
     EventPipeBlock(maxBlockSize, format)
 {}
 
-bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, BOOL isSortedEvent)
+bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captureThreadId, unsigned int sequenceNumber, BOOL isSortedEvent)
 {
     CONTRACTL
     {
@@ -140,6 +140,9 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance, ULONG
     }
     else if (m_format == EventPipeNetTraceFormatV4)
     {
+        memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
+        m_pWritePointer += sizeof(sequenceNumber);
+
         ULONGLONG threadId = instance.GetThreadId64();
         memcpy(m_pWritePointer, &threadId, sizeof(threadId));
         m_pWritePointer += sizeof(threadId);
@@ -199,7 +202,11 @@ EventPipeMetadataBlock::EventPipeMetadataBlock(unsigned int maxBlockSize) :
 
 unsigned int GetSequencePointBlockSize(EventPipeSequencePoint* pSequencePoint)
 {
-    return sizeof(pSequencePoint->TimeStamp);
+    const unsigned int sizeOfSequenceNumber =
+        sizeof(ULONGLONG) +    // thread id
+        sizeof(unsigned int);  // sequence number
+    return sizeof(pSequencePoint->TimeStamp) +
+        pSequencePoint->ThreadSequenceNumbers.GetCount() * sizeOfSequenceNumber;
 }
 
 EventPipeSequencePointBlock::EventPipeSequencePointBlock(EventPipeSequencePoint* pSequencePoint) :
@@ -208,6 +215,19 @@ EventPipeSequencePointBlock::EventPipeSequencePointBlock(EventPipeSequencePoint*
     const LARGE_INTEGER* timeStamp = &pSequencePoint->TimeStamp;
     memcpy(m_pWritePointer, timeStamp, sizeof(*timeStamp));
     m_pWritePointer += sizeof(*timeStamp);
+
+    for (ThreadSequenceNumberMap::Iterator pCur = pSequencePoint->ThreadSequenceNumbers.Begin();
+        pCur != pSequencePoint->ThreadSequenceNumbers.End();
+        pCur++)
+    {
+        const ULONGLONG threadId = pCur->Key()->GetThread()->GetOSThreadId();
+        memcpy(m_pWritePointer, &threadId, sizeof(threadId));
+        m_pWritePointer += sizeof(threadId);
+
+        const unsigned int sequenceNumber = pCur->Value();
+        memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
+        m_pWritePointer += sizeof(sequenceNumber);
+    }
 }
 
 
