@@ -276,7 +276,7 @@ EventPipeSessionID EventPipe::Enable(
         THROWS;
         GC_TRIGGERS;
         MODE_PREEMPTIVE;
-        PRECONDITION(format < EventPipeFormatCount);
+        PRECONDITION(format < EventPipeSerializationFormat::Count);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
     }

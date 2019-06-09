@@ -22,7 +22,7 @@ struct EventPipeProviderConfiguration;
 class EventPipeSession;
 class IpcStream;
 enum class EventPipeSessionType;
-enum EventPipeSerializationFormat;
+enum class EventPipeSerializationFormat;
 
 enum class EventPipeEventLevel
 {

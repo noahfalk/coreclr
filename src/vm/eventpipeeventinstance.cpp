@@ -81,7 +81,7 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
     // Calculate the size of the total payload so that it can be written to the file.
     unsigned int payloadLength = 0;
 
-    if (format == EventPipeNetPerfFormatV3)
+    if (format == EventPipeSerializationFormat::NetPerfV3)
     {
         payloadLength =
             sizeof(m_metadataId) +          // Metadata ID
@@ -94,7 +94,7 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
             sizeof(unsigned int) +          // Prepended stack payload size in bytes
             m_stackContents.GetSize();      // Stack payload size
     }
-    else if (format == EventPipeNetTraceFormatV4)
+    else if (format == EventPipeSerializationFormat::NetTraceV4)
     {
         payloadLength =
             sizeof(m_metadataId) +          // Metadata ID

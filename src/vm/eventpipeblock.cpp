@@ -8,6 +8,16 @@
 #include "fastserializableobject.h"
 #include "fastserializer.h"
 
+// my attempts to include limits.h were hitting missing headers on Linux
+// This might be resolvable with more effort but I chose not to head
+// down the rabbit hole when a perfectly decent 60 second fix was available:
+#ifndef LLONG_MIN
+#define LLONG_MIN 0x8000000000000000
+#endif
+#ifndef LLONG_MAX 
+#define LLONG_MAX 0x7FFFFFFFFFFFFFFF
+#endif
+
 #ifdef FEATURE_PERFTRACING
 
 
@@ -17,13 +27,14 @@ DWORD GetBlockVersion(EventPipeSerializationFormat format)
     LIMITED_METHOD_CONTRACT;
     switch (format)
     {
-    case EventPipeNetPerfFormatV3:
+    case EventPipeSerializationFormat::NetPerfV3:
         return 1;
-    case EventPipeNetTraceFormatV4:
+    case EventPipeSerializationFormat::NetTraceV4:
         return 2;
+    default:
+        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+        return 0;
     }
-    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-    return 0;
 }
 
 DWORD GetBlockMinVersion(EventPipeSerializationFormat format)
@@ -31,17 +42,18 @@ DWORD GetBlockMinVersion(EventPipeSerializationFormat format)
     LIMITED_METHOD_CONTRACT;
     switch (format)
     {
-    case EventPipeNetPerfFormatV3:
+    case EventPipeSerializationFormat::NetPerfV3:
         return 0;
-    case EventPipeNetTraceFormatV4:
+    case EventPipeSerializationFormat::NetTraceV4:
         return 2;
+    default:
+        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+        return 0;
     }
-    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-    return 0;
 }
 
 EventPipeBlock::EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format), format >= EventPipeNetTraceFormatV4)
+    FastSerializableObject(GetBlockVersion(format), GetBlockMinVersion(format), format >= EventPipeSerializationFormat::NetTraceV4)
 {
     CONTRACTL
     {
@@ -90,6 +102,8 @@ void EventPipeBlock::Clear()
     {
         return;
     }
+
+    _ASSERTE(m_pWritePointer <= m_pEndOfTheBuffer);
 
     memset(m_pBlock, 0, GetSize());
     m_pWritePointer = m_pBlock;
@@ -154,7 +168,7 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION(isSortedEvent || m_format >= EventPipeNetTraceFormatV4);
+        PRECONDITION(isSortedEvent || m_format >= EventPipeSerializationFormat::NetTraceV4);
     }
     CONTRACTL_END;
 
@@ -185,13 +199,13 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
         memcpy(m_pWritePointer, &metadataId, sizeof(metadataId));
         m_pWritePointer += sizeof(metadataId);
 
-        if (m_format == EventPipeNetPerfFormatV3)
+        if (m_format == EventPipeSerializationFormat::NetPerfV3)
         {
             DWORD threadId = instance.GetThreadId32();
             memcpy(m_pWritePointer, &threadId, sizeof(threadId));
             m_pWritePointer += sizeof(threadId);
         }
-        else if (m_format == EventPipeNetTraceFormatV4)
+        else if (m_format == EventPipeSerializationFormat::NetTraceV4)
         {
             memcpy(m_pWritePointer, &sequenceNumber, sizeof(sequenceNumber));
             m_pWritePointer += sizeof(sequenceNumber);
@@ -219,7 +233,7 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
         memcpy(m_pWritePointer, relatedActivityId, sizeof(*relatedActivityId));
         m_pWritePointer += sizeof(*relatedActivityId);
 
-        unsigned int dataLength = instance.GetDataLength();
+        dataLength = instance.GetDataLength();
         memcpy(m_pWritePointer, &dataLength, sizeof(dataLength));
         m_pWritePointer += sizeof(dataLength);
     }
@@ -312,7 +326,7 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
         m_pWritePointer += dataLength;
     }
 
-    if (m_format == EventPipeNetPerfFormatV3)
+    if (m_format == EventPipeSerializationFormat::NetPerfV3)
     {
         unsigned int stackSize = instance.GetStackSize();
         memcpy(m_pWritePointer, &stackSize, sizeof(stackSize));
@@ -329,6 +343,7 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
     {
         *m_pWritePointer++ = (BYTE)0; // put padding at the end to get 4 bytes alignment of the payload
     }
+    _ASSERTE(m_pWritePointer == alignedEnd);
 
     if (m_minTimeStamp.QuadPart > instance.GetTimeStamp()->QuadPart)
     {
@@ -343,12 +358,12 @@ bool EventPipeEventBlockBase::WriteEvent(EventPipeEventInstance &instance,
 }
 
 EventPipeEventBlock::EventPipeEventBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format) :
-    EventPipeEventBlockBase(maxBlockSize, format)
+    EventPipeEventBlockBase(maxBlockSize, format, format >= EventPipeSerializationFormat::NetTraceV4)
 {}
 
 
 EventPipeMetadataBlock::EventPipeMetadataBlock(unsigned int maxBlockSize) :
-    EventPipeEventBlockBase(maxBlockSize, EventPipeNetTraceFormatV4)
+    EventPipeEventBlockBase(maxBlockSize, EventPipeSerializationFormat::NetTraceV4)
 {}
 
 unsigned int GetSequencePointBlockSize(EventPipeSequencePoint* pSequencePoint)

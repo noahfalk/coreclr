@@ -435,6 +435,12 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
             // same as if event.IsEnabled() test above returned false.
             if (writeSuspended)
                 return false;
+
+            // This lock looks unnecessary for the sequence number, but didn't want to
+            // do a broader refactoring to take it out. If it shows up as a perf 
+            // problem then we should.
+            SpinLockHolder _slh(pEventPipeThread->GetLock());
+            pSessionState->IncrementSequenceNumber();
         }
         else
         {
@@ -495,7 +501,7 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
 
     // The V4 format doesn't require full event sorting as V3 did
     // See the comments in WriteAllBufferToFileV4 for more details
-    if (pFile->GetSerializationFormat() >= EventPipeNetTraceFormatV4)
+    if (pFile->GetSerializationFormat() >= EventPipeSerializationFormat::NetTraceV4)
     {
         WriteAllBuffersToFileV4(pFile, stopTimeStamp);
     }
@@ -873,8 +879,21 @@ EventPipeBuffer* EventPipeBufferManager::AdvanceToNonEmptyBuffer(EventPipeBuffer
     CONTRACTL_END;
 
     EventPipeBuffer* pCurrentBuffer = pBuffer;
-    while (pCurrentBuffer->GetCurrentReadEvent() == nullptr)
+    while (true)
     {
+        if (!TryConvertBufferToReadOnly(pCurrentBuffer))
+        {
+            // the writer thread hasn't yet stored this buffer into the m_pWriteBuffer
+            // field (there is a small time window after allocation in this state).
+            // This should be the only buffer remaining in the list and it has no
+            // events written into it so we are done iterating.
+            return nullptr;
+        }
+        if (pCurrentBuffer->GetCurrentReadEvent() != nullptr)
+        {
+            // found a non-empty buffer
+            return pCurrentBuffer;
+        }
         {
             SpinLockHolder _slh(&m_lock);
 
@@ -892,17 +911,7 @@ EventPipeBuffer* EventPipeBufferManager::AdvanceToNonEmptyBuffer(EventPipeBuffer
                 return nullptr;
             }
         }
-        if (!TryConvertBufferToReadOnly(pCurrentBuffer))
-        {
-            // the writer thread hasn't yet stored this buffer into the m_pWriteBuffer
-            // field (there is a small time window after allocation in this state).
-            // This should be the only buffer remaining in the list and it has no
-            // events written into it so we are done iterating.
-            return nullptr;
-
-        }
     }
-    return pCurrentBuffer;
 }
 
 bool EventPipeBufferManager::TryConvertBufferToReadOnly(EventPipeBuffer* pNewReadBuffer)

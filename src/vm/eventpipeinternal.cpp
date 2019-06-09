@@ -42,10 +42,10 @@ UINT64 QCALLTYPE EventPipeInternal::Enable(
         // doing private reflection and the EnableEventPipe env var. If we want to flip
         // the default for one but not the other we'll have to hoist the configuration
         // check into managed code.
-        EventPipeSerializationFormat format = EventPipeNetPerfFormatV3;
+        EventPipeSerializationFormat format = EventPipeSerializationFormat::NetPerfV3;
         if (CLRConfig::GetConfigValue(CLRConfig::INTERNAL_EventPipeNetTraceFormat) > 0)
         {
-            format = EventPipeNetTraceFormatV4;
+            format = EventPipeSerializationFormat::NetTraceV4;
         }
 
         sessionID = EventPipe::Enable(

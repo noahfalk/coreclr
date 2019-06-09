@@ -35,15 +35,15 @@ StackHashKey StackHashEntry::GetKey() const
 }
 
 StackHashKey::StackHashKey(StackContents* pStack) :
+    pStackBytes(pStack->GetPointer()),
     Hash(HashBytes(pStack->GetPointer(), pStack->GetSize())),
-    StackSizeInBytes(pStack->GetSize()),
-    pStackBytes(pStack->GetPointer())
+    StackSizeInBytes(pStack->GetSize())
 {}
 
 StackHashKey::StackHashKey(BYTE* pStackBytes, ULONG stackSizeInBytes, ULONG hash) :
+    pStackBytes(pStackBytes),
     Hash(hash),
-    StackSizeInBytes(stackSizeInBytes),
-    pStackBytes(pStackBytes)
+    StackSizeInBytes(stackSizeInBytes)
 {}
 
 DWORD GetFileVersion(EventPipeSerializationFormat format)
@@ -51,13 +51,14 @@ DWORD GetFileVersion(EventPipeSerializationFormat format)
     LIMITED_METHOD_CONTRACT;
     switch(format)
     {
-    case EventPipeNetPerfFormatV3:
+    case EventPipeSerializationFormat::NetPerfV3:
         return 3;
-    case EventPipeNetTraceFormatV4:
+    case EventPipeSerializationFormat::NetTraceV4:
         return 4;
+    default:
+        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+        return 0;
     }
-    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-    return 0;
 }
 
 DWORD GetFileMinVersion(EventPipeSerializationFormat format)
@@ -65,17 +66,18 @@ DWORD GetFileMinVersion(EventPipeSerializationFormat format)
     LIMITED_METHOD_CONTRACT;
     switch (format)
     {
-    case EventPipeNetPerfFormatV3:
+    case EventPipeSerializationFormat::NetPerfV3:
         return 0;
-    case EventPipeNetTraceFormatV4:
+    case EventPipeSerializationFormat::NetTraceV4:
         return 4;
+    default:
+        _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
+        return 0;
     }
-    _ASSERTE(!"Unrecognized EventPipeSerializationFormat");
-    return 0;
 }
 
 EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerializationFormat format) :
-    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format), format >= EventPipeNetTraceFormatV4)
+    FastSerializableObject(GetFileVersion(format), GetFileMinVersion(format), format >= EventPipeSerializationFormat::NetTraceV4)
 {
     CONTRACTL
     {
@@ -105,10 +107,14 @@ EventPipeFile::EventPipeFile(StreamWriter *pStreamWriter, EventPipeSerialization
 
     m_samplingRateInNs = SampleProfiler::GetSamplingRate();
 
-    const char* pHeader = "Nettrace";
-    uint32_t bytesWritten = 0;
-    bool fSuccess = pStreamWriter->Write(pHeader, 8, bytesWritten);
-    if (fSuccess && bytesWritten == 8)
+    bool fSuccess = true;
+    if (m_format >= EventPipeSerializationFormat::NetTraceV4)
+    {
+        const char* pHeader = "Nettrace";
+        uint32_t bytesWritten = 0;
+        fSuccess = pStreamWriter->Write(pHeader, 8, bytesWritten) && bytesWritten == 8;
+    }
+    if (fSuccess)
     {
         // Create the file stream and write the FastSerialization header.
         m_pSerializer = new FastSerializer(pStreamWriter);
@@ -191,7 +197,11 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
     }
 #endif
 
-    unsigned int stackId = GetStackId(instance);
+    unsigned int stackId = 0;
+    if (m_format >= EventPipeSerializationFormat::NetTraceV4)
+    {
+        stackId = GetStackId(instance);
+    }
 
     // Check to see if we've seen this event type before.
     // If not, then write the event metadata to the event stream first.
@@ -223,6 +233,12 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
     }
     CONTRACTL_END;
 
+    if (m_format < EventPipeSerializationFormat::NetTraceV4)
+    {
+        // sequence points aren't used in NetPerf format
+        return;
+    }
+
     Flush(FlushAllBlocks);
     EventPipeSequencePointBlock sequencePointBlock(pSequencePoint);
     m_pSerializer->WriteObject(&sequencePointBlock);
@@ -249,11 +265,13 @@ void EventPipeFile::Flush(FlushFlags flags)
     // we write current blocks to the disk, whether they are full or not
     if ((m_pMetadataBlock->GetBytesWritten() != 0) && ((flags & FlushMetadataBlock) != 0))
     {
+        _ASSERTE(m_format >= EventPipeSerializationFormat::NetTraceV4);
         m_pSerializer->WriteObject(m_pMetadataBlock);
         m_pMetadataBlock->Clear();
     }
     if ((m_pStackBlock->GetBytesWritten() != 0) && ((flags & FlushStackBlock) != 0))
     {
+        _ASSERTE(m_format >= EventPipeSerializationFormat::NetTraceV4);
         m_pSerializer->WriteObject(m_pStackBlock);
         m_pStackBlock->Clear();
     }
@@ -301,9 +319,13 @@ void EventPipeFile::WriteEventToBlock(EventPipeEventInstance &instance,
     // If we are flushing events we need to flush metadata and stacks as well
     // to ensure referenced metadata/stacks were written to the file before the
     // event which referenced them.
-    FlushFlags flags = (metadataId == 0) ? FlushMetadataBlock : FlushAllBlocks;
-    EventPipeEventBlockBase* pBlock = (metadataId == 0) ? 
-        (EventPipeEventBlockBase*) m_pMetadataBlock : (EventPipeEventBlockBase*) m_pBlock;
+    FlushFlags flags = FlushAllBlocks;
+    EventPipeEventBlockBase* pBlock = m_pBlock;
+    if(metadataId == 0 && m_format >= EventPipeSerializationFormat::NetTraceV4)
+    {
+        flags = FlushMetadataBlock;
+        pBlock = m_pMetadataBlock;
+    }
 
     if (pBlock->WriteEvent(instance, captureThreadId, sequenceNumber, stackId, isSortedEvent))
         return; // the block is not full, we added the event and continue
@@ -380,6 +402,7 @@ unsigned int EventPipeFile::GetStackId(EventPipeEventInstance &instance)
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(m_format >= EventPipeSerializationFormat::NetTraceV4);
     }
     CONTRACTL_END;
 

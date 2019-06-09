@@ -26,7 +26,7 @@ enum class EventPipeSessionType
     IpcStream
 };
 
-enum EventPipeSerializationFormat
+enum class EventPipeSerializationFormat
 {
     // Default format used in .Net Core 2.0-3.0 Preview 6
     // TBD - it may remain the default format .Net Core 3.0 when 
@@ -34,13 +34,13 @@ enum EventPipeSerializationFormat
     // This format had limited official exposure in documented
     // end-user RTM scenarios, but it is supported by PerfView,
     // TraceEvent, and was used by AI profiler
-    EventPipeNetPerfFormatV3,
+    NetPerfV3,
 
     // Default format we plan to use in .Net Core 3 Preview7+
     // for most if not all scenarios
-    EventPipeNetTraceFormatV4,
+    NetTraceV4,
 
-    EventPipeFormatCount
+    Count
 };
 
 class EventPipeSession
@@ -156,7 +156,7 @@ public:
         // Hard coded 10MB for now, we'll probably want to make
         // this configurable later.
         if (GetSessionType() == EventPipeSessionType::Listener ||
-            GetSerializationFormat() == EventPipeNetPerfFormatV3)
+            GetSerializationFormat() == EventPipeSerializationFormat::NetPerfV3)
         {
             return 0;
         }

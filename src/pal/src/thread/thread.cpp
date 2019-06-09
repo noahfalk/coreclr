@@ -527,7 +527,10 @@ CreateThread(
     {
         pThread->SetLastError(palError);
     }
-    *lpThreadId = (DWORD)osThreadId;
+    if(lpThreadId != nullptr)
+    {
+        *lpThreadId = (DWORD)osThreadId;
+    }
     LOGEXIT("CreateThread returns HANDLE %p\n", hNewThread);
     PERF_EXIT(CreateThread);
 
@@ -880,9 +883,9 @@ CorUnix::InternalCreateThread(
         //
         *phThread = hNewThread;
 
-        if (NULL != lpThreadId)
+        if (NULL != pThreadId)
         {
-            *lpThreadId = pNewThread->GetThreadId();
+            *pThreadId = pNewThread->GetThreadId();
         }
     }
     else

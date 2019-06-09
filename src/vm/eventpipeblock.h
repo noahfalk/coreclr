@@ -22,7 +22,7 @@ struct EventPipeSequencePoint;
 class EventPipeBlock : public FastSerializableObject
 {
 public:
-    EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format = EventPipeNetTraceFormatV4);
+    EventPipeBlock(unsigned int maxBlockSize, EventPipeSerializationFormat format = EventPipeSerializationFormat::NetTraceV4);
     ~EventPipeBlock();
 
     virtual void Clear();
@@ -113,20 +113,34 @@ public:
 
     unsigned int GetHeaderSize() override
     {
-        return sizeof(unsigned short) + // header size
-               sizeof(unsigned short) + // flags
-               sizeof(LARGE_INTEGER)  + // min timestamp
-               sizeof(LARGE_INTEGER);   // max timestamp
+        if(m_format == EventPipeSerializationFormat::NetPerfV3)
+        {
+            return 0;
+        }
+        else
+        {
+            return sizeof(unsigned short) + // header size
+                   sizeof(unsigned short) + // flags
+                   sizeof(LARGE_INTEGER)  + // min timestamp
+                   sizeof(LARGE_INTEGER);   // max timestamp
+        }
     }
 
     void SerializeHeader(FastSerializer* pSerializer) override
     {
-        const unsigned short headerSize = GetHeaderSize();
-        pSerializer->WriteBuffer((BYTE *)&headerSize, sizeof(headerSize));
-        const unsigned short flags = m_fUseHeaderCompression ? 1 : 0;
-        pSerializer->WriteBuffer((BYTE *)&flags, sizeof(flags));
-        pSerializer->WriteBuffer((BYTE *)&m_minTimeStamp, sizeof(m_minTimeStamp));
-        pSerializer->WriteBuffer((BYTE *)&m_maxTimeStamp, sizeof(m_maxTimeStamp));
+        if(m_format == EventPipeSerializationFormat::NetPerfV3)
+        {
+            return;
+        }
+        else
+        {
+            const unsigned short headerSize = GetHeaderSize();
+            pSerializer->WriteBuffer((BYTE *)&headerSize, sizeof(headerSize));
+            const unsigned short flags = m_fUseHeaderCompression ? 1 : 0;
+            pSerializer->WriteBuffer((BYTE *)&flags, sizeof(flags));
+            pSerializer->WriteBuffer((BYTE *)&m_minTimeStamp, sizeof(m_minTimeStamp));
+            pSerializer->WriteBuffer((BYTE *)&m_maxTimeStamp, sizeof(m_maxTimeStamp));
+        }
     }
 
     // Write an event to the block.

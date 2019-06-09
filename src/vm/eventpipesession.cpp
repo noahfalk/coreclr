@@ -36,7 +36,7 @@ EventPipeSession::EventPipeSession(
         MODE_PREEMPTIVE;
         PRECONDITION(index < EventPipe::MaxNumberOfSessions);
         PRECONDITION(EventPipe::MaxNumberOfSessions == 64); // If MaxNumberOfSessions ever changed, fix the m_id calculation above
-        PRECONDITION(format < EventPipeFormatCount);
+        PRECONDITION(format < EventPipeSerializationFormat::Count);
         PRECONDITION(circularBufferSizeInMB > 0);
         PRECONDITION(numProviders > 0 && pProviders != nullptr);
         PRECONDITION(EventPipe::IsLockOwnedByCurrentThread());
@@ -315,7 +315,7 @@ bool EventPipeSession::WriteEventBuffered(
 
     // Filter events specific to "this" session based on precomputed flag on provider/events.
     return event.IsEnabled(GetId()) ?
-        m_pBufferManager->WriteEvent(pThread, *this, event, payload, pActivityId, pRelatedActivityId) :
+        m_pBufferManager->WriteEvent(pThread, *this, event, payload, pActivityId, pRelatedActivityId, pEventThread, pStack) :
         false;
 }
 
