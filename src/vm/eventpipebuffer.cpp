@@ -159,25 +159,27 @@ void EventPipeBuffer::MoveNextReadEvent()
             _ASSERT(!"Input pointer is out of range.");
             m_pCurrentReadEvent = NULL;
         }
-
-        if (m_pCurrentReadEvent->GetData())
-        {
-            // We have a pointer within the bounds of the buffer.
-            // Find the next event by skipping the current event with it's data payload immediately after the instance.
-            m_pCurrentReadEvent = (EventPipeEventInstance *)GetNextAlignedAddress(const_cast<BYTE *>(m_pCurrentReadEvent->GetData() + m_pCurrentReadEvent->GetDataLength()));
-        }
         else
         {
-            // In case we do not have a payload, the next instance is right after the current instance
-            m_pCurrentReadEvent = (EventPipeEventInstance*)GetNextAlignedAddress((BYTE*)(m_pCurrentReadEvent + 1));
-        }
-        // this may roll over and that is fine
-        m_eventSequenceNumber++;
+            if (m_pCurrentReadEvent->GetData())
+            {
+                // We have a pointer within the bounds of the buffer.
+                // Find the next event by skipping the current event with it's data payload immediately after the instance.
+                m_pCurrentReadEvent = (EventPipeEventInstance *)GetNextAlignedAddress(const_cast<BYTE *>(m_pCurrentReadEvent->GetData() + m_pCurrentReadEvent->GetDataLength()));
+            }
+            else
+            {
+                // In case we do not have a payload, the next instance is right after the current instance
+                m_pCurrentReadEvent = (EventPipeEventInstance*)GetNextAlignedAddress((BYTE*)(m_pCurrentReadEvent + 1));
+            }
+            // this may roll over and that is fine
+            m_eventSequenceNumber++;
 
-        // Check to see if we've reached the end of the written portion of the buffer.
-        if ((BYTE*)m_pCurrentReadEvent >= m_pCurrent)
-        {
-            m_pCurrentReadEvent = NULL;
+            // Check to see if we've reached the end of the written portion of the buffer.
+            if ((BYTE*)m_pCurrentReadEvent >= m_pCurrent)
+            {
+                m_pCurrentReadEvent = NULL;
+            }
         }
     }
 
@@ -212,10 +214,9 @@ unsigned int EventPipeBuffer::GetCurrentSequenceNumber()
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(m_state == READ_ONLY);
     }
     CONTRACTL_END;
-
-    _ASSERTE(m_state == READ_ONLY);
 
     return m_eventSequenceNumber;
 }

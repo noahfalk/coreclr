@@ -24,7 +24,6 @@ EventPipeSession::EventPipeSession(
     bool rundownEnabled) : m_Id((EventPipeSessionID)1 << index),
                            m_index(index),
                            m_pProviderList(new EventPipeSessionProviderList(pProviders, numProviders)),
-                           m_CircularBufferSizeInBytes(static_cast<size_t>(circularBufferSizeInMB) << 20),
                            m_rundownEnabled(rundownEnabled),
                            m_SessionType(sessionType),
                            m_format(format)
@@ -43,7 +42,16 @@ EventPipeSession::EventPipeSession(
     }
     CONTRACTL_END;
 
-    m_pBufferManager = new EventPipeBufferManager(this);
+    size_t sequencePointAllocationBudget = 0;
+    // Hard coded 10MB for now, we'll probably want to make
+    // this configurable later.
+    if (GetSessionType() != EventPipeSessionType::Listener &&
+        GetSerializationFormat() >= EventPipeSerializationFormat::NetTraceV4)
+    {
+        sequencePointAllocationBudget = 10 * 1024 * 1024;
+    }
+
+    m_pBufferManager = new EventPipeBufferManager(this, static_cast<size_t>(circularBufferSizeInMB) << 20, sequencePointAllocationBudget);
 
     // Create the event pipe file.
     // A NULL output path means that we should not write the results to a file.

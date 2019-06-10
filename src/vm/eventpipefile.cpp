@@ -230,6 +230,7 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
+        PRECONDITION(pSequencePoint != nullptr);
     }
     CONTRACTL_END;
 

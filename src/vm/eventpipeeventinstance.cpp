@@ -108,6 +108,10 @@ unsigned int EventPipeEventInstance::GetAlignedTotalSize(EventPipeSerializationF
             sizeof(m_dataLength) +          // Data payload length
             m_dataLength;                   // Event payload data
     }
+    else
+    {
+        _ASSERTE(!"Unrecognized format");
+    }
 
 
     // round up to ALIGNMENT_SIZE bytes

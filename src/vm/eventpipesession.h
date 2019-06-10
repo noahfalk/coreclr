@@ -53,9 +53,6 @@ private:
     // The set of configurations for each provider in the session.
     EventPipeSessionProviderList *const m_pProviderList;
 
-    // The configured size of the circular buffer.
-    const size_t m_CircularBufferSizeInBytes;
-
     // Session buffer manager.
     EventPipeBufferManager * m_pBufferManager;
 
@@ -135,35 +132,6 @@ public:
     {
         LIMITED_METHOD_CONTRACT;
         return m_format;
-    }
-
-    // Get the configured size of the circular buffer.
-    size_t GetCircularBufferSize() const
-    {
-        LIMITED_METHOD_CONTRACT;
-        return m_CircularBufferSizeInBytes;
-    }
-
-    // The SequencePoint allocation budget controls the amount
-    // of buffer space that is distributed to threads before
-    // creating a sequence point. This impacts the size of the
-    // cache the reader needs to store and sort the events
-    // that are emitted between consecutive sequence points.
-    size_t GetSequencePointAllocationBudget() const
-    {
-        LIMITED_METHOD_CONTRACT;
-
-        // Hard coded 10MB for now, we'll probably want to make
-        // this configurable later.
-        if (GetSessionType() == EventPipeSessionType::Listener ||
-            GetSerializationFormat() == EventPipeSerializationFormat::NetPerfV3)
-        {
-            return 0;
-        }
-        else
-        {
-            return 10 * 1024 * 1024;
-        }
     }
 
     // Determine if rundown is enabled.

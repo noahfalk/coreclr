@@ -147,7 +147,7 @@ private:
 
 public:
 
-    EventPipeBufferManager(EventPipeSession* pEventSession);
+    EventPipeBufferManager(EventPipeSession* pEventSession, size_t maxSizeOfAllBuffers, size_t sequencePointAllocationBudget);
     ~EventPipeBufferManager();
 
     // Write an event to the input thread's current event buffer.

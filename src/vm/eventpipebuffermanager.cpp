@@ -11,16 +11,17 @@
 #include "eventpipethread.h"
 #include "eventpipesession.h"
 
+
 #ifdef FEATURE_PERFTRACING
 
-#ifndef MIN
-#define MIN(a,b) ((a) < (b) ? (a) : (b))
-#endif
-#ifndef MAX
-#define MAX(a,b) ((a) > (b) ? (a) : (b))
-#endif
+template <typename T>
+T Clamp(T min, T value, T max)
+{
+    STATIC_CONTRACT_LEAF;
+    return Min(Max(min, value), max);
+}
 
-EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession)
+EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession, size_t maxSizeOfAllBuffers, size_t sequencePointAllocationBudget)
 {
     CONTRACTL
     {
@@ -49,9 +50,9 @@ EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession)
     m_pCurrentBuffer = nullptr;
     m_pCurrentBufferList = nullptr;
 
-    m_maxSizeOfAllBuffers = MIN(MAX(100 * 1024, pSession->GetCircularBufferSize()), (ULONGLONG)10 * 1024 * 1024 * 1024);
+    m_maxSizeOfAllBuffers = Clamp((size_t)100 * 1024, maxSizeOfAllBuffers, (size_t)ULONG_MAX);
 
-    if (pSession->GetSequencePointAllocationBudget() == 0)
+    if (sequencePointAllocationBudget == 0)
     {
         // sequence points disabled
         m_sequencePointAllocationBudget = 0;
@@ -59,7 +60,7 @@ EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession)
     }
     else
     {
-        m_sequencePointAllocationBudget = MIN(MAX(1024 * 1024, pSession->GetSequencePointAllocationBudget()), 1024 * 1024 * 1024);
+        m_sequencePointAllocationBudget = Clamp((size_t)1024 * 1024, sequencePointAllocationBudget, (size_t)1024 * 1024 * 1024);
         m_remainingSequencePointAllocationBudget = m_sequencePointAllocationBudget;
     }
     m_sequencePoints.Init();
@@ -158,12 +159,12 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
         // Make sure that buffer size >= request size so that the buffer size does not
         // determine the max event size.
         _ASSERTE(requestSize <= availableBufferSize);
-        bufferSize = MAX(requestSize, bufferSize);
-        bufferSize = (unsigned int) MIN(bufferSize, availableBufferSize);
+        bufferSize = Max(requestSize, bufferSize);
+        bufferSize = Min((unsigned int)bufferSize, (unsigned int)availableBufferSize);
         
         // Don't allow the buffer size to exceed 1MB.
         const unsigned int maxBufferSize = 1024 * 1024;
-        bufferSize = MIN(bufferSize, maxBufferSize);
+        bufferSize = Min(bufferSize, maxBufferSize);
 
         // EX_TRY is used here as opposed to new (nothrow) because
         // the constructor also allocates a private buffer, which
@@ -601,7 +602,7 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
         SpinLockHolder _slh(&m_lock);
         if (TryPeekSequencePoint(&pSequencePoint))
         {
-            curTimestampBoundary.QuadPart = MIN(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
+            curTimestampBoundary.QuadPart = Min(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
         }
     }
 
@@ -685,7 +686,7 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
                 curTimestampBoundary.QuadPart = stopTimeStamp.QuadPart;
                 if (TryPeekSequencePoint(&pSequencePoint))
                 {
-                    curTimestampBoundary.QuadPart = MIN(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
+                    curTimestampBoundary.QuadPart = Min(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
                 }
             }
         }
