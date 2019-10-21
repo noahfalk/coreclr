@@ -204,9 +204,10 @@ void EventPipeFile::WriteEvent(EventPipeEventInstance &instance, ULONGLONG captu
         THROWS;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION(m_pSerializer != nullptr);
     }
     CONTRACTL_END;
+
+    if (HasErrors()) return;
 
 #ifdef DEBUG
     _ASSERTE(instance.GetTimeStamp()->QuadPart >= m_lastSortedTimestamp.QuadPart);
@@ -252,7 +253,6 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
         GC_NOTRIGGER;
         MODE_ANY;
         PRECONDITION(pSequencePoint != nullptr);
-        PRECONDITION(m_pSerializer != nullptr);
     }
     CONTRACTL_END;
 
@@ -261,6 +261,8 @@ void EventPipeFile::WriteSequencePoint(EventPipeSequencePoint* pSequencePoint)
         // sequence points aren't used in NetPerf format
         return;
     }
+
+    if (HasErrors()) return;
 
     Flush(FlushAllBlocks);
     EventPipeSequencePointBlock sequencePointBlock(pSequencePoint);
@@ -283,12 +285,13 @@ void EventPipeFile::Flush(FlushFlags flags)
         NOTHROW;
         GC_NOTRIGGER;
         MODE_ANY;
-        PRECONDITION(m_pSerializer != nullptr);
         PRECONDITION(m_pMetadataBlock != nullptr);
         PRECONDITION(m_pStackBlock != nullptr);
         PRECONDITION(m_pBlock != nullptr);
     }
     CONTRACTL_END;
+
+    if (HasErrors()) return;
 
     // we write current blocks to the disk, whether they are full or not
     if (((m_pMetadataBlock->GetBytesWritten() != 0) || (m_pMetadataBlockV2->GetBytesWritten() != 0))
