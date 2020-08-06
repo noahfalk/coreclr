@@ -67,6 +67,14 @@ class EventPipeThreadSessionState
     // prior to the sequence point we can be certain the others were dropped.
     Volatile<unsigned int> m_sequenceNumber;
 
+    // Not currently read at runtime, this is for diagnostic purposes
+    // It is only written by this thread
+    LONGLONG m_eventsDropped;
+
+    // Not current read at runtime, this is for diagnostic purposes
+    // Is is only written by this thread
+    LONGLONG m_bufferBytesAllocated;
+
 public:
     EventPipeThreadSessionState(EventPipeThread* pThread, EventPipeSession* pSession DEBUG_ARG(EventPipeBufferManager* pBufferManager));
 
@@ -78,7 +86,11 @@ public:
     void SetBufferList(EventPipeBufferList *pBufferList);
     unsigned int GetVolatileSequenceNumber();
     unsigned int GetSequenceNumber();
+    LONGLONG GetEventsDropped_DiagnosticOnly();
+    LONGLONG GetBufferBytesAllocated_DiagnosticOnly();
     void IncrementSequenceNumber();
+    void IncrementEventsDropped();
+    void IncrementBufferBytesAllocated(DWORD bufferSize);
 };
 
 #ifndef __GNUC__

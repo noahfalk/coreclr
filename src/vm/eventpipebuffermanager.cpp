@@ -32,9 +32,14 @@ EventPipeBufferManager::EventPipeBufferManager(EventPipeSession* pSession, size_
     }
     CONTRACTL_END;
 
+    STRESS_LOG4(LF_EVENTPIPE, LL_INFO10, "BufferManager.ctor this=0x%p session=0x%p maxSizeOfAllBuffers=0x%zx sequencePointAllocationBudget=0x%zx\n",
+        this, pSession, maxSizeOfAllBuffers, sequencePointAllocationBudget);
     m_pSession = pSession;
     m_pThreadSessionStateList = new SList<SListElem<EventPipeThreadSessionState *>>();
     m_sizeOfAllBuffers = 0;
+    m_maxObservedSizeOfAllBuffers = 0;
+    m_hasDroppedEvents = FALSE;
+    m_bufferBytesAllocated = 0;
     m_lock.Init(LOCK_TYPE_DEFAULT);
     m_writeEventSuspending = FALSE;
     m_waitEvent.CreateAutoEvent(TRUE);
@@ -78,6 +83,8 @@ EventPipeBufferManager::~EventPipeBufferManager()
     }
     CONTRACTL_END;
 
+    STRESS_LOG1(LF_EVENTPIPE, LL_INFO10, "BufferManager.dtor this=0x%p\n", this);
+
     // setting this true should have no practical effect other than satisfying asserts at this point.
     m_writeEventSuspending = TRUE;
     DeAllocateBuffers();
@@ -104,12 +111,15 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
     }
     CONTRACTL_END;
 
+    STRESS_LOG3(LF_EVENTPIPE, LL_INFO100000, "BufferManager.AllocateBufferForThread this=0x%p pSessionState=0x%p requestSize=0x%x\n", this, pSessionState, requestSize);
+
     // Allocating a buffer requires us to take the lock.
     SpinLockHolder _slh(&m_lock);
 
     // if we are deallocating then give up, see the comments in SuspendWriteEvents() for why this is important.
     if (m_writeEventSuspending.Load())
     {
+        STRESS_LOG1(LF_EVENTPIPE, LL_WARNING, "BufferManager.AllocateBufferForThread abort - this=0x%p m_writeEventSuspending=TRUE\n", this);
         writeSuspended = TRUE;
         return NULL;
     }
@@ -122,12 +132,14 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
         pThreadBufferList = new (nothrow) EventPipeBufferList(this, pSessionState->GetThread());
         if (pThreadBufferList == NULL)
         {
+            STRESS_LOG1(LF_EVENTPIPE, LL_WARNING, "BufferManager.AllocateBufferForThread abort - BufferList allocation failed this=0x%p\n", this);
             return NULL;
         }
 
         SListElem<EventPipeThreadSessionState *> *pElem = new (nothrow) SListElem<EventPipeThreadSessionState *>(pSessionState);
         if (pElem == NULL)
         {
+            STRESS_LOG1(LF_EVENTPIPE, LL_WARNING, "BufferManager.AllocateBufferForThread abort - SListElem allocation failed this=0x%p\n", this);
             delete pThreadBufferList;
             return NULL;
         }
@@ -142,6 +154,8 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
     {
         allocateNewBuffer = true;
     }
+    STRESS_LOG4(LF_EVENTPIPE, LL_INFO100000, "BufferManager.AllocateBufferForThread this=0x%p m_maxSizeOfAllBuffers=0x%zx m_sizeOfAllBuffers=0x%zx allocateNewBuffer=0x%x\n",
+        this, m_maxSizeOfAllBuffers, m_sizeOfAllBuffers, (DWORD)allocateNewBuffer);
 
     EventPipeBuffer *pNewBuffer = NULL;
     if (allocateNewBuffer)
@@ -182,10 +196,14 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
             // The sequence counter is exclusively mutated on this thread so this is a thread-local
             // read.
             unsigned int sequenceNumber = pSessionState->GetVolatileSequenceNumber();
+            STRESS_LOG7(LF_EVENTPIPE, LL_INFO10000, "BufferManager.AllocateBufferForThread creating buffer this=0x%p bufferSize=0x%x sequenceNumber=0x%x "
+                "m_sizeOfAllBuffers=0x%zx m_maxObservedSizeOfAllBuffers=0x%zx m_bufferBytesAllocated=0x%llx m_hasDroppedEvents=0x%d\n",
+                this, bufferSize, sequenceNumber, m_sizeOfAllBuffers, m_maxObservedSizeOfAllBuffers, m_bufferBytesAllocated, (DWORD)m_hasDroppedEvents);
             pNewBuffer = new EventPipeBuffer(bufferSize, pSessionState->GetThread(), sequenceNumber);
         }
         EX_CATCH
         {
+            STRESS_LOG0(LF_EVENTPIPE, LL_WARNING, "BufferManager.AllocateBufferForThread abort buffer allocation failed\n");
             pNewBuffer = NULL;
         }
         EX_END_CATCH(SwallowAllExceptions);
@@ -195,13 +213,19 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
             return NULL;
         }
 
+        pSessionState->IncrementBufferBytesAllocated(bufferSize);
+        m_bufferBytesAllocated += bufferSize;
         m_sizeOfAllBuffers += bufferSize;
+        m_maxObservedSizeOfAllBuffers = Max(m_maxObservedSizeOfAllBuffers, m_sizeOfAllBuffers);
         if (m_sequencePointAllocationBudget != 0)
         {
             // sequence point bookkeeping
             if (bufferSize >= m_remainingSequencePointAllocationBudget)
             {
                 EventPipeSequencePoint* pSequencePoint = new (nothrow) EventPipeSequencePoint();
+                STRESS_LOG5(LF_EVENTPIPE, LL_INFO1000, "BufferManager.AllocateBufferForThread allocating sequence point "
+                    "this=0x%p m_sizeOfAllBuffers=0x%zx pSequencePoint=0x%p m_bufferBytesAllocated=0x%llx m_hasDroppedEvents=0x%d\n",
+                    this, m_sizeOfAllBuffers, pSequencePoint, m_bufferBytesAllocated, (DWORD)m_hasDroppedEvents);
                 if (pSequencePoint != NULL)
                 {
                     InitSequencePointThreadListHaveLock(pSequencePoint);
@@ -219,6 +243,9 @@ EventPipeBuffer* EventPipeBufferManager::AllocateBufferForThread(EventPipeThread
 #endif // _DEBUG
     }
 
+    STRESS_LOG2(LF_EVENTPIPE, LL_INFO100000, "BufferManager.AllocateBufferForThread returning buffer "
+        "this=0x%p pNewBuffer=0x%p\n",
+        this, pNewBuffer);
     // Set the buffer on the thread.
     if (pNewBuffer != NULL)
     {
@@ -285,6 +312,9 @@ void EventPipeBufferManager::InitSequencePointThreadListHaveLock(EventPipeSequen
         unsigned int sequenceNumber = pSessionState->GetVolatileSequenceNumber() - 1;
         EX_TRY
         {
+            STRESS_LOG5(LF_EVENTPIPE, LL_INFO1000, "BufferManager.InitSequencePoint "
+            "this=0x%p pSessionState=0x%zx sequenceNumber=0x%x bufferBytesAllocated=0x%llx droppedEvents=0x%llx\n",
+                this, pSessionState, sequenceNumber, pSessionState->GetBufferBytesAllocated_DiagnosticOnly(), pSessionState->GetEventsDropped_DiagnosticOnly());
             pSequencePoint->ThreadSequenceNumbers.Add(pSessionState, sequenceNumber);
             pSessionState->GetThread()->AddRef();
         }
@@ -344,6 +374,8 @@ void EventPipeBufferManager::DeAllocateBuffer(EventPipeBuffer *pBuffer)
     if (pBuffer != NULL)
     {
         m_sizeOfAllBuffers -= pBuffer->GetSize();
+        STRESS_LOG4(LF_EVENTPIPE, LL_INFO10000, "BufferManager.DeAllocateBuffer this=0x%p pBuffer=0x%zx pBuffer->GetSize()=0x%x m_sizeOfAllBuffers=0x%zx\n",
+            this, pBuffer, pBuffer->GetSize(), m_sizeOfAllBuffers);
         delete (pBuffer);
 #ifdef _DEBUG
         m_numBuffersAllocated--;
@@ -453,6 +485,10 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
             // do a broader refactoring to take it out. If it shows up as a perf
             // problem then we should.
             SpinLockHolder _slh(pEventPipeThread->GetLock());
+            STRESS_LOG2(LF_EVENTPIPE, LL_INFO100000, "BufferManager.WriteEvent event dropped this=0x%p sequenceNumber=0x%x\n",
+                this, pSessionState->GetVolatileSequenceNumber());
+            m_hasDroppedEvents = TRUE;
+            pSessionState->IncrementEventsDropped();
             pSessionState->IncrementSequenceNumber();
         }
         else
@@ -481,6 +517,10 @@ bool EventPipeBufferManager::WriteEvent(Thread *pThread, EventPipeSession &sessi
                     // This is the second time if this thread did have one or more buffers, but they were full.
                     allocNewBuffer = !pBuffer->WriteEvent(pEventThread, session, event, payload, pActivityId, pRelatedActivityId, pStack);
                     _ASSERTE(!allocNewBuffer);
+                    STRESS_LOG5(LF_EVENTPIPE, LL_INFO10000, "BufferManager.WriteEvent buffer alloc case "
+                        "this=0x%p sequenceNumber=0x%x providerName=%S eventId=0x%x requestSize=0x%x\n",
+                        this, pSessionState->GetVolatileSequenceNumber(), event.GetProvider()->GetProviderName().GetUnicode(),
+                        event.GetEventID(), requestSize);
                     pSessionState->IncrementSequenceNumber();
                 }
             }
@@ -518,6 +558,9 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     }
     CONTRACTL_END;
 
+    STRESS_LOG3(LF_EVENTPIPE, LL_INFO100, "BufferManager.WriteAllBuffersToFile this=0x%p m_sizeOfAllBuffers=0x%zx stopTimeStamp=0x%llx\n",
+        this, m_sizeOfAllBuffers, stopTimeStamp.QuadPart);
+
     // The V4 format doesn't require full event sorting as V3 did
     // See the comments in WriteAllBufferToFileV4 for more details
     if (pFile->GetSerializationFormat() >= EventPipeSerializationFormat::NetTraceV4)
@@ -528,6 +571,9 @@ void EventPipeBufferManager::WriteAllBuffersToFile(EventPipeFile *pFile, LARGE_I
     {
         WriteAllBuffersToFileV3(pFile, stopTimeStamp, eventsWritten);
     }
+
+    STRESS_LOG3(LF_EVENTPIPE, LL_INFO100, "BufferManager.WriteAllBuffersToFile exit this=0x%p m_sizeOfAllBuffers=0x%zx stopTimeStamp=0x%llx\n",
+        this, m_sizeOfAllBuffers, stopTimeStamp.QuadPart);
 }
 
 void EventPipeBufferManager::WriteAllBuffersToFileV3(EventPipeFile *pFile, LARGE_INTEGER stopTimeStamp, bool *pEventsWritten)
@@ -628,6 +674,9 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
         if (TryPeekSequencePoint(&pSequencePoint))
         {
             curTimestampBoundary.QuadPart = Min(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
+            STRESS_LOG2(LF_EVENTPIPE, LL_INFO1000, "BufferManager.WriteAllBuffersToFile seq point timestamp "
+                "this=0x%p curTimestampBoundary=0x%llx\n",
+                this, curTimestampBoundary.QuadPart);
         }
     }
 
@@ -658,6 +707,9 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
                 eventsWritten = true;
                 MoveNextEventSameThread(curTimestampBoundary);
             }
+            STRESS_LOG4(LF_EVENTPIPE, LL_INFO10000, "BufferManager.WriteAllBuffersToFile wrote thread batch "
+                "this=0x%p pBufferList=0x%p captureThreadId=0x%llx sequenceNumber=0x%x\n",
+                this, pBufferList, captureThreadId, sequenceNumber);
             pBufferList->SetLastReadSequenceNumber(sequenceNumber);
             // Have we written events in any sequence point?
             *pEventsWritten = eventsWritten || *pEventsWritten;
@@ -689,6 +741,9 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
                     unsigned int threadSequenceNumber = 0;
                     pSequencePoint->ThreadSequenceNumbers.Lookup(pSessionState, &threadSequenceNumber);
                     unsigned int lastReadSequenceNumber = pSessionState->GetBufferList()->GetLastReadSequenceNumber();
+                    STRESS_LOG5(LF_EVENTPIPE, LL_INFO1000, "BufferManager.WriteAllBuffersToFile sequence point "
+                        "this=0x%p pSequencePoint=0x%p pSessionState=0x%p threadSequenceNumber=0x%x lastReadSequenceNumber=0x%x\n",
+                        this, pSequencePoint, pSessionState, threadSequenceNumber, lastReadSequenceNumber);
                     // Sequence numbers can overflow so we can't use a direct lastRead > sequenceNumber comparison
                     // If a thread is able to drop more than 0x80000000 events in between sequence points then we will
                     // miscategorize it, but that seems unlikely.
@@ -715,6 +770,9 @@ void EventPipeBufferManager::WriteAllBuffersToFileV4(EventPipeFile *pFile, LARGE
                 {
                     curTimestampBoundary.QuadPart = Min(curTimestampBoundary.QuadPart, pSequencePoint->TimeStamp.QuadPart);
                 }
+                STRESS_LOG2(LF_EVENTPIPE, LL_INFO1000, "BufferManager.WriteAllBuffersToFile next timestamp "
+                    "this=0x%p curTimestampBoundary=0x%llx\n",
+                    this, curTimestampBoundary.QuadPart);
             }
         }
     }
@@ -1002,6 +1060,10 @@ void EventPipeBufferManager::SuspendWriteEvent(uint32_t sessionIndex)
         PRECONDITION(EventPipe::IsLockOwnedByCurrentThread());
     }
     CONTRACTL_END;
+
+    STRESS_LOG2(LF_EVENTPIPE, LL_INFO100, "BufferManager.SuspendWriteEvent "
+        "this=0x%p sessionIndex=0x%x\n",
+        this, sessionIndex);
 
     CQuickArrayList<EventPipeThread *> threadList;
     {

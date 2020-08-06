@@ -263,6 +263,10 @@ void EventPipeFile::Flush(FlushFlags flags)
         MODE_ANY;
     }
     CONTRACTL_END;
+
+    STRESS_LOG5(LF_EVENTPIPE, LL_INFO10000, "File.Flush this=0x%p flags=0x%x metadataBytes=0x%x stackBytes=0x%x eventBytes=0x%x\n",
+        this, (DWORD)flags, m_pMetadataBlock->GetBytesWritten(), m_pStackBlock->GetBytesWritten(), m_pBlock->GetBytesWritten());
+
     // we write current blocks to the disk, whether they are full or not
     if ((m_pMetadataBlock->GetBytesWritten() != 0) && ((flags & FlushMetadataBlock) != 0))
     {
@@ -281,6 +285,9 @@ void EventPipeFile::Flush(FlushFlags flags)
         m_pSerializer->WriteObject(m_pBlock);
         m_pBlock->Clear();
     }
+
+    STRESS_LOG2(LF_EVENTPIPE, LL_INFO10000, "File.Flush exit this=0x%p flags=0x%x\n",
+        this, (DWORD)flags);
 }
 
 void EventPipeFile::WriteEnd()

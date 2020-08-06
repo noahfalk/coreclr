@@ -43,6 +43,17 @@ private:
     // The total allocation size of buffers under management.
     size_t m_sizeOfAllBuffers;
 
+    // The highest level the buffer has ever filled to
+    // Has no use at runtime, used for diagnostics
+    size_t m_maxObservedSizeOfAllBuffers;
+
+    // TRUE if this buffer has ever dropped an event
+    // Has no use at runtime, used for diagnostics
+    BOOL m_hasDroppedEvents;
+
+    // The total size of all buffers ever allocated
+    LONGLONG m_bufferBytesAllocated;
+
     // The maximum allowable size of buffers under management.
     // Attempted allocations above this threshold result in
     // dropped events.

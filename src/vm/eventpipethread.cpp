@@ -17,7 +17,9 @@ EventPipeThreadSessionState::EventPipeThreadSessionState(EventPipeThread* pThrea
 #ifdef DEBUG
     m_pBufferManager(pBufferManager),
 #endif
-    m_sequenceNumber(1)
+    m_sequenceNumber(1),
+    m_eventsDropped(0),
+    m_bufferBytesAllocated(0)
 {
 }
 
@@ -81,6 +83,20 @@ unsigned int EventPipeThreadSessionState::GetSequenceNumber()
     return m_sequenceNumber.LoadWithoutBarrier();
 }
 
+LONGLONG EventPipeThreadSessionState::GetEventsDropped_DiagnosticOnly()
+{
+    LIMITED_METHOD_CONTRACT;
+    // This is an unsynchronized cross-thread read, for diagnostics that is OK
+    return m_eventsDropped;
+}
+
+LONGLONG EventPipeThreadSessionState::GetBufferBytesAllocated_DiagnosticOnly()
+{
+    LIMITED_METHOD_CONTRACT;
+    // This is an unsynchronized cross-thread read, for diagnostics that is OK
+    return m_bufferBytesAllocated;
+}
+
 void EventPipeThreadSessionState::IncrementSequenceNumber()
 {
     LIMITED_METHOD_CONTRACT;
@@ -88,7 +104,17 @@ void EventPipeThreadSessionState::IncrementSequenceNumber()
     m_sequenceNumber++;
 }
 
+void EventPipeThreadSessionState::IncrementEventsDropped()
+{
+    LIMITED_METHOD_CONTRACT;
+    m_eventsDropped++;
+}
 
+void EventPipeThreadSessionState::IncrementBufferBytesAllocated(DWORD bufferSize)
+{
+    LIMITED_METHOD_CONTRACT;
+    m_bufferBytesAllocated += bufferSize;
+}
 
 void ReleaseEventPipeThreadRef(EventPipeThread *pThread)
 {
